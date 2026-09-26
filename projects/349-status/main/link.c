@@ -102,7 +102,12 @@ esp_err_t link_send_json(const char *json)
     if (len < 0 || len >= (int)sizeof(s_tx_line)) {
         err = ESP_ERR_INVALID_SIZE;
     } else {
+        /* ESP_LOG v1 emits a whole line through stdout's stdio lock. The
+         * framed writer bypasses stdio, so join that lock before writing to
+         * the same USB queue; otherwise a frame can split a console line. */
+        flockfile(stdout);
         int written = usb_serial_jtag_write_bytes(s_tx_line, len, pdMS_TO_TICKS(100));
+        funlockfile(stdout);
         if (written != len) {
             err = ESP_ERR_TIMEOUT;
         }

@@ -94,6 +94,11 @@ class Link:
         """Yield complete lines received within `timeout` seconds."""
         deadline = time.monotonic() + timeout
         while True:
+            while (idx := self._buf.find(b"\n")) >= 0:
+                raw = bytes(self._buf[:idx])
+                del self._buf[: idx + 1]
+                yield raw.decode("utf-8", "replace").rstrip("\r")
+
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 return
@@ -102,10 +107,6 @@ class Link:
             if not chunk:
                 continue
             self._buf.extend(chunk)
-            while (idx := self._buf.find(b"\n")) >= 0:
-                raw = bytes(self._buf[:idx])
-                del self._buf[: idx + 1]
-                yield raw.decode("utf-8", "replace").rstrip("\r")
 
 
 __all__ = [

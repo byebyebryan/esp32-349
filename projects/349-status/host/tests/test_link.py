@@ -1,3 +1,4 @@
+from status349.link import Link
 from status349.proto import classify, encode
 
 
@@ -19,3 +20,27 @@ def test_classify_malformed_json():
 
 def test_classify_non_object():
     assert classify("@349 [1,2]") == (True, None)
+
+
+def test_link_lines_drains_buffered_line_before_reading_again():
+    class FakePort:
+        def __init__(self):
+            self.timeout = None
+            self.reads = 0
+            self.chunks = [b"first\r\nsecond\n"]
+
+        def read(self, _size):
+            self.reads += 1
+            return self.chunks.pop(0) if self.chunks else b""
+
+    port = FakePort()
+    link = Link(port)
+
+    first = link.lines(timeout=0.2)
+    assert next(first) == "first"
+    first.close()
+
+    second = link.lines(timeout=0.2)
+    assert next(second) == "second"
+    second.close()
+    assert port.reads == 1
