@@ -21,6 +21,12 @@ notification mode, WiFi, audio, battery tuning, now-playing/media controls
 (M4 dropped), and bespoke per-content widgets (the status area is generic
 zones).
 
+The v1 exclusions above describe the implemented active-notification product.
+The [grouped UI direction](design/grouped-ui-plan.md), reviewed on 2026-09-26,
+proposes a subsequent goal with horizontal Home/Notifications groups, vertical
+card browsing, and bounded retention after presentation timeout. It is design
+work; the current host still removes board cards on expiry.
+
 ## Current validation boundary (2026-09-25)
 
 The hardware findings below describe the 2026-09-23 builds. The fresh
@@ -46,6 +52,21 @@ The new card text sizes are 20/22 px with the same complete glyph repertoire.
 The subsequent renderer cleanup restores full PSRAM DIRECT rendering and keeps
 synchronous drawing. Build, native checks, Starship readback, and the cleaned
 image's short visual/swipe check pass; exact scope is in `ACCEPTANCE.md`.
+
+### Next direction — grouped UI (2026-09-26, proposed)
+
+Keep the quarter-width telemetry rail. Make clock/date a Home group and move
+notifications into a vertically browsable group. Presentation expiry returns
+an automatic visit to Home while keeping the card available in a bounded
+recent collection. Manual browsing and two-axis gesture ownership need explicit
+rules; retention also changes host lifecycle and capability-gated sync semantics.
+
+The [design review and checkpoint plan](design/grouped-ui-plan.md) proposes
+Home plus Notifications and up to 32 retained records for the first goal:
+interaction preview, host lifecycle/wire contract, firmware/native UI, then
+Starship short physical checks. Additional groups, body-text scrolling, and
+disk history follow separately. No implementation or new hardware acceptance
+is implied by this roadmap entry.
 
 The acceptance run must record which host process and device firmware build
 were used. The device `hello.build` and `hello.build_sha` report its app

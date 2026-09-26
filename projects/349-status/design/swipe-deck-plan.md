@@ -256,3 +256,12 @@ for reading position on replacement. The wire body currently has a fixed byte
 limit: scrolling would reveal only text already cached, not recover text the
 host has clipped. Any larger text budget needs a separate protocol/memory
 review. Horizontal navigation can be accepted independently first.
+
+## Proposed next direction — 2026-09-26
+
+The [grouped UI design review](grouped-ui-plan.md) proposes horizontal movement
+between Home and Notifications, with vertical movement between whole retained
+notification cards. Presentation timeout would return to Home without deleting
+the card. That proposal changes host lifetime and navigation semantics; it is
+not implemented by this accepted swipe deck. Vertical whole-card browsing is
+distinct from the optional body-text scrolling described above.

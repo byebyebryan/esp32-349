@@ -1,5 +1,12 @@
 # 349-status UI redesign — working proposal
 
+Historical brief for the side-peek UI implemented in
+[ui-deck-plan.md](ui-deck-plan.md) and refined in
+[swipe-deck-plan.md](swipe-deck-plan.md). The subsequent
+[grouped UI direction](grouped-ui-plan.md) is a separate 2026-09-26 proposal;
+the prototype and active-card lifetime descriptions below describe this
+earlier design stage.
+
 The 640 × 172 display is an ambient host companion. Its first job is to make
 current notification text readable at a glance; its second is to show a small
 set of useful host facts. The current 46 px bar and 46 px cards are a working

@@ -162,6 +162,12 @@ was reverted: faster conversion was largely offset by slower drawing, while
 using scarce internal RAM. Basic debug timing reports frame period and
 transfer time; the health log includes heap and LVGL stack headroom.
 
+The [proposed next UI](design/grouped-ui-plan.md) keeps the rail and introduces
+horizontal Home/Notifications groups with vertical notification-card browsing.
+It separates temporary presentation from bounded retention: timeout returns
+to Home, and the card remains browsable. This is a design proposal; the current
+expiry and horizontal card-navigation behavior above remain implemented.
+
 The daemon sends a ping every four seconds even when the bar does not change.
 While the board stays powered, it shows `host asleep` when USB activity stops
 and `host disconnected` when USB is active but host messages stop for ten
