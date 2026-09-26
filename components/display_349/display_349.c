@@ -6,7 +6,7 @@
  * The AXS15231B QSPI path does not support hardware rotation (Waveshare's own
  * config notes "software rotation"), so the 640x172 landscape view comes from
  * LVGL's 90-degree display rotation. The flush callback fuses the transpose,
- * the RGB565 byte swap and the chunk copy into a single cache-friendly pass:
+ * RGB565 byte swap and chunk copy into a single cache-friendly pass:
  * LVGL's generic rotate fallback is a scalar transpose with strided reads and
  * dominated the frame time (~64ms of a ~90ms frame).
  *
@@ -20,6 +20,7 @@
 #include <stdint.h>
 
 #include "board_349.h"
+#include "shadow_349.h"
 #include "esp_async_memcpy.h"
 #include "esp_check.h"
 #include "esp_lcd_axs15231b.h"
@@ -109,25 +110,6 @@ static void wait_for_dma(SemaphoreHandle_t done, const char *operation)
  * then a plain copy of the shadow - the panel still requires complete frames,
  * but there is no per-frame transpose.
  */
-static void shadow_update(const lv_area_t *area, const uint16_t *src)
-{
-    /* UI (landscape 640x172) -> native (172x640):
-     *   native_x = ui_y,  native_y = 639 - ui_x */
-    const int nx1 = area->y1;
-    const int nx2 = area->y2;
-    const int ny1 = (BOARD_349_UI_W - 1) - area->x2;
-    const int ny2 = (BOARD_349_UI_W - 1) - area->x1;
-
-    for (int ny = ny1; ny <= ny2; ny++) {
-        const int u = (BOARD_349_UI_W - 1) - ny;
-        uint16_t *dst = s_shadow + (size_t)ny * BOARD_349_NATIVE_W;
-        for (int v = nx1; v <= nx2; v++) {
-            const uint16_t px = src[(size_t)v * BOARD_349_UI_W + u];
-            dst[v] = (uint16_t)((px >> 8) | (px << 8));
-        }
-    }
-}
-
 /*
  * Full shadow rebuild with 32-bit loads: one word covers two horizontally
  * adjacent UI pixels, which land in two consecutive native rows. Used for large
@@ -187,11 +169,16 @@ static void lvgl_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *co
     esp_lcd_panel_handle_t panel = (esp_lcd_panel_handle_t)lv_display_get_user_data(disp);
     const uint16_t *src = (const uint16_t *)color_p;
 
-    const int area_px = (area->x2 - area->x1 + 1) * (area->y2 - area->y1 + 1);
+    const int width = lv_area_get_width(area);
+    const int height = lv_area_get_height(area);
+    const int area_px = width * height;
     if (area_px > SHADOW_REBUILD_MAX_PIXELS) {
         shadow_rebuild(src);
     } else {
-        shadow_update(area, src);
+        /* DIRECT mode gives the flush callback the complete framebuffer. */
+        const uint16_t *area_src = src + (size_t)area->y1 * BOARD_349_UI_W + area->x1;
+        shadow_349_update(s_shadow, area_src, BOARD_349_UI_W, BOARD_349_UI_H,
+                          area->x1, area->y1, width, height, BOARD_349_UI_W);
     }
 
     /*
