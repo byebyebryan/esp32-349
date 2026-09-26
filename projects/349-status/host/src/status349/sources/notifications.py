@@ -44,6 +44,10 @@ MONITOR_RULES = [
 # One message per interval keeps a notification burst from overflowing the
 # device's 4 KB RX ring.
 NOTIFY_RATE_PER_S = 20.0
+NOTIFY_OUTBOX_LIMIT = 32
+ASSOCIATION_LIMIT = 32
+PENDING_REPLY_LIMIT = 64
+MONITOR_QUEUE_LIMIT = 256
 
 
 def is_ignored(app: str, ignore_apps: list[str]) -> bool:
@@ -92,14 +96,25 @@ class NotificationSource:
         cfg: NotificationsConfig,
         on_notify: Callable[[dict], Awaitable[None]],
         on_close: Callable[[int], Awaitable[None]],
+        *,
+        on_active_expire: Callable[[int], Awaitable[None]] | None = None,
+        on_expire: Callable[[int], Awaitable[None]] | None = None,
+        on_monitor_reset: Callable[[list[int]], Awaitable[None]] | None = None,
+        grouped_mode: Callable[[], bool] | None = None,
+        allocate_local_id: Callable[[], int] | None = None,
     ):
         self.cfg = cfg
         self._on_notify = on_notify
         self._on_close = on_close
+        self._on_active_expire = on_active_expire or self._noop_expire
+        self._on_expire = on_expire or self._noop_expire
+        self._on_monitor_reset = on_monitor_reset or self._noop_monitor_reset
+        self._grouped_mode = grouped_mode or (lambda: False)
+        self._allocate_local_id = allocate_local_id
 
         self._monitor: MessageBus | None = None
         self._control: MessageBus | None = None
-        self._messages: asyncio.Queue[Message] = asyncio.Queue()
+        self._messages: asyncio.Queue[Message] = asyncio.Queue(maxsize=MONITOR_QUEUE_LIMIT)
         self._outbox: dict[int, dict] = {}
         self._outbox_ready = asyncio.Event()
         self._monitor_task: asyncio.Task | None = None
@@ -110,10 +125,22 @@ class NotificationSource:
         self._by_serial: dict[tuple[str, int], tuple[int, int]] = {}
         self._daemon_to_local: dict[int, int] = {}
         self._local_to_daemon: dict[int, int | None] = {}
+        self._action_daemon_id: dict[int, int] = {}
         self._mirrored_local_ids: set[int] = set()
         self._expiry_deadlines: dict[int, float] = {}
+        self._locally_removed: dict[int, None] = {}
+        self._attention_expired: dict[int, None] = {}
+        self._forgotten_local_ids: dict[int, None] = {}
         self.failed = asyncio.Event()
         self.failure: BaseException | None = None
+
+    @staticmethod
+    async def _noop_expire(_local_id: int) -> None:
+        return None
+
+    @staticmethod
+    async def _noop_monitor_reset(_local_ids: list[int]) -> None:
+        return None
 
     def _watch_task(self, task: asyncio.Task) -> asyncio.Task:
         def on_done(done: asyncio.Task) -> None:
@@ -154,15 +181,26 @@ class NotificationSource:
         await self._teardown()
 
     async def _close_mirrored_notifications(self) -> None:
-        for local_id in tuple(self._mirrored_local_ids):
+        local_ids = tuple(self._mirrored_local_ids)
+        for local_id in local_ids:
             self._forget_local(local_id)
-            await self._on_close(local_id)
+        if self._grouped_mode():
+            await self._on_monitor_reset(list(local_ids))
+        else:
+            for local_id in local_ids:
+                await self._on_close(local_id)
 
     def _forget_local(self, local_id: int) -> None:
         self._mirrored_local_ids.discard(local_id)
+        self._locally_removed.pop(local_id, None)
+        self._attention_expired.pop(local_id, None)
+        self._forgotten_local_ids[local_id] = None
+        while len(self._forgotten_local_ids) > ASSOCIATION_LIMIT:
+            self._forgotten_local_ids.pop(next(iter(self._forgotten_local_ids)))
         self._expiry_deadlines.pop(local_id, None)
         self._outbox.pop(local_id, None)
         self._local_to_daemon.pop(local_id, None)
+        self._action_daemon_id.pop(local_id, None)
         for daemon_id, mapped_id in tuple(self._daemon_to_local.items()):
             if mapped_id == local_id:
                 self._daemon_to_local.pop(daemon_id, None)
@@ -170,19 +208,70 @@ class NotificationSource:
             if pending_id == local_id:
                 self._by_serial.pop(key, None)
 
+    def forget(self, local_id: int) -> None:
+        """Release all bounded source metadata for an evicted/removed record."""
+        self._forget_local(int(local_id))
+
+    def hide_locally(self, local_id: int) -> None:
+        """Suppress queued delivery while preserving a live desktop association."""
+        local_id = int(local_id)
+        self._outbox.pop(local_id, None)
+        if local_id in self._mirrored_local_ids:
+            self._locally_removed[local_id] = None
+            while len(self._locally_removed) > ASSOCIATION_LIMIT:
+                self._locally_removed.pop(next(iter(self._locally_removed)))
+
+    def is_locally_removed(self, local_id: int) -> bool:
+        return int(local_id) in self._locally_removed
+
+    def attention_expired(self, local_id: int) -> bool:
+        return int(local_id) in self._attention_expired
+
+    def is_forgotten(self, local_id: int) -> bool:
+        return int(local_id) in self._forgotten_local_ids
+
+    def _mark_attention_expired(self, local_id: int) -> None:
+        self._attention_expired[local_id] = None
+        while len(self._attention_expired) > ASSOCIATION_LIMIT:
+            self._attention_expired.pop(next(iter(self._attention_expired)))
+
+    def _trim_associations(self) -> list[int]:
+        trimmed: list[int] = []
+        if not self._grouped_mode():
+            return trimmed
+        while len(self._local_to_daemon) > ASSOCIATION_LIMIT:
+            oldest = next(iter(self._local_to_daemon))
+            self._forget_local(oldest)
+            trimmed.append(oldest)
+        return trimmed
+
+    def enforce_grouped_bounds(self) -> list[int]:
+        """Drop pre-negotiation desktop associations beyond the grouped bound."""
+        return self._trim_associations()
+
+    def _trim_pending_replies(self) -> None:
+        while len(self._by_serial) > PENDING_REPLY_LIMIT:
+            self._by_serial.pop(next(iter(self._by_serial)))
+
     async def _expire_due(self) -> None:
         now = time.monotonic()
         for local_id, deadline in tuple(self._expiry_deadlines.items()):
             if deadline <= now and self._expiry_deadlines.get(local_id) == deadline:
-                self._forget_local(local_id)
-                await self._on_close(local_id)
+                self._expiry_deadlines.pop(local_id, None)
+                if self._grouped_mode():
+                    self._mark_attention_expired(local_id)
+                    await self._on_active_expire(local_id)
+                else:
+                    self._outbox.pop(local_id, None)
+                    self._forget_local(local_id)
+                    await self._on_close(local_id)
 
     async def dismiss(self, local_id: int) -> None:
-        daemon_id = self._local_to_daemon.get(local_id)
+        daemon_id = self._action_daemon_id.get(local_id)
         if self.cfg.device_dismiss != "propagate":
             log.debug("dismiss %d is local-only", local_id)
             return
-        if daemon_id is None or self._control is None:
+        if daemon_id is None or self._control is None or self._daemon_to_local.get(daemon_id) != local_id:
             log.debug("dismiss %d has no daemon id to propagate", local_id)
             return
         try:
@@ -249,6 +338,7 @@ class NotificationSource:
         self._by_serial.clear()
         self._daemon_to_local.clear()
         self._local_to_daemon.clear()
+        self._action_daemon_id.clear()
         self._outbox.clear()
         self._outbox_ready.clear()
         self._expiry_deadlines.clear()
@@ -270,7 +360,13 @@ class NotificationSource:
                 os.close(fd)
             except OSError:
                 pass
-        self._messages.put_nowait(message)
+        try:
+            self._messages.put_nowait(message)
+        except asyncio.QueueFull:
+            log.error("notification monitor queue overflow; resetting monitor correlation")
+            self._discard_messages()
+            if self._monitor is not None:
+                self._monitor.disconnect()
         return True
 
     async def _process_loop(self) -> None:
@@ -303,18 +399,37 @@ class NotificationSource:
             if pending is None:
                 return
             local_id, requested_id = pending
+            if local_id not in self._local_to_daemon:
+                return
             if message.message_type == MessageType.ERROR:
-                if requested_id and self._daemon_to_local.get(requested_id) == local_id:
+                # A failed replacement must not invalidate the still-live
+                # desktop notification it tried to update. Remove only a
+                # provisional association for a record without a confirmed ID.
+                if (
+                    requested_id
+                    and self._local_to_daemon.get(local_id) is None
+                    and self._daemon_to_local.get(requested_id) == local_id
+                ):
                     self._daemon_to_local.pop(requested_id, None)
-                if self._local_to_daemon.get(local_id) == requested_id:
                     self._local_to_daemon[local_id] = None
                 return
             daemon_id = int(message.body[0]) if message.body and isinstance(message.body[0], int) else None
             if daemon_id is not None:
+                if requested_id and self._daemon_to_local.get(requested_id) not in {None, local_id}:
+                    return
                 if requested_id and requested_id != daemon_id and self._daemon_to_local.get(requested_id) == local_id:
                     self._daemon_to_local.pop(requested_id, None)
+                previous_local = self._daemon_to_local.get(daemon_id)
+                if previous_local is not None and previous_local != local_id:
+                    # A daemon ID can be reused after a desktop close. Its new
+                    # Notify reply transfers correlation and action ownership.
+                    self._forget_local(previous_local)
                 self._daemon_to_local[daemon_id] = local_id
+                previous_id = self._local_to_daemon.get(local_id)
+                if previous_id is not None and previous_id != daemon_id:
+                    self._action_daemon_id.pop(local_id, None)
                 self._local_to_daemon[local_id] = daemon_id
+                self._action_daemon_id[local_id] = daemon_id
             elif requested_id and self._daemon_to_local.get(requested_id) == local_id:
                 self._daemon_to_local.pop(requested_id, None)
                 self._local_to_daemon[local_id] = None
@@ -325,11 +440,20 @@ class NotificationSource:
         ):
             parsed = parse_closed_body(message.body)
             if parsed is not None:
-                daemon_id, _reason = parsed
+                daemon_id, reason = parsed
                 local_id = self._daemon_to_local.get(daemon_id)
                 if local_id is not None:
-                    self._forget_local(local_id)
-                    await self._on_close(local_id)
+                    self._expiry_deadlines.pop(local_id, None)
+                    if self._grouped_mode() and reason == 1:
+                        self._mark_attention_expired(local_id)
+                        # Reason 1 reports that this desktop notification is
+                        # closed; keep replacement correlation but no longer
+                        # allow CloseNotification against its ID.
+                        self._action_daemon_id.pop(local_id, None)
+                        await self._on_expire(local_id)
+                    else:
+                        self._forget_local(local_id)
+                        await self._on_close(local_id)
 
     async def _handle_notify(self, message: Message) -> None:
         if self.cfg.mode != "mirror":
@@ -344,8 +468,11 @@ class NotificationSource:
         replaces = parsed.pop("replaces")
         local_id = self._daemon_to_local.get(replaces) if replaces else None
         if local_id is None:
-            local_id = self._next_id
-            self._next_id += 1
+            if self._allocate_local_id is None:
+                local_id = self._next_id
+                self._next_id += 1
+            else:
+                local_id = self._allocate_local_id()
             self._local_to_daemon[local_id] = None
             if replaces:
                 # Keep a provisional association until Notify returns. Some
@@ -353,10 +480,16 @@ class NotificationSource:
                 # replaces_id, and that returned ID is authoritative.
                 self._daemon_to_local[replaces] = local_id
         self._mirrored_local_ids.add(local_id)
+        self._locally_removed.pop(local_id, None)
+        self._attention_expired.pop(local_id, None)
+        self._forgotten_local_ids.pop(local_id, None)
 
         if message.serial and message.sender:
             self._by_serial[(message.sender, message.serial)] = (local_id, replaces)
+            self._trim_pending_replies()
 
+        # This deadline expires the legacy active projection. Grouped attention
+        # has a separate coalesced presentation lease in the daemon.
         timeout_ms = effective_popup_timeout_ms(parsed["expire"], parsed["urgency"], self.cfg)
         if timeout_ms > 0:
             self._expiry_deadlines[local_id] = time.monotonic() + timeout_ms / 1000.0
@@ -375,6 +508,10 @@ class NotificationSource:
             parsed["expire"],
             int(time.time()),
         )
+        while len(self._outbox) > NOTIFY_OUTBOX_LIMIT:
+            self._outbox.pop(next(iter(self._outbox)))
+        for trimmed_id in self._trim_associations():
+            await self._on_active_expire(trimmed_id)
         self._outbox_ready.set()
 
     async def _send_loop(self) -> None:

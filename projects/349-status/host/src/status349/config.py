@@ -75,7 +75,7 @@ class NotificationsConfig:
     # Zero disables device card caching while preserving the host's active set
     # and its overflow count. max_visible remains the legacy-protocol limit.
     cache_limit: int = DEVICE_MAX_CACHE_CARDS
-    popup_timeout_ms: int = 5000  # fallback when Notify requests server default (-1)
+    popup_timeout_ms: int = 10000  # normal fallback when Notify requests server default (-1)
     critical_popup_timeout_ms: int = 0  # 0 keeps critical cards until close
 
 

@@ -13,6 +13,7 @@ import asyncio
 import logging
 import math
 import os
+import secrets
 import signal
 import time
 from collections import deque
@@ -40,6 +41,8 @@ PING_INTERVAL_S = 4.0
 PORT_SCAN_INTERVAL_S = 0.5
 CARD_STATUS_TIMEOUT_S = 2.0
 DASHBOARD_CPU_EMA_TAU_S = 3.0
+NORMAL_PRESENT_COALESCE_S = 0.300
+SESSION_MAX = proto.IDENTITY_MAX
 
 
 class Daemon:
@@ -62,12 +65,31 @@ class Daemon:
         self.bluetooth = BluetoothSource()
         self._cpu_ema: float | None = None
         self._cpu_ema_mono: float | None = None
-        self.notifications = NotificationSource(cfg.notifications, self._device_notify, self._device_close)
+        self.notifications = NotificationSource(
+            cfg.notifications,
+            self._device_notify,
+            self._device_close,
+            on_active_expire=self._device_active_expire,
+            on_expire=self._device_expire,
+            on_monitor_reset=self._device_monitor_reset,
+            grouped_mode=lambda: self._grouped_mode,
+            allocate_local_id=self._allocate_local_notification_id,
+        )
         self._writer: asyncio.StreamWriter | None = None
         self._state_lock = asyncio.Lock()
         self._wire_lock = asyncio.Lock()
         self._card_sync_capacity: int | None = None
         self._dashboard_capable = False
+        self._grouped_enabled = False
+        self._grouped_mode = False
+        self.grouped_session = secrets.randbelow(SESSION_MAX) + 1
+        self._grouped_generation = 0
+        self._device_expected_generation = 0
+        self._grouped_group = "home"
+        self._manual_notifications = False
+        self._presentation: dict | None = None
+        self._pending_present_id: int | None = None
+        self._pending_present_due: float | None = None
         self._sync_tx = 0
         self._device_boot_id: int | None = None
         self._cards_query_lock = asyncio.Lock()
@@ -76,9 +98,17 @@ class Daemon:
         self._last_rx_mono: float | None = None
         self._needs_sync = False
         self._tick_wakeup = asyncio.Event()
-        self._next_notify_id = 100000
+        self._next_local_notification_id = 100000
         self._injected_expiry: dict[int, float] = {}
         self._ipc = IpcServer(self._ipc_handler)
+
+    def _allocate_local_notification_id(self) -> int:
+        """Allocate a daemon-unique positive 31-bit notification ID."""
+        if self._next_local_notification_id > proto.IDENTITY_MAX:
+            raise OverflowError("local notification ID space exhausted")
+        local_id = self._next_local_notification_id
+        self._next_local_notification_id += 1
+        return local_id
 
     async def run(self) -> None:
         try:
@@ -111,29 +141,215 @@ class Daemon:
             await self._ipc.stop()
 
     async def _device_notify(self, message: dict) -> None:
+        local_id = int(message["id"])
+        if self.notifications.is_locally_removed(local_id) or self.notifications.is_forgotten(local_id):
+            return
         async with self._state_lock:
-            self.model.add_notification(message)
-            # A live replacement must reach the device even when the payload
-            # is unchanged: it unhides a card that was dismissed locally.
+            if self.notifications.is_locally_removed(local_id) or self.notifications.is_forgotten(local_id):
+                return
+            was_grouped = self._grouped_enabled
+            previous_cached = self.model.cached_notification_ids(
+                self._card_sync_capacity, retained=was_grouped
+            )
+            attention_expired = self._grouped_mode and self.notifications.attention_expired(local_id)
+            active_changed = False if attention_expired else self.model.add_notification(message)
+            retained_changed, evicted = self.model.retain_notification(message, bump_rev=False)
+            if retained_changed and not active_changed:
+                self.model.rev += 1
+            for evicted_id in evicted:
+                self.notifications.forget(evicted_id)
+                self._injected_expiry.pop(evicted_id, None)
+                if self._grouped_mode:
+                    self.model.close_active_notification(evicted_id)
+
             update = dict(message)
-            update["total"] = len(self.model.notifs)
-            if self._card_sync_capacity is not None:
-                update["cached"] = int(message["id"]) in self.model.cached_notification_ids(
-                    self._card_sync_capacity
+            if was_grouped:
+                cached_ids = self.model.cached_notification_ids(
+                    self._card_sync_capacity, retained=True
                 )
-            await self.send(update)
+                update["session"] = self.grouped_session
+                update["total"] = len(self.model.retained_notifs)
+                update["cached"] = local_id in cached_ids
+                # A retained replacement may move the cache boundary. Remove
+                # cards that have fallen out before publishing the new record.
+                for old_id in previous_cached:
+                    if old_id not in cached_ids:
+                        await self.send(
+                            proto.close(old_id, total=len(self.model.retained_notifs), session=self.grouped_session)
+                        )
+            else:
+                cached_ids = self.model.cached_notification_ids(self._card_sync_capacity)
+                update["total"] = len(self.model.notifs)
+                if self._card_sync_capacity is not None:
+                    update["cached"] = local_id in cached_ids
+
+            sent = await self.send(update)
+            if was_grouped and sent and not self.notifications.attention_expired(local_id):
+                await self._queue_presentation_locked(message, time.monotonic())
 
     async def _device_close(self, local_id: int) -> None:
         async with self._state_lock:
-            cached_ids = self.model.cached_notification_ids(self._card_sync_capacity)
-            overflowed = len(self.model.notifs) > len(cached_ids)
+            self._injected_expiry.pop(local_id, None)
+            grouped = self._grouped_enabled
+            collection = self.model.retained_notifs if grouped else self.model.notifs
+            cached_ids = self.model.cached_notification_ids(self._card_sync_capacity, retained=grouped)
+            overflowed = len(collection) > len(cached_ids)
             if self.model.close_notification(local_id):
-                await self.send(proto.close(local_id, total=len(self.model.notifs)))
+                if self._pending_present_id == local_id:
+                    self._pending_present_id = None
+                    self._pending_present_due = None
+                if self._presentation is not None and self._presentation["id"] == local_id:
+                    await self._end_presentation_locked(send_end=False)
+                await self.send(
+                    proto.close(
+                        local_id,
+                        total=len(self.model.retained_notifs if grouped else self.model.notifs),
+                        session=self.grouped_session if grouped else None,
+                    )
+                )
                 if self._card_sync_capacity is not None and overflowed and local_id in cached_ids:
                     # Closing a cached card exposes a vacancy when older active
                     # cards were omitted. The tick loop coalesces close bursts.
                     self._needs_sync = True
                     self._tick_wakeup.set()
+
+    async def _device_expire(self, local_id: int, *, complete_presentation: bool = True) -> None:
+        """End popup attention while retaining grouped record text."""
+        if not self._grouped_mode:
+            await self._device_close(local_id)
+            return
+        async with self._state_lock:
+            self._injected_expiry.pop(local_id, None)
+            self.model.close_active_notification(local_id)
+            if self._pending_present_id == local_id:
+                self._pending_present_id = None
+                self._pending_present_due = None
+            if (
+                complete_presentation
+                and self._presentation is not None
+                and self._presentation["id"] == local_id
+            ):
+                await self._end_presentation_locked(send_end=self._grouped_enabled)
+
+    async def _device_active_expire(self, local_id: int) -> None:
+        """Expire only the legacy active projection, preserving grouped attention."""
+        async with self._state_lock:
+            self.model.close_active_notification(local_id)
+            if self._pending_present_id == local_id:
+                self._pending_present_id = None
+                self._pending_present_due = None
+
+    async def _device_monitor_reset(self, local_ids: list[int]) -> None:
+        """Archive grouped text and cancel actions tied to the lost monitor."""
+        async with self._state_lock:
+            for local_id in local_ids:
+                self.model.close_active_notification(local_id)
+            self._pending_present_id = None
+            self._pending_present_due = None
+            if self._presentation is not None:
+                await self._end_presentation_locked(send_end=self._grouped_enabled)
+
+    def _presentation_timeout_ms(self, message: dict) -> int | None:
+        requested = message.get("expire", -1)
+        if isinstance(requested, bool) or not isinstance(requested, int):
+            requested = -1
+        if requested > 0:
+            return requested
+        if requested == 0:
+            return None
+        urgency = message.get("urgency", 1)
+        fallback = (
+            self.cfg.notifications.critical_popup_timeout_ms
+            if isinstance(urgency, int) and not isinstance(urgency, bool) and urgency >= 2
+            else self.cfg.notifications.popup_timeout_ms
+        )
+        return fallback if fallback > 0 else None
+
+    async def _queue_presentation_locked(self, message: dict, now: float) -> None:
+        """Apply critical attention immediately and coalesce normal arrivals."""
+        urgency = int(message.get("urgency", 1))
+        if urgency >= 2:
+            self._pending_present_id = None
+            self._pending_present_due = None
+            await self._present_notification_locked(message, now)
+            return
+        if self._manual_notifications:
+            self._pending_present_id = None
+            self._pending_present_due = None
+            return
+        if self._presentation is not None and self._presentation["urgency"] >= 2:
+            return
+        self._pending_present_id = int(message["id"])
+        self._pending_present_due = now + NORMAL_PRESENT_COALESCE_S
+        self._tick_wakeup.set()
+
+    async def _present_notification_locked(self, message: dict, now: float) -> None:
+        local_id = int(message["id"])
+        if not self._grouped_enabled or self._writer is None:
+            return
+        cached = self.model.cached_notification_ids(self._card_sync_capacity, retained=True)
+        if local_id not in cached or local_id not in self.model.retained_notifs:
+            return
+        if self._grouped_generation >= SESSION_MAX:
+            log.error("grouped presentation generation exhausted for session %d", self.grouped_session)
+            return
+        self._grouped_generation += 1
+        timeout_ms = self._presentation_timeout_ms(message)
+        self._presentation = {
+            "id": local_id,
+            "generation": self._grouped_generation,
+            "urgency": min(2, max(0, int(message.get("urgency", 1)))),
+            "deadline": None if timeout_ms is None else now + timeout_ms / 1000.0,
+        }
+        self._grouped_group = "notifications"
+        self._manual_notifications = False
+        sent = await self._write_presentation_locked(self._presentation)
+        if not sent:
+            self._presentation = None
+        else:
+            self._device_expected_generation = self._presentation["generation"]
+
+    async def _write_presentation_locked(self, presentation: dict, *, end: bool = False) -> bool:
+        if not self._grouped_enabled or self._writer is None:
+            return False
+        async with self._wire_lock:
+            deadline = presentation["deadline"]
+            if end or deadline is None:
+                remaining_ms = 0 if end else -1
+            else:
+                remaining_ms = max(0, math.ceil((deadline - time.monotonic()) * 1000))
+            message = proto.present(
+                self.grouped_session,
+                presentation["generation"],
+                presentation["id"],
+                remaining_ms,
+                presentation["urgency"],
+            )
+            return await self._write_message(message)
+
+    async def _end_presentation_locked(self, *, send_end: bool) -> None:
+        presentation = self._presentation
+        self._presentation = None
+        if presentation is not None and send_end:
+            await self._write_presentation_locked(presentation, end=True)
+
+    async def _publish_pending_presentation_locked(self, now: float) -> None:
+        local_id = self._pending_present_id
+        self._pending_present_id = None
+        self._pending_present_due = None
+        if local_id is None or self._manual_notifications or not self._grouped_enabled:
+            return
+        message = self.model.retained_notifs.get(local_id)
+        if message is None:
+            return
+        if self._presentation is not None and self._presentation["urgency"] >= 2:
+            return
+        await self._present_notification_locked(message, now)
+
+    async def _expire_presentation_locked(self, now: float) -> None:
+        presentation = self._presentation
+        if presentation is not None and presentation["deadline"] is not None and presentation["deadline"] <= now:
+            await self._end_presentation_locked(send_end=True)
 
     async def send(self, message: dict) -> bool:
         async with self._wire_lock:
@@ -235,11 +451,13 @@ class Daemon:
             messages = [self.model.snapshot()]
         else:
             self._sync_tx += 1
-            snapshot = self.model.card_snapshot(self._card_sync_capacity)
+            grouped = self._grouped_enabled
+            snapshot = self.model.card_snapshot(self._card_sync_capacity, retained=grouped)
             messages = proto.card_sync_messages(
                 snapshot,
                 self._sync_tx,
                 include_dashboard=self._dashboard_capable,
+                grouped_session=self.grouped_session if grouped else None,
             )
 
         # Hold the wire lock across the full transaction, including begin and
@@ -285,6 +503,13 @@ class Daemon:
             log.info("link up on %s", path)
             backoff = min_backoff
             async with self._state_lock:
+                self._grouped_enabled = False
+                self._device_expected_generation = 0
+                self._pending_present_id = None
+                self._pending_present_due = None
+                await self._end_presentation_locked(send_end=False)
+                self._grouped_group = "home"
+                self._manual_notifications = False
                 self._writer = writer
                 self._card_sync_capacity = None
                 self._dashboard_capable = False
@@ -306,7 +531,14 @@ class Daemon:
             except Exception as exc:
                 log.warning("link error: %s", exc)
             finally:
-                self._writer = None
+                async with self._state_lock:
+                    self._writer = None
+                    self._grouped_enabled = False
+                    self._pending_present_id = None
+                    self._pending_present_due = None
+                    await self._end_presentation_locked(send_end=False)
+                    self._grouped_group = "home"
+                    self._manual_notifications = False
                 writer.close()
                 try:
                     await writer.wait_closed()
@@ -356,11 +588,42 @@ class Daemon:
                 message.get("cap"),
             )
             async with self._state_lock:
-                self._card_sync_capacity = proto.card_sync_capacity(message)
-                self._dashboard_capable = (
-                    self._card_sync_capacity is not None and proto.dashboard_capable(message)
+                new_capacity = proto.card_sync_capacity(message)
+                new_dashboard = new_capacity is not None and proto.dashboard_capable(message)
+                new_grouped = new_capacity is not None and proto.grouped_ui_capable(message)
+                first_grouped = new_grouped and not self._grouped_enabled
+                changed_boot = boot_id is not None and boot_id != self._device_boot_id
+                capabilities_changed = (
+                    new_capacity != self._card_sync_capacity
+                    or new_dashboard != self._dashboard_capable
+                    or new_grouped != self._grouped_enabled
                 )
-                if boot_id is not None and boot_id == self._device_boot_id:
+                self._card_sync_capacity = new_capacity
+                self._dashboard_capable = new_dashboard
+                self._grouped_enabled = new_grouped
+                self._grouped_mode = new_grouped
+                if first_grouped or changed_boot:
+                    self._device_expected_generation = 0
+                if changed_boot:
+                    self._pending_present_id = None
+                    self._pending_present_due = None
+                    await self._end_presentation_locked(send_end=False)
+                    self._grouped_group = "home"
+                    self._manual_notifications = False
+                if new_grouped:
+                    unassociated = self.notifications.enforce_grouped_bounds()
+                    for local_id in unassociated:
+                        self.model.close_active_notification(local_id)
+                    for local_id in tuple(self.model.notifs):
+                        if local_id not in self.model.retained_notifs:
+                            self.model.close_active_notification(local_id)
+                if not new_grouped:
+                    self._pending_present_id = None
+                    self._pending_present_due = None
+                    await self._end_presentation_locked(send_end=False)
+                    self._grouped_group = "home"
+                    self._manual_notifications = False
+                if boot_id is not None and boot_id == self._device_boot_id and not capabilities_changed:
                     log.debug("ignoring repeated hello for device boot_id=%s", boot_id)
                 else:
                     # A missing ID keeps the pre-dedup legacy behavior: every
@@ -389,8 +652,85 @@ class Daemon:
 
     async def _handle_input(self, message: dict) -> None:
         action = message.get("action")
+        if action == "browse" and self._grouped_enabled:
+            session = message.get("session")
+            generation = message.get("generation")
+            group = message.get("group")
+            if (
+                isinstance(session, bool)
+                or not isinstance(session, int)
+                or session != self.grouped_session
+                or isinstance(generation, bool)
+                or not isinstance(generation, int)
+                or not 0 <= generation <= SESSION_MAX
+                or not isinstance(group, str)
+                or group not in {"home", "notifications"}
+            ):
+                return
+            async with self._state_lock:
+                if not self._grouped_enabled or generation != self._device_expected_generation:
+                    return
+                self._pending_present_id = None
+                self._pending_present_due = None
+                self._grouped_group = group
+                self._manual_notifications = group == "notifications"
+                if self._presentation is not None:
+                    await self._end_presentation_locked(send_end=True)
+            return
+
+        if action == "dismiss" and self._grouped_enabled:
+            session = message.get("session")
+            generation = message.get("generation")
+            local_id = message.get("id")
+            if (
+                isinstance(session, bool)
+                or not isinstance(session, int)
+                or session != self.grouped_session
+                or isinstance(generation, bool)
+                or not isinstance(generation, int)
+                or not 0 <= generation <= SESSION_MAX
+                or isinstance(local_id, bool)
+                or not isinstance(local_id, int)
+                or not 1 <= local_id <= SESSION_MAX
+            ):
+                return
+            propagate = False
+            async with self._state_lock:
+                if not self._grouped_enabled or local_id not in self.model.retained_notifs:
+                    return
+                cached = self.model.cached_notification_ids(self._card_sync_capacity, retained=True)
+                if local_id not in cached:
+                    return
+                overflowed = len(self.model.retained_notifs) > len(cached)
+                self.notifications.hide_locally(local_id)
+                self._injected_expiry.pop(local_id, None)
+                if not self.model.close_notification(local_id):
+                    return
+                if self._pending_present_id == local_id:
+                    self._pending_present_id = None
+                    self._pending_present_due = None
+                if self._presentation is not None and self._presentation["id"] == local_id:
+                    self._presentation = None
+                await self.send(
+                    proto.close(
+                        local_id,
+                        total=len(self.model.retained_notifs),
+                        session=self.grouped_session,
+                    )
+                )
+                if overflowed:
+                    self._needs_sync = True
+                    self._tick_wakeup.set()
+                propagate = self.cfg.notifications.device_dismiss == "propagate"
+            if propagate:
+                await self.notifications.dismiss(local_id)
+            return
+
         if action == "dismiss" and "id" in message:
-            await self.notifications.dismiss(int(message["id"]))
+            try:
+                await self.notifications.dismiss(int(message["id"]))
+            except (TypeError, ValueError):
+                return
         else:
             log.info("device input: %s", message)
 
@@ -449,6 +789,16 @@ class Daemon:
 
     def _status(self) -> dict:
         age = None if self._last_rx_mono is None else round(time.monotonic() - self._last_rx_mono, 1)
+        presentation = None
+        if self._presentation is not None:
+            deadline = self._presentation["deadline"]
+            remaining_ms = -1 if deadline is None else max(0, math.ceil((deadline - time.monotonic()) * 1000))
+            presentation = {
+                "session": self.grouped_session,
+                "generation": self._presentation["generation"],
+                "id": self._presentation["id"],
+                "remaining_ms": remaining_ms,
+            }
         return {
             "ok": True,
             "paused": pause_path().exists(),
@@ -456,6 +806,9 @@ class Daemon:
             "port": self.cfg.link.port,
             "rev": self.model.rev,
             "notifs": len(self.model.notifs),
+            "retained_notifs": len(self.model.retained_notifs),
+            "grouped": self._grouped_enabled,
+            "presentation": presentation,
             "last_rx_s": age,
             "config": self.cfg_path,
         }
@@ -470,8 +823,7 @@ class Daemon:
             await self.send({"t": "text", "v": str(request.get("value", ""))})
             return {"ok": True}
         if cmd == "notify":
-            nid = self._next_notify_id
-            self._next_notify_id += 1
+            nid = self._allocate_local_notification_id()
             message = proto.notify(
                 nid,
                 str(request.get("app", "349ctl")),
@@ -482,8 +834,9 @@ class Daemon:
                 int(time.time()),
             )
             await self._device_notify(message)
-            if message["expire"] > 0:
-                self._injected_expiry[nid] = time.monotonic() + message["expire"] / 1000.0
+            injected_timeout = self._presentation_timeout_ms(message)
+            if injected_timeout is not None:
+                self._injected_expiry[nid] = time.monotonic() + injected_timeout / 1000.0
                 self._tick_wakeup.set()
             return {"ok": True, "id": nid}
         if cmd == "pause":
@@ -515,6 +868,13 @@ class Daemon:
             wait_s = tick
             if self._injected_expiry:
                 wait_s = min(wait_s, max(0.0, min(self._injected_expiry.values()) - time.monotonic()))
+            attention_deadlines = []
+            if self._pending_present_due is not None:
+                attention_deadlines.append(self._pending_present_due)
+            if self._presentation is not None and self._presentation["deadline"] is not None:
+                attention_deadlines.append(self._presentation["deadline"])
+            if attention_deadlines:
+                wait_s = min(wait_s, max(0.0, min(attention_deadlines) - time.monotonic()))
             try:
                 await asyncio.wait_for(self._tick_wakeup.wait(), timeout=wait_s)
             except asyncio.TimeoutError:
@@ -535,10 +895,19 @@ class Daemon:
             for nid, deadline in tuple(self._injected_expiry.items()):
                 if deadline <= now:
                     self._injected_expiry.pop(nid, None)
-                    await self._device_close(nid)
+                    if self._grouped_mode:
+                        await self._device_expire(nid, complete_presentation=False)
+                    else:
+                        await self._device_close(nid)
 
             if self._needs_sync:
                 await self._send_sync()
+
+            async with self._state_lock:
+                attention_now = time.monotonic()
+                await self._expire_presentation_locked(attention_now)
+                if self._pending_present_due is not None and self._pending_present_due <= attention_now:
+                    await self._publish_pending_presentation_locked(attention_now)
 
             values = self._sample()
 

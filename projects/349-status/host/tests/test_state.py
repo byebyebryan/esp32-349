@@ -168,3 +168,40 @@ def test_card_snapshot_exposes_configured_limit(cache_limit, active, expected_id
     assert snapshot["limit"] == cache_limit
     assert [message["id"] for message in snapshot["notifs"]] == expected_ids
     assert snapshot["overflow"] == overflow
+
+
+def test_retained_collection_moves_replacements_and_caps_at_32_independent_of_active_view():
+    model = StateModel(cache_limit=4)
+    for nid in range(32):
+        message = {"t": "notify", "id": nid, "summary": f"card {nid}"}
+        model.add_notification(message)
+        model.retain_notification(message)
+
+    replacement = {"t": "notify", "id": 0, "summary": "updated"}
+    changed, evicted = model.retain_notification(replacement)
+    assert changed
+    assert evicted == []
+    assert list(model.retained_notifs)[-1] == 0
+    assert 0 in model.notifs
+
+    changed, evicted = model.retain_notification({"t": "notify", "id": 32, "summary": "new"})
+    assert changed
+    assert evicted == [1]
+    assert len(model.retained_notifs) == 32
+    assert list(model.retained_notifs)[-4:] == [30, 31, 0, 32]
+    assert 1 in model.notifs
+
+    snapshot = model.card_snapshot(4, retained=True)
+    assert [card["id"] for card in snapshot["notifs"]] == [30, 31, 0, 32]
+    assert snapshot["overflow"] == 28
+
+
+def test_unchanged_newest_retained_record_does_not_bump_revision_or_reorder():
+    model = StateModel()
+    message = {"t": "notify", "id": 7, "summary": "same"}
+    changed, evicted = model.retain_notification(message)
+    assert changed and evicted == []
+    revision = model.rev
+    changed, evicted = model.retain_notification(message)
+    assert not changed and evicted == []
+    assert model.rev == revision

@@ -20,12 +20,13 @@ log = logging.getLogger("349-fake")
 
 
 class FakeDevice:
-    def __init__(self) -> None:
+    def __init__(self, hello_message: dict | None = None) -> None:
         master, slave = pty.openpty()
         tty.setraw(master)
         tty.setraw(slave)
         self.master = master
         self.path = os.ttyname(slave)
+        self.hello_message = dict(hello_message) if hello_message is not None else proto.hello()
         self.received: list[dict] = []
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -51,7 +52,7 @@ class FakeDevice:
             pass
 
     def _run(self) -> None:
-        self.send(proto.hello())  # device announces itself on boot
+        self.send(self.hello_message)  # device announces itself on boot
         buf = b""
         while not self._stop.is_set():
             try:
@@ -72,7 +73,7 @@ class FakeDevice:
                     continue
                 self.received.append(message)
                 if message.get("t") == "hello":
-                    self.send(proto.hello())
+                    self.send(self.hello_message)
 
 
 def main(argv: list[str] | None = None) -> int:

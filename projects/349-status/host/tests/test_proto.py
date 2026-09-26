@@ -72,6 +72,21 @@ def test_dashboard_capability_requires_card_sync_v1_too():
     assert not proto.dashboard_capable({"cap": "dashboard-v1"})
 
 
+def test_grouped_capability_requires_cache_dashboard_and_grouped_v1():
+    assert proto.grouped_ui_capable(
+        {"cap": ["card-sync-v1", "dashboard-v1", "grouped-ui-v1"], "cache_cards": 32}
+    )
+    assert not proto.grouped_ui_capable(
+        {"cap": ["card-sync-v1", "grouped-ui-v1"], "cache_cards": 32}
+    )
+    assert not proto.grouped_ui_capable(
+        {"cap": ["dashboard-v1", "grouped-ui-v1"], "cache_cards": 32}
+    )
+    assert not proto.grouped_ui_capable(
+        {"cap": ["card-sync-v1", "dashboard-v1"], "cache_cards": 32}
+    )
+
+
 def test_cards_status_requires_nonnegative_counts_and_integer_ids():
     assert proto.card_status({"count": 2, "overflow": 1, "ids": [8, 7], "capacity": 32}) == {
         "count": 2,
@@ -79,6 +94,10 @@ def test_cards_status_requires_nonnegative_counts_and_integer_ids():
         "ids": [8, 7],
         "capacity": 32,
     }
+    pending = {"count": 0, "overflow": 0, "ids": [], "capacity": 32, "view_pending": True}
+    assert proto.card_status(pending) == pending
+    assert proto.card_status({**pending, "view_pending": 1}) is None
+    assert proto.card_status({**pending, "deck": {}}) is None
     assert proto.card_status({"count": True, "overflow": 1, "ids": [], "capacity": 32}) is None
     assert proto.card_status({"count": 1, "overflow": -1, "ids": [1], "capacity": 32}) is None
     assert proto.card_status({"count": 1, "overflow": 0, "ids": ["1"], "capacity": 32}) is None
@@ -104,6 +123,45 @@ def test_cards_status_preserves_and_validates_optional_deck_readback():
     assert proto.card_status({**status, "deck": {**deck, "enabled": 1}}) is None
     assert proto.card_status({**status, "deck": {**deck, "reachable": 33}}) is None
     assert proto.card_status({**status, "deck": {**deck, "reachable": 1, "next_id": 8}}) is None
+
+
+def test_cards_status_preserves_and_validates_optional_grouped_readback():
+    status = {"count": 2, "overflow": 0, "ids": [17, 16], "capacity": 32}
+    grouped = {
+        "enabled": True,
+        "session": 123,
+        "group": "notifications",
+        "manual": True,
+        "generation": 0,
+        "present_id": None,
+        "remaining_ms": 0,
+    }
+    assert proto.card_status({**status, "grouped": grouped}) == {**status, "grouped": grouped}
+
+    inactive = {
+        "enabled": False,
+        "session": 0,
+        "group": "home",
+        "manual": False,
+        "generation": 0,
+        "present_id": None,
+        "remaining_ms": 0,
+    }
+    assert proto.card_status({**status, "grouped": inactive}) == {**status, "grouped": inactive}
+
+    active = {**grouped, "manual": False, "generation": 4, "present_id": 17, "remaining_ms": -1}
+    assert proto.card_status({**status, "grouped": active}) == {**status, "grouped": active}
+    for invalid in (
+        {**grouped, "session": True},
+        {**grouped, "session": 0},
+        {**grouped, "group": "media"},
+        {**grouped, "generation": -1},
+        {**grouped, "remaining_ms": -2},
+        {**grouped, "present_id": 99},
+        {**grouped, "manual": True, "present_id": 17},
+        {**inactive, "generation": 1},
+    ):
+        assert proto.card_status({**status, "grouped": invalid}) is None
 
 
 def test_card_sync_chunks_measure_escaped_utf8_bytes():
@@ -177,6 +235,26 @@ def test_dashboard_is_added_only_to_opted_in_sync_begin():
     assert "dashboard" not in old_messages[0]
     assert new_messages[0]["dashboard"] == snapshot["dashboard"]
     assert all(len(proto.encode(message)) <= proto.LINE_MAX for message in new_messages)
+
+
+def test_grouped_sync_begin_carries_session_only_when_requested():
+    snapshot = {
+        "rev": 9,
+        "bar": {"t": "bar", "rev": 9, "zones": []},
+        "clock": None,
+        "media": None,
+        "dashboard": proto.dashboard_payload(None),
+        "notifs": [],
+        "limit": 32,
+        "overflow": 0,
+    }
+    legacy = proto.card_sync_messages(snapshot, tx=1, include_dashboard=True)
+    grouped = proto.card_sync_messages(
+        snapshot, tx=2, include_dashboard=True, grouped_session=123
+    )
+    assert "grouped" not in legacy[0]
+    assert grouped[0]["grouped"] == {"session": 123}
+    assert all(len(proto.encode(message)) <= proto.LINE_MAX for message in grouped)
 
 
 @pytest.mark.parametrize(

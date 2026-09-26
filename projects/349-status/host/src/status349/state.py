@@ -1,12 +1,15 @@
-"""Host-side state model: what the device should be showing right now.
+"""Host-side state model: active legacy cards and retained grouped cards.
 
 Every change bumps `rev`; `snapshot()` produces the bounded legacy `sync`,
-while `card_snapshot()` preserves the newest active cards for chunked sync.
+while `card_snapshot()` preserves the newest active or retained cards for
+chunked sync.
 """
 
 from __future__ import annotations
 
 from . import proto
+
+RETAINED_LIMIT = 32
 
 
 class StateModel:
@@ -17,7 +20,10 @@ class StateModel:
         self.clock: dict | None = None
         self.media: dict | None = None
         self.dashboard: dict = proto.dashboard_payload(None)
+        # Keep the original active-only view for old firmware. Grouped-capable
+        # firmware receives the separate bounded retained collection.
         self.notifs: dict[int, dict] = {}
+        self.retained_notifs: dict[int, dict] = {}
         self.zones: list[dict] = []
 
     def snapshot(self) -> dict:
@@ -55,13 +61,14 @@ class StateModel:
             raise ValueError("sync message exceeds the device line limit after notification trimming")
         return snapshot
 
-    def card_snapshot(self, device_capacity: int | None = None) -> dict:
-        """Return full metadata and the newest cards within the device cache."""
+    def card_snapshot(self, device_capacity: int | None = None, *, retained: bool = False) -> dict:
+        """Return full metadata and newest active or retained cards."""
         capacity = self.cache_limit
         if device_capacity is not None:
             capacity = min(capacity, max(0, int(device_capacity)))
 
-        all_notifs = list(self.notifs.values())
+        collection = self.retained_notifs if retained else self.notifs
+        all_notifs = list(collection.values())
         if capacity:
             notifs = all_notifs[-capacity:]
         else:
@@ -78,12 +85,13 @@ class StateModel:
             "overflow": len(all_notifs) - len(notifs),
         }
 
-    def cached_notification_ids(self, device_capacity: int | None = None) -> set[int]:
+    def cached_notification_ids(self, device_capacity: int | None = None, *, retained: bool = False) -> set[int]:
         """Return IDs selected by ``card_snapshot`` without building its envelope."""
         capacity = self.cache_limit
         if device_capacity is not None:
             capacity = min(capacity, max(0, int(device_capacity)))
-        notifs = list(self.notifs.values())
+        collection = self.retained_notifs if retained else self.notifs
+        notifs = list(collection.values())
         if capacity:
             notifs = notifs[-capacity:]
         else:
@@ -127,9 +135,39 @@ class StateModel:
         self.rev += 1
         return True
 
+    def retain_notification(self, message: dict, *, bump_rev: bool = True) -> tuple[bool, list[int]]:
+        """Insert or move a record to newest order, evicting oldest past 32."""
+        nid = int(message["id"])
+        was_newest = bool(self.retained_notifs) and next(reversed(self.retained_notifs)) == nid
+        old = self.retained_notifs.pop(nid, None)
+        moved = old is not None and (old != message or not was_newest)
+        if old == message and not moved:
+            # Restore the value so an unchanged newest record remains present.
+            self.retained_notifs[nid] = old
+            return False, []
+
+        self.retained_notifs[nid] = message
+        evicted: list[int] = []
+        while len(self.retained_notifs) > RETAINED_LIMIT:
+            evicted_id = next(iter(self.retained_notifs))
+            self.retained_notifs.pop(evicted_id)
+            evicted.append(evicted_id)
+        if bump_rev:
+            self.rev += 1
+        return True, evicted
+
+    def close_active_notification(self, nid: int) -> bool:
+        """Remove a record only from the legacy active projection."""
+        if self.notifs.pop(int(nid), None) is None:
+            return False
+        self.rev += 1
+        return True
+
     def close_notification(self, nid: int) -> bool:
         nid = int(nid)
-        if self.notifs.pop(nid, None) is None:
+        active = self.notifs.pop(nid, None) is not None
+        retained = self.retained_notifs.pop(nid, None) is not None
+        if not active and not retained:
             return False
         self.rev += 1
         return True

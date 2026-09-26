@@ -15,7 +15,9 @@ PROTO_VERSION = 1
 LINE_MAX = 8192
 CARD_SYNC_CAPABILITY = "card-sync-v1"
 DASHBOARD_CAPABILITY = "dashboard-v1"
+GROUPED_UI_CAPABILITY = "grouped-ui-v1"
 CARD_CHUNK_MAX = 2048
+IDENTITY_MAX = 0x7FFFFFFF
 
 
 def display_text(value: str) -> str:
@@ -84,6 +86,19 @@ def dashboard_capable(message: dict) -> bool:
     )
 
 
+def grouped_ui_capable(message: dict) -> bool:
+    """Grouped retention requires the complete cache/dashboard capability set."""
+    capabilities = message.get("cap", [])
+    if isinstance(capabilities, str):
+        capabilities = [capabilities]
+    return (
+        card_sync_capacity(message) is not None
+        and dashboard_capable(message)
+        and isinstance(capabilities, list)
+        and GROUPED_UI_CAPABILITY in capabilities
+    )
+
+
 def _dashboard_ratio(value: object) -> float | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
@@ -141,6 +156,11 @@ def card_status(message: dict) -> dict | None:
     if len(ids) != count or count > capacity or len(set(ids)) != count:
         return None
     result = {"count": count, "overflow": values[1], "ids": list(ids), "capacity": capacity}
+    if "view_pending" in message:
+        pending = message["view_pending"]
+        if not isinstance(pending, bool) or (pending and ("deck" in message or "grouped" in message)):
+            return None
+        result["view_pending"] = pending
 
     if "deck" in message:
         deck = message["deck"]
@@ -178,10 +198,68 @@ def card_status(message: dict) -> dict | None:
             "stale": stale,
         }
 
+    if "grouped" in message:
+        grouped = message["grouped"]
+        fields = {"enabled", "session", "group", "manual", "generation", "present_id", "remaining_ms"}
+        if not isinstance(grouped, dict) or not fields.issubset(grouped):
+            return None
+        enabled = grouped.get("enabled")
+        session = grouped.get("session")
+        group = grouped.get("group")
+        manual = grouped.get("manual")
+        generation = grouped.get("generation")
+        present_id = grouped.get("present_id")
+        remaining_ms = grouped.get("remaining_ms")
+        if (
+            not isinstance(enabled, bool)
+            or isinstance(session, bool)
+            or not isinstance(session, int)
+            or (enabled and not 1 <= session <= IDENTITY_MAX)
+            or (not enabled and session != 0)
+            or not isinstance(group, str)
+            or group not in {"home", "notifications"}
+            or not isinstance(manual, bool)
+            or isinstance(generation, bool)
+            or not isinstance(generation, int)
+            or not 0 <= generation <= IDENTITY_MAX
+            or (
+                present_id is not None
+                and (
+                    isinstance(present_id, bool)
+                    or not isinstance(present_id, int)
+                    or not 1 <= present_id <= IDENTITY_MAX
+                    or present_id not in ids
+                )
+            )
+            or isinstance(remaining_ms, bool)
+            or not isinstance(remaining_ms, int)
+            or not -1 <= remaining_ms <= IDENTITY_MAX
+            or (manual and group != "notifications")
+            or (present_id is None and remaining_ms != 0)
+            or (present_id is not None and manual)
+            or (not enabled and (group != "home" or manual or generation != 0 or present_id is not None))
+        ):
+            return None
+        result["grouped"] = {
+            "enabled": enabled,
+            "session": session,
+            "group": group,
+            "manual": manual,
+            "generation": generation,
+            "present_id": present_id,
+            "remaining_ms": remaining_ms,
+        }
+
     return result
 
 
-def card_sync_messages(snapshot: dict, tx: int, *, include_dashboard: bool = False) -> list[dict]:
+def card_sync_messages(
+    snapshot: dict,
+    tx: int,
+    *,
+    include_dashboard: bool = False,
+    grouped_session: int | None = None,
+) -> list[dict]:
     """Build a bounded begin/cards/commit transfer for a card-cache snapshot."""
     cards = snapshot["notifs"]
     begin = {
@@ -197,6 +275,10 @@ def card_sync_messages(snapshot: dict, tx: int, *, include_dashboard: bool = Fal
     }
     if include_dashboard:
         begin["dashboard"] = dashboard_payload(snapshot.get("dashboard"))
+    if grouped_session is not None:
+        if isinstance(grouped_session, bool) or not isinstance(grouped_session, int) or not 1 <= grouped_session <= IDENTITY_MAX:
+            raise ValueError("grouped session must be a positive 31-bit integer")
+        begin["grouped"] = {"session": grouped_session}
     encode(begin)
 
     messages = [begin]
@@ -280,6 +362,7 @@ def notify(
     ts: int,
     total: int | None = None,
     cached: bool | None = None,
+    session: int | None = None,
 ) -> dict:
     message = {
         "t": "notify",
@@ -295,11 +378,39 @@ def notify(
         message["total"] = int(total)
     if cached is not None:
         message["cached"] = bool(cached)
+    if session is not None:
+        message["session"] = int(session)
     return message
 
 
-def close(nid: int, total: int | None = None) -> dict:
+def close(nid: int, total: int | None = None, *, session: int | None = None) -> dict:
     message = {"t": "close", "id": int(nid)}
     if total is not None:
         message["total"] = int(total)
+    if session is not None:
+        message["session"] = int(session)
     return message
+
+
+def present(session: int, generation: int, nid: int, remaining_ms: int, urgency: int) -> dict:
+    """Build a generation-scoped grouped attention update."""
+    for name, value, lower in (
+        ("session", session, 1),
+        ("generation", generation, 1),
+        ("id", nid, 1),
+        ("remaining_ms", remaining_ms, -1),
+        ("urgency", urgency, 0),
+    ):
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError(f"{name} must be an integer")
+        maximum = 2 if name == "urgency" else IDENTITY_MAX
+        if value < lower or value > maximum:
+            raise ValueError(f"{name} is outside the protocol range")
+    return {
+        "t": "present",
+        "session": session,
+        "generation": generation,
+        "id": nid,
+        "remaining_ms": remaining_ms,
+        "urgency": urgency,
+    }

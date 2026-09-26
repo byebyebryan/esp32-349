@@ -11,6 +11,10 @@ from status349.config import default_config
 from status349.daemon import Daemon
 from status349.fake import FakeDevice
 from status349.sources.notifications import (
+    ASSOCIATION_LIMIT,
+    MONITOR_QUEUE_LIMIT,
+    NOTIFY_OUTBOX_LIMIT,
+    PENDING_REPLY_LIMIT,
     NOTIFICATIONS_NAME,
     NOTIFICATIONS_PATH,
     NotificationSource,
@@ -57,7 +61,7 @@ def test_is_ignored():
 def test_popup_timeout_uses_app_request_or_server_default():
     cfg = default_config().notifications
     assert effective_popup_timeout_ms(1200, 1, cfg) == 1200
-    assert effective_popup_timeout_ms(-1, 1, cfg) == 5000
+    assert effective_popup_timeout_ms(-1, 1, cfg) == 10000
     assert effective_popup_timeout_ms(-1, 2, cfg) == 0
     assert effective_popup_timeout_ms(0, 1, cfg) == 0
 
@@ -87,6 +91,10 @@ def _notify_reply(destination: str, serial: int, daemon_id: int) -> Message:
 
 
 def _closed_signal(daemon_id: int) -> Message:
+    return _closed_signal_reason(daemon_id, 2)
+
+
+def _closed_signal_reason(daemon_id: int, reason: int) -> Message:
     return Message(
         message_type=MessageType.SIGNAL,
         sender=NOTIFICATIONS_NAME,
@@ -94,7 +102,7 @@ def _closed_signal(daemon_id: int) -> Message:
         interface=NOTIFICATIONS_NAME,
         member="NotificationClosed",
         signature="uu",
-        body=[daemon_id, 2],
+        body=[daemon_id, reason],
     )
 
 
@@ -173,6 +181,185 @@ def test_late_notify_reply_after_close_cannot_restore_mapping():
         await source._handle_notify(_notify_call(":1.55", 11, 888, "new card"))
         await source._handle(_notify_reply(":1.55", 11, 888))
         assert source._daemon_to_local == {888: 2}
+
+    asyncio.run(scenario())
+
+
+def test_grouped_reason_one_completes_attention_but_explicit_close_removes_record():
+    async def scenario():
+        closed = []
+        expired = []
+
+        async def on_close(local_id):
+            closed.append(local_id)
+
+        async def on_expire(local_id):
+            expired.append(local_id)
+
+        source = NotificationSource(
+            default_config().notifications,
+            lambda _message: asyncio.sleep(0),
+            on_close,
+            on_expire=on_expire,
+            grouped_mode=lambda: True,
+        )
+        await source._handle_notify(_notify_call(":1.90", 1, 0, "first"))
+        await source._handle(_notify_reply(":1.90", 1, 777))
+        await source._handle(_closed_signal_reason(777, 1))
+
+        assert expired == [1]
+        assert closed == []
+        assert source._daemon_to_local == {777: 1}
+        assert source._local_to_daemon == {1: 777}
+        assert source._mirrored_local_ids == {1}
+
+        await source._handle(_closed_signal_reason(777, 3))
+        assert closed == [1]
+        assert source._daemon_to_local == {}
+        assert source._local_to_daemon == {}
+
+    asyncio.run(scenario())
+
+
+def test_grouped_reason_one_disables_propagation_and_reused_id_belongs_to_new_card():
+    async def scenario():
+        class Control:
+            def __init__(self):
+                self.closed = []
+
+            async def call(self, message):
+                self.closed.append(message.body[0])
+
+        async def noop(_local_id):
+            pass
+
+        cfg = default_config().notifications
+        cfg.device_dismiss = "propagate"
+        source = NotificationSource(
+            cfg,
+            lambda _message: asyncio.sleep(0),
+            noop,
+            grouped_mode=lambda: True,
+        )
+        control = Control()
+        source._control = control
+
+        await source._handle_notify(_notify_call(":1.93", 1, 0, "closed card"))
+        await source._handle(_notify_reply(":1.93", 1, 777))
+        await source._handle(_closed_signal_reason(777, 1))
+        await source.dismiss(1)
+        assert control.closed == []
+
+        # A fresh Notify reply reusing a desktop ID transfers its action
+        # association. The archived display ID remains inert.
+        await source._handle_notify(_notify_call(":1.93", 2, 0, "new card"))
+        await source._handle(_notify_reply(":1.93", 2, 777))
+        await source.dismiss(1)
+        await source.dismiss(2)
+        assert control.closed == [777]
+        assert source._daemon_to_local == {777: 2}
+        assert source._action_daemon_id == {2: 777}
+
+    asyncio.run(scenario())
+
+
+def test_grouped_source_expiry_only_removes_legacy_active_projection():
+    async def scenario():
+        active_expired = []
+        removed = []
+
+        async def on_active_expire(local_id):
+            active_expired.append(local_id)
+
+        async def on_close(local_id):
+            removed.append(local_id)
+
+        source = NotificationSource(
+            default_config().notifications,
+            lambda _message: asyncio.sleep(0),
+            on_close,
+            on_active_expire=on_active_expire,
+            grouped_mode=lambda: True,
+        )
+        await source._handle_notify(_notify_call(":1.94", 1, 0, "retained", expire=100))
+        await source._handle(_notify_reply(":1.94", 1, 778))
+        source._expiry_deadlines[1] = time.monotonic() - 1
+
+        await source._expire_due()
+
+        assert active_expired == [1]
+        assert removed == []
+        assert source._local_to_daemon == {1: 778}
+        assert source._daemon_to_local == {778: 1}
+        assert source._mirrored_local_ids == {1}
+        assert source.attention_expired(1)
+
+    asyncio.run(scenario())
+
+
+def test_daemon_shares_local_notification_ids_between_dbus_and_ipc():
+    async def scenario():
+        daemon = Daemon(default_config(), asyncio.Event())
+        await daemon.notifications._handle_notify(_notify_call(":1.95", 1, 0, "desktop"))
+        desktop_id = next(iter(daemon.notifications._local_to_daemon))
+
+        reply = await daemon._ipc_handler({"cmd": "notify", "summary": "injected"})
+
+        assert desktop_id == 100000
+        assert reply["id"] == 100001
+        assert reply["id"] in daemon.model.retained_notifs
+
+    asyncio.run(scenario())
+
+
+def test_grouped_source_bounds_associations_outbox_pending_replies_and_monitor_queue():
+    async def scenario():
+        async def noop(_local_id):
+            pass
+
+        cfg = default_config().notifications
+        source = NotificationSource(cfg, lambda _message: asyncio.sleep(0), noop, grouped_mode=lambda: True)
+        for serial in range(1, 41):
+            await source._handle_notify(_notify_call(":1.91", serial, 0, f"card {serial}"))
+        assert len(source._local_to_daemon) == ASSOCIATION_LIMIT
+        assert len(source._mirrored_local_ids) == ASSOCIATION_LIMIT
+        assert len(source._outbox) <= NOTIFY_OUTBOX_LIMIT
+        assert len(source._by_serial) <= PENDING_REPLY_LIMIT
+        assert 1 not in source._local_to_daemon
+
+        pending = NotificationSource(cfg, lambda _message: asyncio.sleep(0), noop, grouped_mode=lambda: True)
+        await pending._handle_notify(_notify_call(":1.92", 1, 0, "base"))
+        await pending._handle(_notify_reply(":1.92", 1, 902))
+        for serial in range(2, 72):
+            await pending._handle_notify(_notify_call(":1.92", serial, 902, f"replacement {serial}"))
+        assert len(pending._by_serial) == PENDING_REPLY_LIMIT
+        assert len(pending._outbox) == 1
+        assert not any(key[1] == 2 for key in pending._by_serial)
+        await pending._handle(_notify_reply(":1.92", 2, 999))
+        assert pending._daemon_to_local == {902: 1}
+
+        class Monitor:
+            disconnected = False
+
+            def disconnect(self):
+                self.disconnected = True
+
+        monitor = Monitor()
+        pending._monitor = monitor
+        signal_message = Message(
+            message_type=MessageType.SIGNAL,
+            sender=NOTIFICATIONS_NAME,
+            path=NOTIFICATIONS_PATH,
+            interface=NOTIFICATIONS_NAME,
+            member="NotificationClosed",
+            signature="uu",
+            body=[902, 1],
+        )
+        for _ in range(MONITOR_QUEUE_LIMIT):
+            pending._messages.put_nowait(signal_message)
+        pending._enqueue(signal_message)
+        assert pending._messages.empty()
+        assert monitor.disconnected
 
     asyncio.run(scenario())
 
