@@ -288,3 +288,98 @@ record is `outcome=interrupted`, with no sampled failures. The normal daemon
 remained active and linked. This attempt is not a 24-hour soak pass.
 
 No changes were pushed during this historical soak attempt.
+
+## Starship side-peek UI checkpoint — 2026-09-25 PDT
+
+The UI goal runs on Starship's USB board `28:84:85:92:C2:20`; Snap was not
+updated in this goal. The hardware checks below used an uncommitted tree
+based on `7aec129`.
+The previous cache app (`3062174`) and original Starship config were backed
+up under `~/.local/share/esp32/backups/starship-c220-pre-ui-2026-09-25/`.
+Desktop mirroring was temporarily disabled for the physical checks so real
+agent notifications did not mix with test cards. The original configuration
+was restored byte for byte after the tests.
+
+| Build identity | Value |
+|---|---|
+| Device descriptor | `hello.build=7aec129-dirty`, `build_sha=f758f77b0` |
+| Firmware binary SHA-256 | `0c2d5b1f8b9fa41cc2fce3cfc310f1f2e8e3c75f6595b823b545eb94793cae4a` |
+| Firmware ELF SHA-256 | `f758f77b0a12615512b7e75fba72505cbda082beaa69df53de65b3b39bcbf79c` |
+| App size | `0x215560` bytes in an `0x800000` partition; 74% free |
+| Host service start | 2026-09-25 20:57:49 PDT, active and linked |
+
+The firmware build, native focus-policy and dashboard-parser tests, and font
+coverage gate pass. Both 20/22 px fonts retain exactly the 2,602-codepoint
+legacy repertoire; the 80 px clock has only its 12 selected glyphs. Generating
+the assets twice produced identical hashes. The final integrated host suite
+passed **118 tests**. A direct-reader regression verifies that stopping after
+the first yielded line cannot strand another complete buffered line; this
+fix is separate from the firmware console/frame serialization fix below.
+
+### Firmware readback checks
+
+A direct serial probe ran while the daemon was paused. These are state and
+protocol observations, not pixel or touch observations:
+
+| Check | Readback |
+|---|---|
+| First card | Dashboard enabled, one reachable card and the correct focused ID |
+| Critical followed immediately by normal | Three cached cards; critical ID 802 stayed focused |
+| Foreground close | Focus selected the surviving next ID 801, without dropping unrelated ID 803 |
+| Critical introduced by full sync | New critical ID 804 took focus over the retained normal card |
+| Identical full sync | Focus remained ID 804 |
+| Malformed staged dashboard | `sync_begin_invalid` resync; committed IDs 801/804/805 and focus were retained |
+| Snapshot without dashboard | Legacy UI selected; a subsequent dashboard snapshot restored the deck |
+| Stale/recovery | Deck marked stale after 10.6 s without host messages, then cleared after a ping |
+| Bounded overflow | Exactly 32 cached/reachable IDs, focus on newest ID 11032, separate overflow one |
+| Zero cache | Zero reachable cards, null focus, and overflow five; cleanup returned both counts to zero |
+
+The first probe captured a real console/frame collision: a display log was
+split by a framed resync reply, which the strict host classifier could not
+recognize. The final firmware joins stdout's stdio lock around framed USB
+writes. The retry received the resync as a complete prefixed line and passed
+all the checks above. Unchanged label text and colors are also retained,
+avoiding allocations and forced redraws on every 100 ms UI tick.
+
+### Completed physical checks
+
+| Check | User observation |
+|---|---|
+| Idle layout | Quarter-width CPU/MEM/NET rail and large clock/date look right; no absent battery row or stale overlay |
+| Active card typography | Larger title/body are readable; both apostrophes, 東京, が, arrow, and check mark render |
+| Body tap | Card stays; the compact clock remains in the rail |
+| Explicit dismiss | Tapping × hides the card immediately and restores the large idle clock |
+| Local dismiss readback | Host/device cache still held ID 100000 while deck reachable count became zero; the action did not close the host card |
+| Three-card navigation | The user confirmed C → B → A → C through the side peek, with correct layout and no accidental dismiss |
+| 33-card burst | 33 cards injected in 0.203 s; user saw `BURST 33`, `1 / 32`, and separate `+1 uncached`. One peek advanced to `BURST 32` and `2 / 32`; display stayed responsive |
+
+During the isolated windows, ten-second alive samples showed 94–97% core 0
+idle and 99–100% core 1 idle. Observed minimum heap after the burst was
+73,735 bytes internal and 7,923,996 bytes PSRAM. These are short observations,
+not sustained load or soak results.
+
+At 21:03:22 PDT, the normal service restarted after restoring the original
+configuration (SHA-256
+`61dacdef4cdfca91efe08658285379905b16c9237960879f413152c77e678cdf`).
+The service was active and linked to `f758f77b0`, mirroring was enabled again,
+and readback showed zero test/cached/overflow cards with the dashboard enabled
+and stale false.
+
+### Review and source commits
+
+The implementation was reviewed and committed locally after the hardware
+checks: transport fixes in `f9c4c96`, generated fonts in `97c4a70`, and the
+UI/telemetry feature in `149f52e`. Review found and fixed a touch race: a
+pending arrival could change focus immediately before a peek tap, causing
+navigation to skip the previewed card. Manual navigation now cancels the
+pending arrival before its timer can change focus.
+
+The reviewed source passes all 118 host tests, the native focus-policy and
+dashboard-parser checks, the font coverage audit, and the firmware build
+(`0x215570` app bytes; 74% free). The font generator also trims trailing blank
+lines without changing glyph data. These final review changes have not been
+flashed; Starship's accepted board image remains the one identified above.
+This review/commit step did not push or update Snap.
+
+This checkpoint has no soak or host-suspend gate. It does not claim a Snap
+deployment or long-duration stability.

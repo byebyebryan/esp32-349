@@ -50,7 +50,8 @@ board before fixing font sizes and exact baselines.
 
 - **One active card:** use nearly the full 480 × 172 region. Small source
   label, one-line title, then up to three body lines at a substantially larger
-  size than the current 14 px body. Keep the complete card as a touch target.
+  size than the current 14 px body. Reserve explicit touch targets for dismiss
+  and deck navigation; body taps must not accidentally remove the card.
 - **Two or more active cards:** use a side-peek deck, not two equal-height
   strips. The foreground card gets about 392 × 156 px for readable text; a
   roughly 70 px edge of the next card remains visible at the right. This
@@ -110,10 +111,11 @@ actual board before selecting the final font assets or committing a protocol.
 ### Active-card cache
 
 The cache implementation contract is in
-[card-cache-plan.md](card-cache-plan.md), with completed Snap board checks in
-[ACCEPTANCE.md](../ACCEPTANCE.md). The side-peek layout and navigation remain
-the next goal. Further physical checks now target Starship's connected board,
-where the user is present.
+[card-cache-plan.md](card-cache-plan.md), with completed Snap cache checks and
+Starship UI checks in [ACCEPTANCE.md](../ACCEPTANCE.md). The implemented deck
+checkpoint is in [ui-deck-plan.md](ui-deck-plan.md); it adds typed telemetry
+and local focus navigation on top of the cache contract. The current physical
+UI checks target Starship's connected board, where the user is present.
 
 Prefer a device-owned deck over a host-owned focus cursor. The host already
 sends each new/replaced card and its close event, and remains authoritative

@@ -1,8 +1,8 @@
 # 349-status
 
-Always-on 640x172 desk display for the ESP32-S3-Touch-LCD-3.49 V2: mirrors a
-host-composed status bar and desktop notifications over USB-Serial-JTAG; touch
-sends actions back. Design, milestones and hardware findings live in
+Always-on 640x172 desk display for the ESP32-S3-Touch-LCD-3.49 V2: mirrors
+host telemetry and desktop notifications over USB-Serial-JTAG; touch
+browses the cached notification deck and dismisses cards. Design, milestones and hardware findings live in
 [PLAN.md](PLAN.md).
 
 ## Layout
@@ -23,7 +23,8 @@ idf.py -p /dev/ttyACM0 flash
 
 Existing local `sdkconfig` files created before the CJK fallback need the
 Source Han Sans 14/16 px font options enabled; `sdkconfig.defaults` selects
-them for a fresh configuration.
+them for a fresh configuration. The new rail also requires Montserrat 40 px.
+The generated 20/22 px text and 80 px clock fonts are checked in.
 
 ## Host setup
 
@@ -57,7 +58,7 @@ with `systemctl --user show-environment`).
 
 ```
 349ctl status                 daemon/link state, revision, notification count
-349ctl device-cards           device cache count, ordered IDs, and overflow
+349ctl device-cards           device cache and optional deck focus readback
 349ctl text "hello"           send a text message to the device
 349ctl notify "summary" [body]  inject a test notification
 349ctl pause | resume         release/reconnect the serial port
@@ -90,7 +91,7 @@ critical_popup_timeout_ms = 0     # 0 keeps critical cards until closed
 ignore_apps = ["KeePassXC", "Bitwarden", "1Password"]
 
 [bar]
-# Generic zones composed host-side; see PLAN.md for the zone schema.
+# Horizontal zones for the legacy UI; the dashboard rail is typed.
 preset = [
   { id = "clock", kind = "clock", w = 80, format = "%H:%M" },
   { id = "spacer", kind = "spacer", w = 0 },
@@ -128,21 +129,33 @@ the card until explicit close. A timeout hides only the board card: the
 desktop notification daemon keeps its notification-center history.
 Desktop close and replacement still update the board immediately.
 
-Capable firmware keeps up to the newest 32 active cards locally for the planned
+Capable firmware keeps up to the newest 32 active cards locally for the
 side-peek deck. The host remains responsible for expiry and retains any cards
 beyond the device cache. A chunked full sync restores the cache after a
 reconnect; new cards, replacements, and closes remain incremental. An overflow
 count describes active cards that are not cached and cannot yet be browsed.
-See the [cache implementation plan](design/card-cache-plan.md). The current
-two-card display layout remains until the UI redesign is implemented. Use
+See the [cache implementation plan](design/card-cache-plan.md). Use
 `349ctl device-cards` to read the device's ordered cached IDs and overflow
 count without resetting the USB link.
+
+Firmware advertising `dashboard-v1` uses a 160 px telemetry rail and a
+480 px content area. Idle content is a large clock/date; an active notification
+uses a full-height foreground card with up to three body lines. With several
+cards, tap the right-hand peek to advance. Tap × to dismiss locally; tapping
+the body does nothing. The position count includes only locally visible,
+cached cards; `+N uncached` is a separate count, not a navigation target.
+CPU, memory, local network link, and conditional battery appear in the rail;
+volume and Bluetooth changes appear briefly. Bluetooth probing is optional
+and failure leaves that reading unavailable. Details and acceptance scope are
+in the [UI checkpoint](design/ui-deck-plan.md).
 
 The daemon sends a ping every four seconds even when the bar does not change.
 While the board stays powered, it shows `host asleep` when USB activity stops
 and `host disconnected` when USB is active but host messages stop for ten
 seconds. If the host cuts USB power during sleep, the board turns off instead;
 a full sync restores the display when it powers up and reconnects.
+The dashboard UI keeps the clock visible and marks the rail readings stale
+while showing its connection message in the right content area.
 
 ## Flashing while the daemon runs
 
@@ -163,3 +176,17 @@ cd host && uv run pytest -q
 
 Covers framing, protocol, state, composition, sources, notification handling,
 and daemon/IPC integration against a pty fake device.
+
+From this project directory, native checks execute the same deck policy and
+dashboard parser compiled into firmware (with the IDF environment loaded):
+
+```sh
+cc -std=c11 -Wall -Wextra -Werror -I main \
+  main/deck.c tools/test_deck.c -o /tmp/349-deck-tests
+/tmp/349-deck-tests
+cc -std=c11 -Wall -Wextra -Werror -I main -I "$IDF_PATH/components/json/cJSON" \
+  main/dashboard.c tools/test_dashboard.c "$IDF_PATH/components/json/cJSON/cJSON.c" \
+  -lm -o /tmp/349-dashboard-tests
+/tmp/349-dashboard-tests
+python tools/check_font_coverage.py
+```
