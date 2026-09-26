@@ -1,4 +1,5 @@
 #include "ui.h"
+#include "ui_deck.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -33,6 +34,8 @@ LV_FONT_DECLARE(status_symbol_16);
 #define MAX_CARDS 2
 
 static lv_obj_t *s_bar;
+static lv_obj_t *s_legacy_root;
+static bool s_deck_mode;
 static lv_obj_t *s_notif_area;
 static lv_obj_t *s_overlay;
 static lv_obj_t *s_overlay_label;
@@ -423,10 +426,27 @@ static void ui_update_overlay(void)
 static void ui_tick_cb(lv_timer_t *timer)
 {
     const uint32_t dirty = state_take_dirty();
-    if (dirty & STATE_DIRTY_BAR) {
+    state_lock();
+    const bool deck_mode = state_get()->dashboard.valid;
+    state_unlock();
+    const bool changed = deck_mode != s_deck_mode;
+    if (changed) {
+        s_deck_mode = deck_mode;
+        if (deck_mode) {
+            lv_obj_add_flag(s_legacy_root, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_remove_flag(s_legacy_root, LV_OBJ_FLAG_HIDDEN);
+        }
+        ui_deck_show(deck_mode);
+    }
+    if (deck_mode) {
+        ui_deck_tick(dirty);
+        return;
+    }
+    if (changed || (dirty & STATE_DIRTY_BAR)) {
         ui_build_bar();
     }
-    if (dirty & STATE_DIRTY_NOTIF) {
+    if (changed || (dirty & STATE_DIRTY_NOTIF)) {
         ui_build_cards();
     }
 
@@ -448,7 +468,12 @@ void ui_init(void)
     lv_obj_set_style_pad_all(scr, 0, 0);
     lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
 
-    s_bar = lv_obj_create(scr);
+    s_legacy_root = lv_obj_create(scr);
+    lv_obj_remove_style_all(s_legacy_root);
+    lv_obj_set_size(s_legacy_root, LV_PCT(100), LV_PCT(100));
+    lv_obj_remove_flag(s_legacy_root, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+
+    s_bar = lv_obj_create(s_legacy_root);
     lv_obj_remove_style_all(s_bar);
     lv_obj_set_size(s_bar, LV_PCT(100), BAR_HEIGHT);
     lv_obj_align(s_bar, LV_ALIGN_TOP_MID, 0, 0);
@@ -457,7 +482,7 @@ void ui_init(void)
     lv_obj_set_style_pad_column(s_bar, 8, 0);
     lv_obj_set_style_pad_hor(s_bar, 8, 0);
 
-    s_notif_area = lv_obj_create(scr);
+    s_notif_area = lv_obj_create(s_legacy_root);
     lv_obj_remove_style_all(s_notif_area);
     lv_obj_set_size(s_notif_area, LV_PCT(100), DISPLAY_349_V_RES - BAR_HEIGHT);
     lv_obj_align(s_notif_area, LV_ALIGN_BOTTOM_MID, 0, 0);
@@ -466,7 +491,7 @@ void ui_init(void)
     lv_obj_set_style_pad_row(s_notif_area, 4, 0);
     lv_obj_remove_flag(s_notif_area, LV_OBJ_FLAG_SCROLLABLE);
 
-    s_overlay = lv_obj_create(scr);
+    s_overlay = lv_obj_create(s_legacy_root);
     lv_obj_remove_style_all(s_overlay);
     lv_obj_set_size(s_overlay, LV_PCT(100), LV_PCT(100));
     lv_obj_set_style_bg_color(s_overlay, lv_color_hex(0x000000), 0);
@@ -482,5 +507,6 @@ void ui_init(void)
     ui_build_bar();
     ui_build_cards();
     ui_update_overlay();
+    ui_deck_init(scr, SMALL_FONT, BODY_FONT);
     lv_timer_create(ui_tick_cb, 100, NULL);
 }

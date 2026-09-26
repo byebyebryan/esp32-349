@@ -232,6 +232,14 @@ def _validate_sync_size(preset: list[dict]) -> None:
         "limit": DEVICE_MAX_CACHE_CARDS,
         "count": DEVICE_MAX_CACHE_CARDS,
         "overflow": 9223372036854775807,
+        "dashboard": {
+            "cpu": 1.0,
+            "mem": 1.0,
+            "network": True,
+            "battery": {"level": 1.0, "charging": True},
+            "volume": {"level": 1.0, "mute": True},
+            "bluetooth": 9223372036854775807,
+        },
     }
     try:
         proto.encode(sync_begin)

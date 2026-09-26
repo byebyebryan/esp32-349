@@ -1,6 +1,7 @@
 import pytest
 
-from status349.config import default_config, load_config
+from status349 import proto
+from status349.config import _validate_sync_size, default_config, load_config
 from status349.daemon import main
 
 
@@ -15,6 +16,27 @@ def test_defaults():
     assert cfg.notifications.popup_timeout_ms == 5000
     assert cfg.notifications.critical_popup_timeout_ms == 0
     assert cfg.bar.preset
+
+
+def test_worst_case_chunked_sync_size_includes_dashboard_envelope(monkeypatch):
+    original_encode = proto.encode
+    captured = []
+
+    def capture(message):
+        if message.get("t") == "sync_begin":
+            captured.append(message)
+        return original_encode(message)
+
+    monkeypatch.setattr(proto, "encode", capture)
+    _validate_sync_size([])
+
+    without_dashboard = dict(captured[0])
+    without_dashboard.pop("dashboard")
+    # A budget that fits the legacy envelope must still reject the larger
+    # dashboard snapshot before the daemon starts.
+    monkeypatch.setattr(proto, "LINE_MAX", len(original_encode(without_dashboard)))
+    with pytest.raises(ValueError, match="sync_begin"):
+        _validate_sync_size([])
 
 
 def test_default_preset_is_copied():

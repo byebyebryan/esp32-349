@@ -12,6 +12,7 @@ def test_snapshot_shape():
     assert snapshot["media"] is None
     assert snapshot["notifs"] == []
     assert snapshot["bar"]["zones"] == []
+    assert "dashboard" not in snapshot
 
 
 def test_change_detection_bumps_rev_once():
@@ -39,6 +40,34 @@ def test_snapshot_carries_current_state():
     assert snapshot["rev"] == model.rev
     assert snapshot["bar"]["zones"] == [{"id": "cpu"}]
     assert snapshot["clock"] == {"epoch": 5, "offset": -18000}
+
+
+def test_dashboard_metadata_is_sanitized_and_kept_out_of_legacy_sync():
+    model = StateModel()
+    payload = {
+        "cpu": 0.423,
+        "mem": float("nan"),
+        "network": True,
+        "battery": {"level": 0.787, "charging": False},
+        "volume": None,
+        "bluetooth": 2,
+        "interface": "private-host-detail",
+    }
+
+    assert model.set_dashboard(payload)
+    rev = model.rev
+    assert model.set_dashboard({**payload, "cpu": 0.424}) is False
+    assert model.rev == rev
+    assert model.dashboard == {
+        "cpu": 0.42,
+        "mem": None,
+        "network": True,
+        "battery": {"level": 0.79, "charging": False},
+        "volume": None,
+        "bluetooth": 2,
+    }
+    assert "dashboard" not in model.snapshot()
+    assert model.card_snapshot()["dashboard"] == model.dashboard
 
 
 def test_notifications():

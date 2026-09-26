@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include "cJSON.h"
+#include "dashboard.h"
 
 #define STATUS_MAX_ZONES        8
 #define STATUS_ZONE_ID_MAX      16
@@ -61,6 +62,7 @@ typedef struct {
     int zone_count;
     status_clock_t clock;
     status_media_t media;
+    status_dashboard_t dashboard;
     status_notif_t *notifs;
     int notif_capacity;
     int cache_limit;
@@ -68,12 +70,23 @@ typedef struct {
     int notif_overflow;
     int hidden_ids[STATUS_MAX_NOTIFS];
     int hidden_count;
+    uint32_t notif_focus_seq;
+    int notif_focus_id;
+    int notif_focus_urgency;
+    int64_t notif_focus_us;
+    uint32_t notif_critical_seq;
+    int notif_critical_id;
+    int64_t notif_critical_us;
+    /* Published by the LVGL timer for read-only acceptance diagnostics. */
+    bool deck_enabled, deck_stale;
+    int deck_reachable, deck_position, deck_focus_id, deck_next_id;
     int64_t last_rx_us;
     bool got_sync;
 } status_state_t;
 
 #define STATE_DIRTY_BAR   0x1
 #define STATE_DIRTY_NOTIF 0x2
+#define STATE_DIRTY_DASHBOARD 0x4
 
 void state_init(void);
 
@@ -93,6 +106,7 @@ void state_note_rx(void);
 void state_apply_bar(const cJSON *obj);
 bool state_apply_clock(const cJSON *obj, int64_t *epoch, int *offset);
 void state_apply_media(const cJSON *obj);
+bool state_apply_dashboard(const cJSON *obj);
 void state_apply_notify(const cJSON *obj);
 void state_apply_close(int id, int total);
 void state_apply_sync(const cJSON *obj);

@@ -65,6 +65,13 @@ def test_card_sync_capability_requires_an_advertised_integer_capacity():
     assert proto.card_sync_capacity({"cap": ["card-sync-v1"], "cache_cards": True}) is None
 
 
+def test_dashboard_capability_requires_card_sync_v1_too():
+    assert proto.dashboard_capable({"cap": ["card-sync-v1", "dashboard-v1"]})
+    assert not proto.dashboard_capable({"cap": ["dashboard-v1"]})
+    assert not proto.dashboard_capable({"cap": ["card-sync-v1"]})
+    assert not proto.dashboard_capable({"cap": "dashboard-v1"})
+
+
 def test_cards_status_requires_nonnegative_counts_and_integer_ids():
     assert proto.card_status({"count": 2, "overflow": 1, "ids": [8, 7], "capacity": 32}) == {
         "count": 2,
@@ -78,6 +85,25 @@ def test_cards_status_requires_nonnegative_counts_and_integer_ids():
     assert proto.card_status({"count": 2, "overflow": 0, "ids": [1], "capacity": 32}) is None
     assert proto.card_status({"count": 2, "overflow": 0, "ids": [1, 2], "capacity": 1}) is None
     assert proto.card_status({"count": 2, "overflow": 0, "ids": [1, 1], "capacity": 32}) is None
+
+
+def test_cards_status_preserves_and_validates_optional_deck_readback():
+    status = {"count": 3, "overflow": 4, "ids": [9, 8, 7], "capacity": 32}
+    deck = {
+        "enabled": True,
+        "reachable": 2,
+        "position": 1,
+        "focus_id": 9,
+        "next_id": 8,
+        "stale": False,
+    }
+
+    assert proto.card_status({**status, "deck": deck}) == {**status, "deck": deck}
+    assert proto.card_status(status) == status
+    assert proto.card_status({**status, "deck": {key: value for key, value in deck.items() if key != "focus_id"}}) is None
+    assert proto.card_status({**status, "deck": {**deck, "enabled": 1}}) is None
+    assert proto.card_status({**status, "deck": {**deck, "reachable": 33}}) is None
+    assert proto.card_status({**status, "deck": {**deck, "reachable": 1, "next_id": 8}}) is None
 
 
 def test_card_sync_chunks_measure_escaped_utf8_bytes():
@@ -124,6 +150,33 @@ def test_card_sync_chunks_measure_escaped_utf8_bytes():
     ]
     assert all(len(proto.encode(message)) <= proto.LINE_MAX for message in messages)
     assert all(len(proto.encode(chunk)) <= proto.CARD_CHUNK_MAX for chunk in chunks)
+
+
+def test_dashboard_is_added_only_to_opted_in_sync_begin():
+    snapshot = {
+        "rev": 9,
+        "bar": {"t": "bar", "rev": 9, "zones": []},
+        "clock": None,
+        "media": None,
+        "dashboard": {
+            "cpu": 0.41,
+            "mem": 0.52,
+            "network": True,
+            "battery": {"level": 0.78, "charging": False},
+            "volume": {"level": 0.32, "mute": False},
+            "bluetooth": 2,
+        },
+        "notifs": [],
+        "limit": 32,
+        "overflow": 0,
+    }
+
+    old_messages = proto.card_sync_messages(snapshot, tx=1)
+    new_messages = proto.card_sync_messages(snapshot, tx=2, include_dashboard=True)
+
+    assert "dashboard" not in old_messages[0]
+    assert new_messages[0]["dashboard"] == snapshot["dashboard"]
+    assert all(len(proto.encode(message)) <= proto.LINE_MAX for message in new_messages)
 
 
 @pytest.mark.parametrize(

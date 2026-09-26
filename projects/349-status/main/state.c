@@ -18,6 +18,7 @@ static struct {
     int zone_count;
     status_clock_t clock;
     status_media_t media;
+    status_dashboard_t dashboard;
     int tx;
     int count;
     int limit;
@@ -258,6 +259,34 @@ void state_apply_media(const cJSON *obj)
     state_unlock();
 }
 
+bool state_apply_dashboard(const cJSON *obj)
+{
+    status_dashboard_t dashboard;
+    if (!dashboard_parse(obj, &dashboard)) {
+        return false;
+    }
+    state_lock();
+    s_state.dashboard = dashboard;
+    s_dirty |= STATE_DIRTY_DASHBOARD;
+    state_unlock();
+    return true;
+}
+
+/* Caller holds the state mutex. Separate critical metadata protects a
+ * critical arrival from a later normal in the same LVGL tick. */
+static void request_focus(const status_notif_t *notif)
+{
+    s_state.notif_focus_seq++;
+    s_state.notif_focus_id = notif->id;
+    s_state.notif_focus_urgency = notif->urgency;
+    s_state.notif_focus_us = esp_timer_get_time();
+    if (notif->urgency >= 2) {
+        s_state.notif_critical_seq++;
+        s_state.notif_critical_id = notif->id;
+        s_state.notif_critical_us = s_state.notif_focus_us;
+    }
+}
+
 static void apply_notify(const cJSON *obj, bool unhide)
 {
     status_notif_t parsed;
@@ -267,11 +296,13 @@ static void apply_notify(const cJSON *obj, bool unhide)
     const int nid = parsed.id;
 
     state_lock();
+    bool was_hidden = false;
     /* A live notify can replace a locally hidden card. A periodic sync must
      * preserve the local dismiss for unchanged cards. */
     if (unhide) {
         for (int i = 0; i < s_state.hidden_count; i++) {
             if (s_state.hidden_ids[i] == nid) {
+                was_hidden = true;
                 memmove(&s_state.hidden_ids[i], &s_state.hidden_ids[i + 1],
                         sizeof(s_state.hidden_ids[0]) * (s_state.hidden_count - i - 1));
                 s_state.hidden_count--;
@@ -315,7 +346,8 @@ static void apply_notify(const cJSON *obj, bool unhide)
             break;
         }
     }
-    if (slot < 0) {
+    const bool is_new = slot < 0;
+    if (is_new) {
         if (s_state.notif_count < s_state.cache_limit) {
             slot = s_state.notif_count++;
         } else {
@@ -331,6 +363,9 @@ static void apply_notify(const cJSON *obj, bool unhide)
     }
 
     s_state.notifs[slot] = parsed;
+    if (unhide && (is_new || was_hidden || parsed.urgency >= 2)) {
+        request_focus(&parsed);
+    }
 
     if (cJSON_IsNumber(total) && total->valueint >= s_state.notif_count) {
         s_state.notif_overflow = total->valueint - s_state.notif_count;
@@ -401,6 +436,8 @@ void state_apply_close(int id, int total)
 
 void state_apply_sync(const cJSON *obj)
 {
+    /* Legacy hosts omit this field and keep their configured bar layout. */
+    state_apply_dashboard(cJSON_GetObjectItemCaseSensitive(obj, "dashboard"));
     const cJSON *bar = cJSON_GetObjectItemCaseSensitive(obj, "bar");
     state_apply_bar(bar);
 
@@ -496,6 +533,9 @@ bool state_sync_begin(const cJSON *obj)
     s_stage.zone_count = zone_count;
     s_stage.clock = parse_clock(cJSON_GetObjectItemCaseSensitive(obj, "clock"));
     s_stage.media = parse_media(cJSON_GetObjectItemCaseSensitive(obj, "media"));
+    if (!dashboard_parse(cJSON_GetObjectItemCaseSensitive(obj, "dashboard"), &s_stage.dashboard)) {
+        return false;
+    }
     s_stage.tx = tx;
     s_stage.count = count;
     s_stage.limit = limit;
@@ -546,6 +586,38 @@ bool state_sync_commit(const cJSON *obj, int64_t *epoch, int *offset, bool *has_
     }
 
     state_lock();
+    /* A reconnect may introduce arrivals missed while the link was down.
+     * Cards after the newest retained ID are new arrivals; a refill of older
+     * overflow cards lies before that anchor and must not steal normal focus.
+     * Any newly seen critical card (or newly critical replacement) takes
+     * priority, while unchanged snapshots and local hides preserve focus. */
+    int newest_known = -1;
+    for (int i = 0; i < s_stage.count; i++) {
+        for (int old = 0; old < s_state.notif_count; old++) {
+            if (s_stage.cards[i].id == s_state.notifs[old].id) {
+                newest_known = i;
+                break;
+            }
+        }
+    }
+    for (int i = 0; i < s_stage.count; i++) {
+        const status_notif_t *card = &s_stage.cards[i];
+        bool hidden = false;
+        for (int h = 0; h < s_state.hidden_count; h++) {
+            hidden |= s_state.hidden_ids[h] == card->id;
+        }
+        int old_urgency = -1;
+        for (int old = 0; old < s_state.notif_count; old++) {
+            if (card->id == s_state.notifs[old].id) {
+                old_urgency = s_state.notifs[old].urgency;
+                break;
+            }
+        }
+        if (!hidden && ((old_urgency < 0 && i > newest_known)
+                || (card->urgency >= 2 && old_urgency < 2))) {
+            request_focus(card);
+        }
+    }
     status_notif_t *old_cards = s_state.notifs;
     s_state.notifs = s_stage.cards;
     s_stage.cards = old_cards;
@@ -553,6 +625,7 @@ bool state_sync_commit(const cJSON *obj, int64_t *epoch, int *offset, bool *has_
     s_state.zone_count = s_stage.zone_count;
     s_state.clock = s_stage.clock;
     s_state.media = s_stage.media;
+    s_state.dashboard = s_stage.dashboard;
     s_state.notif_count = s_stage.count;
     s_state.cache_limit = s_stage.limit;
     s_state.notif_overflow = s_stage.overflow;
@@ -569,7 +642,7 @@ bool state_sync_commit(const cJSON *obj, int64_t *epoch, int *offset, bool *has_
         s_state.hidden_count = retained;
     }
     s_state.got_sync = true;
-    s_dirty |= STATE_DIRTY_BAR | STATE_DIRTY_NOTIF;
+    s_dirty |= STATE_DIRTY_BAR | STATE_DIRTY_NOTIF | STATE_DIRTY_DASHBOARD;
     state_unlock();
 
     if (epoch != NULL) {

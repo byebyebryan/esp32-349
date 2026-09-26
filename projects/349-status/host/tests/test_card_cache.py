@@ -23,6 +23,7 @@ def test_hello_capability_selects_chunked_transfer_and_old_hello_keeps_legacy_sy
             return True
 
         daemon._write_message = capture
+        daemon._sample = lambda: {}
         for nid in range(35):
             daemon.model.add_notification(_card(nid))
 
@@ -33,6 +34,25 @@ def test_hello_capability_selects_chunked_transfer_and_old_hello_keeps_legacy_sy
         assert sent[0]["overflow"] == 3
         assert sent[-1] == {"t": "sync_commit", "tx": 1}
         assert [card["id"] for message in sent if message["t"] == "sync_cards" for card in message["notifs"]] == list(range(3, 35))
+        assert "dashboard" not in sent[0]
+
+        sent.clear()
+        dashboard_hello = {
+            "t": "hello",
+            "proto": 1,
+            "cap": ["link", "bar", "card-sync-v1", "dashboard-v1"],
+            "cache_cards": 32,
+        }
+        await daemon._on_line("@349 " + json.dumps(dashboard_hello))
+        assert sent[0]["t"] == "sync_begin"
+        assert sent[0]["dashboard"] == {
+            "cpu": None,
+            "mem": None,
+            "network": None,
+            "battery": None,
+            "volume": None,
+            "bluetooth": None,
+        }
 
         sent.clear()
         old_hello = {"t": "hello", "proto": 1, "cap": ["link", "bar"]}
@@ -40,6 +60,13 @@ def test_hello_capability_selects_chunked_transfer_and_old_hello_keeps_legacy_sy
         await daemon._on_line("@349 " + json.dumps(old_hello))
         assert [message["t"] for message in sent] == ["sync", "sync"]
         assert [message["id"] for message in sent[0]["notifs"]] == list(range(32, 35))
+        assert all("dashboard" not in message for message in sent)
+
+        sent.clear()
+        dashboard_only = {"t": "hello", "proto": 1, "cap": ["link", "dashboard-v1"]}
+        await daemon._on_line("@349 " + json.dumps(dashboard_only))
+        assert sent[0]["t"] == "sync"
+        assert "dashboard" not in sent[0]
 
     asyncio.run(scenario())
 
@@ -54,6 +81,7 @@ def test_hello_deduplicates_same_boot_and_syncs_after_firmware_restart():
             return True
 
         daemon._write_message = capture
+        daemon._sample = lambda: {}
         hello = {
             "t": "hello",
             "proto": 1,
@@ -127,7 +155,9 @@ def test_state_changes_wait_for_snapshot_commit_and_keep_arrival_close_order():
     async def scenario():
         daemon = Daemon(default_config(), asyncio.Event())
         daemon._card_sync_capacity = 32
+        daemon._dashboard_capable = True
         daemon.model.add_notification(_card(1))
+        daemon._sample = lambda: {"cpu": 0.5, "mem": 0.25, "network": True}
         entered_begin = asyncio.Event()
         release_begin = asyncio.Event()
         sent = []
@@ -147,10 +177,16 @@ def test_state_changes_wait_for_snapshot_commit_and_keep_arrival_close_order():
         await asyncio.sleep(0)
         close = asyncio.create_task(daemon._device_close(1))
         await asyncio.sleep(0)
+        async def update_dashboard():
+            async with daemon._state_lock:
+                await daemon._update_dashboard_locked({"cpu": 0.5, "mem": 0.25, "network": False})
+
+        dashboard = asyncio.create_task(update_dashboard())
+        await asyncio.sleep(0)
         assert set(daemon.model.notifs) == {1}
 
         release_begin.set()
-        await asyncio.gather(sync, arrival, close)
+        await asyncio.gather(sync, arrival, close, dashboard)
 
         commit_index = next(index for index, message in enumerate(sent) if message["t"] == "sync_commit")
         assert [message["t"] for message in sent[: commit_index + 1]][0] == "sync_begin"
@@ -158,6 +194,15 @@ def test_state_changes_wait_for_snapshot_commit_and_keep_arrival_close_order():
         assert sent[commit_index + 1 :] == [
             {**_card(2), "total": 2, "cached": True},
             {"t": "close", "id": 1, "total": 1},
+            {
+                "t": "dashboard",
+                "cpu": 0.5,
+                "mem": 0.25,
+                "network": False,
+                "battery": None,
+                "volume": None,
+                "bluetooth": None,
+            },
         ]
         assert set(daemon.model.notifs) == {2}
 
@@ -207,6 +252,7 @@ def test_overflow_close_coalesces_a_full_refill_sync():
             return True
 
         daemon._write_message = capture
+        daemon._sample = lambda: {}
         await daemon._device_close(32)
         await daemon._device_close(31)
         assert sent == [
@@ -236,7 +282,21 @@ def test_device_cards_ipc_returns_readback_ids_and_times_out_cleanly(monkeypatch
         daemon = Daemon(default_config(), asyncio.Event())
         daemon._card_sync_capacity = 32
         sent = []
-        status = {"t": "cards_status", "count": 3, "overflow": 4, "ids": [9, 8, 7], "capacity": 32}
+        status = {
+            "t": "cards_status",
+            "count": 3,
+            "overflow": 4,
+            "ids": [9, 8, 7],
+            "capacity": 32,
+            "deck": {
+                "enabled": True,
+                "reachable": 2,
+                "position": 1,
+                "focus_id": 9,
+                "next_id": 8,
+                "stale": False,
+            },
+        }
 
         async def reply_to_query(message):
             sent.append(message)
@@ -249,7 +309,20 @@ def test_device_cards_ipc_returns_readback_ids_and_times_out_cleanly(monkeypatch
         assert sent == [{"t": "cards_query"}]
         assert result == {
             "ok": True,
-            "device_cards": {"count": 3, "overflow": 4, "ids": [9, 8, 7], "capacity": 32},
+            "device_cards": {
+                "count": 3,
+                "overflow": 4,
+                "ids": [9, 8, 7],
+                "capacity": 32,
+                "deck": {
+                    "enabled": True,
+                    "reachable": 2,
+                    "position": 1,
+                    "focus_id": 9,
+                    "next_id": 8,
+                    "stale": False,
+                },
+            },
         }
         assert daemon._cards_status_waiter is None
 

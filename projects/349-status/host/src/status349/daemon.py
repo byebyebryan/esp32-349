@@ -2,7 +2,8 @@
 
 The device never polls. The daemon pushes a full `sync` on connect and every
 `sync_interval_s`, and deltas (`clock` on offset change, `bar` on change)
-otherwise.
+otherwise. Dashboard-capable firmware also receives changed host readings as
+an independent dashboard delta.
 """
 
 from __future__ import annotations
@@ -10,6 +11,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import math
 import os
 import signal
 import time
@@ -22,7 +24,9 @@ from .composition import build_zones
 from .config import Config, apply_config, load_config, validate_config
 from .ipc import IpcServer, pause_path
 from .link import LinkError, find_port, reset_to_normal_boot_async
+from .sources.bluetooth import BluetoothSource
 from .sources.clock import ClockSource
+from .sources.network import NetworkSource
 from .sources.notifications import NotificationSource
 from .sources.power import PowerSource
 from .sources.sysinfo import SysinfoSource
@@ -35,6 +39,7 @@ BAUDRATE = 115200
 PING_INTERVAL_S = 4.0
 PORT_SCAN_INTERVAL_S = 0.5
 CARD_STATUS_TIMEOUT_S = 2.0
+DASHBOARD_CPU_EMA_TAU_S = 3.0
 
 
 class Daemon:
@@ -53,11 +58,16 @@ class Daemon:
         self.sysinfo = SysinfoSource()
         self.volume = VolumeSource()
         self.power = PowerSource()
+        self.network = NetworkSource()
+        self.bluetooth = BluetoothSource()
+        self._cpu_ema: float | None = None
+        self._cpu_ema_mono: float | None = None
         self.notifications = NotificationSource(cfg.notifications, self._device_notify, self._device_close)
         self._writer: asyncio.StreamWriter | None = None
         self._state_lock = asyncio.Lock()
         self._wire_lock = asyncio.Lock()
         self._card_sync_capacity: int | None = None
+        self._dashboard_capable = False
         self._sync_tx = 0
         self._device_boot_id: int | None = None
         self._cards_query_lock = asyncio.Lock()
@@ -150,7 +160,65 @@ class Daemon:
         values.update(self.sysinfo.read())
         values.update(self.volume.read())
         values.update(self.power.read())
+        values.update(self.network.read())
+        values.update(self.bluetooth.read())
         return values
+
+    @staticmethod
+    def _ratio(value: object) -> float | None:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        try:
+            numeric = float(value)
+        except (OverflowError, ValueError):
+            return None
+        if not math.isfinite(numeric):
+            return None
+        return max(0.0, min(1.0, numeric))
+
+    def _dashboard_payload(self, values: dict) -> dict:
+        now = time.monotonic()
+        cpu = self._ratio(values.get("cpu"))
+        if cpu is None:
+            self._cpu_ema = None
+            self._cpu_ema_mono = None
+            smoothed_cpu = None
+        elif self._cpu_ema is None or self._cpu_ema_mono is None:
+            self._cpu_ema = cpu
+            self._cpu_ema_mono = now
+            smoothed_cpu = cpu
+        else:
+            elapsed = max(0.0, now - self._cpu_ema_mono)
+            alpha = -math.expm1(-elapsed / DASHBOARD_CPU_EMA_TAU_S)
+            self._cpu_ema += alpha * (cpu - self._cpu_ema)
+            self._cpu_ema_mono = now
+            smoothed_cpu = self._cpu_ema
+
+        battery_level = self._ratio(values.get("batt"))
+        volume_level = self._ratio(values.get("vol"))
+        return {
+            "cpu": smoothed_cpu,
+            "mem": values.get("mem"),
+            "network": values.get("network"),
+            "battery": (
+                {"level": battery_level, "charging": values.get("charging")}
+                if battery_level is not None
+                else None
+            ),
+            "volume": (
+                {"level": volume_level, "mute": values.get("mute")}
+                if volume_level is not None
+                else None
+            ),
+            "bluetooth": values.get("bluetooth"),
+        }
+
+    async def _update_dashboard_locked(self, values: dict, *, emit_delta: bool = True) -> bool:
+        """Update dashboard state while holding ``_state_lock``."""
+        changed = self.model.set_dashboard(self._dashboard_payload(values))
+        if changed and emit_delta and self._dashboard_capable:
+            await self.send(proto.dashboard_message(self.model.dashboard))
+        return changed
 
     async def _send_sync(self) -> None:
         async with self._state_lock:
@@ -160,13 +228,19 @@ class Daemon:
     async def _send_sync_locked(self) -> None:
         epoch, offset = self.clock.read()
         self.model.set_clock(epoch, offset)
-        self.model.set_zones(build_zones(self.cfg.bar.preset, self._sample()))
+        values = self._sample()
+        self.model.set_zones(build_zones(self.cfg.bar.preset, values))
+        await self._update_dashboard_locked(values, emit_delta=False)
         if self._card_sync_capacity is None:
             messages = [self.model.snapshot()]
         else:
             self._sync_tx += 1
             snapshot = self.model.card_snapshot(self._card_sync_capacity)
-            messages = proto.card_sync_messages(snapshot, self._sync_tx)
+            messages = proto.card_sync_messages(
+                snapshot,
+                self._sync_tx,
+                include_dashboard=self._dashboard_capable,
+            )
 
         # Hold the wire lock across the full transaction, including begin and
         # commit, so pings and IPC output cannot split its staging sequence.
@@ -213,6 +287,7 @@ class Daemon:
             async with self._state_lock:
                 self._writer = writer
                 self._card_sync_capacity = None
+                self._dashboard_capable = False
                 self._sync_tx = 0
                 self._device_boot_id = None
             # Opening the port resets the chip, but the kernel's DTR/RTS raise
@@ -282,6 +357,9 @@ class Daemon:
             )
             async with self._state_lock:
                 self._card_sync_capacity = proto.card_sync_capacity(message)
+                self._dashboard_capable = (
+                    self._card_sync_capacity is not None and proto.dashboard_capable(message)
+                )
                 if boot_id is not None and boot_id == self._device_boot_id:
                     log.debug("ignoring repeated hello for device boot_id=%s", boot_id)
                 else:
@@ -471,6 +549,7 @@ class Daemon:
                     await self.send(proto.clock(epoch, offset))
                     last_offset = offset
 
+                await self._update_dashboard_locked(values)
                 if self.model.set_zones(build_zones(self.cfg.bar.preset, values)):
                     await self.send(proto.bar(self.model.zones, self.model.rev))
 

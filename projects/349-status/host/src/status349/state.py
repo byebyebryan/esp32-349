@@ -16,6 +16,7 @@ class StateModel:
         self.rev = 0
         self.clock: dict | None = None
         self.media: dict | None = None
+        self.dashboard: dict = proto.dashboard_payload(None)
         self.notifs: dict[int, dict] = {}
         self.zones: list[dict] = []
 
@@ -71,6 +72,7 @@ class StateModel:
             "bar": proto.bar(self.zones, self.rev),
             "clock": self.clock,
             "media": self.media,
+            "dashboard": self.dashboard,
             "notifs": notifs,
             "limit": capacity,
             "overflow": len(all_notifs) - len(notifs),
@@ -99,6 +101,14 @@ class StateModel:
         if message == self.media:
             return False
         self.media = message
+        self.rev += 1
+        return True
+
+    def set_dashboard(self, payload: object) -> bool:
+        dashboard = proto.dashboard_payload(payload)
+        if dashboard == self.dashboard:
+            return False
+        self.dashboard = dashboard
         self.rev += 1
         return True
 

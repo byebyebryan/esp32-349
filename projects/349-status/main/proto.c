@@ -48,6 +48,7 @@ void proto_send_hello(void)
     cJSON_AddItemToArray(cap, cJSON_CreateString("rtc"));
     if (state_card_sync_capacity() > 0) {
         cJSON_AddItemToArray(cap, cJSON_CreateString("card-sync-v1"));
+        cJSON_AddItemToArray(cap, cJSON_CreateString("dashboard-v1"));
         cJSON_AddNumberToObject(obj, "cache_cards", state_card_sync_capacity());
     }
     send_object(obj);
@@ -86,6 +87,24 @@ static void send_cards_status(void)
     for (int i = 0; i < count; i++) {
         cJSON_AddItemToArray(array, cJSON_CreateNumber(ids[i]));
     }
+    state_lock();
+    const status_state_t *st = state_get();
+    cJSON *deck = cJSON_AddObjectToObject(obj, "deck");
+    cJSON_AddBoolToObject(deck, "enabled", st->deck_enabled);
+    cJSON_AddNumberToObject(deck, "reachable", st->deck_reachable);
+    cJSON_AddNumberToObject(deck, "position", st->deck_position);
+    cJSON_AddBoolToObject(deck, "stale", st->deck_stale);
+    if (st->deck_enabled && st->deck_reachable > 0) {
+        cJSON_AddNumberToObject(deck, "focus_id", st->deck_focus_id);
+    } else {
+        cJSON_AddNullToObject(deck, "focus_id");
+    }
+    if (st->deck_enabled && st->deck_reachable > 1) {
+        cJSON_AddNumberToObject(deck, "next_id", st->deck_next_id);
+    } else {
+        cJSON_AddNullToObject(deck, "next_id");
+    }
+    state_unlock();
     send_object(obj);
     cJSON_Delete(obj);
 }
@@ -225,6 +244,11 @@ void proto_handle_line(const char *json)
     } else if (strcmp(kind, "bar") == 0) {
         if (!reject_interleaved()) {
             state_apply_bar(obj);
+        }
+        state_note_rx();
+    } else if (strcmp(kind, "dashboard") == 0) {
+        if (!reject_interleaved() && !state_apply_dashboard(obj)) {
+            send_resync("dashboard_invalid");
         }
         state_note_rx();
     } else if (strcmp(kind, "clock") == 0) {
