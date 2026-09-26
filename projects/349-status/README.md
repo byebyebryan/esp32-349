@@ -141,13 +141,26 @@ count without resetting the USB link.
 Firmware advertising `dashboard-v1` uses a 160 px telemetry rail and a
 480 px content area. Idle content is a large clock/date; an active notification
 uses a full-height foreground card with up to three body lines. With several
-cards, tap the right-hand peek to advance. Tap × to dismiss locally; tapping
-the body does nothing. The position count includes only locally visible,
+cards, drag left/right to browse the next/previous card; release to snap one
+card. Short drags return to the original card, and a deliberate flick can
+advance one card. Tapping the right-hand peek also advances. Tap × to dismiss
+locally; tapping the body does nothing. The position count includes only locally visible,
 cached cards; `+N uncached` is a separate count, not a navigation target.
 CPU, memory, local network link, and conditional battery appear in the rail;
 volume and Bluetooth changes appear briefly. Bluetooth probing is optional
 and failure leaves that reading unavailable. Details and acceptance scope are
-in the [UI checkpoint](design/ui-deck-plan.md).
+in the [UI checkpoint](design/ui-deck-plan.md) and
+[swipe plan](design/swipe-deck-plan.md). The recorded swipe trials measured
+about 16–20 updates/s; the user reports clean, responsive motion. The initial
+25 updates/s tuning target was not reached. Exact build and trial scope are
+recorded in [ACCEPTANCE.md](ACCEPTANCE.md).
+
+Rendering uses a full PSRAM buffer in DIRECT mode and the existing rotated
+PSRAM shadow, then sends one complete panel frame. LVGL drawing runs
+synchronously inside the display lock. The small internal-buffer experiment
+was reverted: faster conversion was largely offset by slower drawing, while
+using scarce internal RAM. Basic debug timing reports frame period and
+transfer time; the health log includes heap and LVGL stack headroom.
 
 The daemon sends a ping every four seconds even when the bar does not change.
 While the board stays powered, it shows `host asleep` when USB activity stops
@@ -184,9 +197,29 @@ dashboard parser compiled into firmware (with the IDF environment loaded):
 cc -std=c11 -Wall -Wextra -Werror -I main \
   main/deck.c tools/test_deck.c -o /tmp/349-deck-tests
 /tmp/349-deck-tests
+cc -std=c11 -Wall -Wextra -Werror -I main \
+  main/deck.c main/deck_input.c tools/test_deck_input.c -o /tmp/349-deck-input-tests
+/tmp/349-deck-input-tests
 cc -std=c11 -Wall -Wextra -Werror -I main -I "$IDF_PATH/components/json/cJSON" \
   main/dashboard.c tools/test_dashboard.c "$IDF_PATH/components/json/cJSON/cJSON.c" \
   -lm -o /tmp/349-dashboard-tests
 /tmp/349-dashboard-tests
 python tools/check_font_coverage.py
+cc -std=c11 -Wall -Wextra -Werror -I ../../components/display_349 \
+  ../../components/display_349/shadow_349.c tools/test_shadow_349.c \
+  -o /tmp/349-shadow-tests
+/tmp/349-shadow-tests
 ```
+
+The native LVGL fixture exercises the production deck through pointer input,
+including hit testing, animation, and cache changes during a gesture. It needs
+the managed LVGL dependency installed by the firmware build and ESP-IDF's
+cJSON headers (`IDF_PATH`, or `-DCJSON_INCLUDE_DIR=/path/to/cJSON`):
+
+```sh
+cmake -S tools/native_ui -B /tmp/349-native-ui-build
+cmake --build /tmp/349-native-ui-build --target native_ui -j 4
+/tmp/349-native-ui-build/native_ui
+```
+
+These checks do not measure the panel's touch reliability or animation speed.

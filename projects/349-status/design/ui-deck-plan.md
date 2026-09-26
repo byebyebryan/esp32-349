@@ -97,3 +97,11 @@ The original notification config was restored and normal mirroring resumed.
 The reviewed UI source is committed in `149f52e`; the accepted board image
 predates the final peek-tap race fix, which has build and native-test coverage.
 Snap remains on the preceding cache UI.
+
+The next refinement is the [drag-and-snap deck](swipe-deck-plan.md).
+It adds horizontal movement and previous-card navigation while retaining the
+cache, rail, typography, and explicit-dismiss contract documented here. Its
+software and Starship short physical checks pass, separately from the tap-deck
+acceptance above. Motion was accepted by the user at its measured 16–20
+updates/s; the initial 25 updates/s target was not reached. See the swipe
+plan and `ACCEPTANCE.md` for exact build and trial scope.

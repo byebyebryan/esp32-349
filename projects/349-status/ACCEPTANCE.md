@@ -383,3 +383,308 @@ This review/commit step did not push or update Snap.
 
 This checkpoint has no soak or host-suspend gate. It does not claim a Snap
 deployment or long-duration stability.
+
+## Swipe implementation checkpoint — 2026-09-25
+
+**Historical automated checkpoint, before the physical trials below.** At
+this point the user was away from Starship's board, so physical swipe tuning
+and performance acceptance were pending. The previous section's tap-deck
+observations did not establish acceptance of this swipe firmware.
+
+### Build and deployment
+
+At this checkpoint, the uncommitted implementation was based on `b5e9e6d`.
+Luna implemented the bounded input policy, circular ID lookup/selection,
+and native LVGL fixture;
+the primary integrated the three card views, pointer ownership, animations,
+deferred focus, cancellation, and deployment checks.
+
+| Identity | Value |
+|---|---|
+| Board | Starship, USB serial `28:84:85:92:C2:20` |
+| Device descriptor | `hello.build=b5e9e6d-dirty`, `build_sha=7e59d83af` |
+| Firmware binary SHA-256 | `b1bca1ce00d2c62c90228b2d761f1c985b90f12258dc56046b5cd60f38606f44` |
+| Firmware ELF SHA-256 | `7e59d83af17c2f93a2e65414c6c12bba7e138f77bd17ce6d010d7e1a4f3f2a0c` |
+| App size | `0x216700` bytes in the `0x800000` partition; 74% free |
+| Host service | Existing service, main PID `2119025`, started 21:03:22 PDT |
+| Normal link restored | 22:41:00 PDT, same firmware identity |
+
+Before flashing, the old app was read from the board and its SHA-256 matched
+the accepted `f758f77b0` image above. Old/new binaries, the new ELF, original
+config, and synthetic readback evidence are saved under
+`~/.local/share/esp32/backups/starship-c220-pre-swipe-2026-09-25/`.
+Only Starship's application partition was flashed. Snap was not updated.
+
+### Software checks
+
+- Native deck and input policy checks pass with `-std=c11 -Wall -Wextra -Werror`.
+  They cover thresholds, both directions, stale motion samples, flick reversal,
+  button/rail ownership, ID zero, removals, release latching, and generations.
+- The production `ui_deck.c` runs in a native LVGL pointer fixture; gestures
+  enter through `lv_indev` read callbacks, rather than calls to the UI event
+  handler or direct focus mutations. Debug and Release runs pass, with
+  assertions retained in both.
+- The fixture checks slow navigation, flick/cancel, peek tap and drag, body
+  tap, explicit dismiss, movement starting on ×, vertical/diagonal input,
+  rail ownership, normal-only arrival discard, deferred critical arrival,
+  stable text during replacement and reordered sync, source/destination removal
+  while held and settling, stale/legacy cancellation, and 0/1/2/32-card states
+  with separate overflow. These cache changes are simulated in the fixture;
+  they do not exercise the physical touch controller or USB transport.
+- RGB565 framebuffer captures at rest and during movement were inspected.
+  The rail stays fixed and cards clip within the deck viewport. The fixture
+  uses the real title/body font assets; it does not reproduce panel timing.
+- Dashboard-parser checks, the unchanged font coverage audit, the firmware
+  build, and the integrated host suite (**118 tests**) pass.
+
+Reproduction commands are in [README.md](README.md). The fixture uses three
+reusable slots; movement updates positions without resizing cards or rebinding
+their text. The cache/lifetime protocol and host code are unchanged.
+
+### Board readback checks
+
+The daemon was paused while the direct synthetic probe owned the serial port;
+desktop mirroring settings were not changed. The probe verified the new ELF
+hash prefix before testing. These are state/protocol checks, not touch or
+pixel-motion observations:
+
+| Check | Result |
+|---|---|
+| Initial sync | One cached/reachable card, ID 801 focused, dashboard enabled |
+| Critical then normal arrival | ID 802 remained focused with three reachable cards |
+| Foreground close | Surviving successor ID 801 selected; unrelated ID 803 retained |
+| Critical introduced by full sync | ID 804 took focus; identical sync preserved it |
+| Malformed staged dashboard | `sync_begin_invalid` resync; committed IDs/focus retained |
+| Legacy host snapshot | Deck disabled; dashboard snapshot restored it |
+| Stale/recovery | Stale after 10.6 seconds without host updates, cleared after ping |
+| Cache bound | 32 reachable cards, newest ID 11032 focused, separate overflow one |
+| Empty cache | Null focus and zero reachable cards, with overflow five reported separately |
+| Cleanup | Synthetic cards and overflow cleared before daemon resume |
+
+The first probe queried before the cold-start UI timer had published the
+committed cache. It saw one cached card with the deck still disabled. A
+follow-up poll observed the deck enabled by about 452 ms after sync; the
+final probe used a bounded two-second readiness wait and passed. This wait
+is not a measurement of finger feedback or panel animation speed.
+
+One ten-second health sample during the direct probe reported minimum free
+internal heap **73,823 bytes**, PSRAM **7,923,996 bytes**, and LVGL task stack
+headroom **1,744 bytes**. CPU idle percentages were not yet available in that
+first sample. These values cover this short readback run, with no physical
+swipe load; they do not establish the active-animation memory or FPS gate.
+
+After cleanup, `349d` resumed and linked to `7e59d83af`. Readback showed the
+dashboard enabled and stale false, with a real mirrored card rather than an
+injected test ID. The config remained byte-identical (SHA-256
+`61dacdef4cdfca91efe08658285379905b16c9237960879f413152c77e678cdf`).
+
+### Remaining exit gate
+
+When the user is back at Starship, run the isolated physical trials in the
+[swipe plan](design/swipe-deck-plan.md): slow drags, flick/cancel, wrap,
+twenty mixed attempts with at least 19 successful navigations and no accidental
+dismissals, hit targets, arrival/removal while touching, and a bounded
+30-second animation/latency/heap/stack sample. Existing display debug logs
+report frame period and transfer time; the health log now includes LVGL stack
+headroom. No panel FPS or touch-reliability claim is made yet.
+
+The goal remained open at this checkpoint. No commit, push, soak,
+host-suspend test, or Snap rollout was performed.
+
+## Swipe physical follow-up — 2026-09-25
+
+The short physical behavior checks passed with the user at Starship's board.
+The measured 25 updates/s target was **not reached**; the user reported that
+the last builds felt responsive enough, so further FPS tuning stopped. This
+accepts the observed usability at the recorded speed, without claiming that
+the original numerical target passed.
+
+### Renderer accepted before cleanup
+
+| Identity | Value |
+|---|---|
+| Board | Starship, USB serial `28:84:85:92:C2:20` |
+| Device descriptor | `hello.build=b5e9e6d-dirty`, `build_sha=c79c9e399` |
+| Firmware binary SHA-256 | `e5f702b3eca20c0ee22cb6008b9ca192ed2123cec751a2d7ee5786c0f5ab9059` |
+| Firmware ELF SHA-256 | `c79c9e399492df76ae5214af37a26ed011a6951bc6471cbc548556a45607d8b8` |
+| App size | `0x216660` bytes in the `0x800000` partition; 74% free |
+
+The full PSRAM LVGL rendering buffer was replaced by a 30,720-byte, 24-row
+internal-RAM buffer in PARTIAL mode. Each rendered rectangle is transposed
+and byte-swapped into the existing PSRAM shadow. Only the last strip sends
+one complete frame through the existing two DMA staging buffers. There are
+still three reusable card objects, with no cached card images or extra
+framebuffer layer. LVGL drawing runs synchronously under the existing display
+lock (`LV_OS_NONE`); the app does not depend on LVGL's internal thread APIs.
+
+The strict rectangle-conversion test checks full-frame conversion, padded
+source stride, interior/edge rectangles, untouched pixels, and canaries.
+At this stage the actual LVGL pointer fixture also used the 24-row PARTIAL
+buffer. Its Debug and Release checks passed, with assertions retained; at-rest and mid-drag
+RGB565 captures are pixel-identical to the earlier full-buffer renderer
+(ImageMagick absolute-error count zero for both). A final read-only review
+found no actionable stride, rotation, flush-order, or gesture-state defect.
+
+### Motion measurements and observed usability
+
+The original swipe image `7e59d83af` passed slow left/right/cancel checks and
+20/20 mixed navigations with no accidental dismissals. Profiling then showed
+that the initial frame-rate target could not be met. The diagnostic image
+`e7f3f7e39` separated draw, conversion, and transfer time. A tiled full-shadow
+experiment `5c0ceadec` stayed clean but did not improve speed and was rejected.
+The internal-strip image `041e96aea` again passed 20/20 mixed navigations with
+no accidental dismissals. The final synchronous-draw image `c79c9e399` passed
+the user's repeated continuous-motion and swipe/flick observation: clean
+layout and responsive motion. The twenty-attempt counts belong to the
+earlier images; no twenty-attempt count is claimed for `c79c9e399`.
+
+One uninterrupted 30-frame batch on `c79c9e399` reported a mean period of
+**60.757 ms (16.46 updates/s)** and a minimum period of **51.313 ms**. Its
+mean drawing, shadow-conversion, and panel-transfer times were respectively
+30.495, 5.747, and 13.964 ms. The fastest sampled individual interval in the
+motion/hit-target/count session was 48.889 ms; it is not a sustained-rate
+measurement.
+Windows that include pauses or idle time are excluded from the active-rate
+claim. The requested 30-second finger-motion trials were user-operated,
+rather than a timed autonomous benchmark.
+
+The same active batch measured **51.977 ms mean / 60.921 ms maximum** from
+a processed position change to completed panel DMA. The largest value in
+the subsequent hit-target samples was **66.354 ms**. This metric excludes
+touch-controller polling and does not measure physical contact-to-photon
+latency. The user separately observed responsive finger-following motion.
+
+The final-build touch/count session reported minimum internal heap
+**47,203 bytes**, PSRAM **8,145,184 bytes**, and LVGL stack headroom
+**2,476 bytes**. Quiet ten-second samples returned to 96–97% idle on core 0
+and 99–100% on core 1. These are short-run resource observations, not soak
+or long-duration stability evidence.
+
+### Physical behavior results
+
+| Check on `c79c9e399` | Result |
+|---|---|
+| Body tap; peek tap | No body action; peek advances one card |
+| Drag starting on × | No navigation or dismiss |
+| Vertical/diagonal drag; rail-start drag crossing into card | No action |
+| One card | Full-width card, no navigation/peek; × restores large idle clock/date |
+| Two cards | Both directions select the other card; counts alternate correctly |
+| 32 cached plus one uncached | Correct primary/peek, `1 / 32`, separate `+1 uncached`; swipe advances within cache |
+| Arrivals/replacement/reordered full sync while held | Copied text/position stayed stable; critical took focus after release; swipes continued normally |
+| Destination removed while held | Returned to source; removed ID stayed gone; browsing continued between survivors |
+| Source removed while held | Survivor took over cleanly; release and × worked; no resurrection |
+| Final state/protocol probe | Identity, priority, close fallback, full sync, invalid-stage recovery, legacy/dashboard mode, stale/recovery, bounds/overflow, and cleanup passed |
+| Normal mirror restoration | Same daemon resumed; final firmware identity matched; zero synthetic cards/overflow and stale false |
+
+Synthetic serial evidence and the final binary/ELF are retained under
+`~/.local/share/esp32/backups/starship-c220-pre-swipe-2026-09-25/`.
+The final-build sessions are `physical-20260925-231426.jsonl` (motion, hit
+targets, counts) and `physical-20260925-231904.jsonl` (held-update checks).
+The removal checks inject the host's `close` message, which is also how the
+host communicates expiry. An initial probe changed only `notify.expire` and
+did not remove the destination: firmware intentionally has no independent
+notification lifetime timer. The corrected probe sent `close`; the physical
+result and readback above concern that host-driven removal path. No actual
+desktop-server timeout trial is claimed here; lifetime behavior remains
+covered by the unchanged host suite.
+
+Desktop mirroring configuration has not been changed. No commit, push, soak,
+host-suspend test, or Snap rollout is part of this follow-up.
+
+### Final cleanup and restoration
+
+The final direct protocol probe verified `c79c9e399` and repeated all checks
+in the earlier board-readback table, including stale/recovery and legacy
+compatibility. It ended with zero cached cards and overflow. Its results are
+archived as `349-swipe-final-c79c9e399-board-probe-results.json` alongside the
+console log. Those results establish protocol/state behavior, not touch input.
+
+`349d` resumed at **23:26:25 PDT** and reported the matching device identity
+at **23:26:27 PDT**. The service remained active with main PID **2119025**,
+started at 21:03:22 PDT. Readback after restoration showed the dashboard
+enabled, stale false, zero cards, and zero overflow; no synthetic test ID
+remained. Configuration SHA-256 remained
+`61dacdef4cdfca91efe08658285379905b16c9237960879f413152c77e678cdf`.
+The mirror remains enabled and normal telemetry/keepalive updates resumed.
+No new desktop-to-board visual trial is claimed after this final resume.
+
+This closes the swipe short-gate loop at the observed speed, with the unmet
+25 updates/s target recorded above. Source changes were still uncommitted
+at the end of this gate.
+
+## Renderer cleanup before commit — 2026-09-25
+
+The user asked to remove rendering experiments that did not produce a notable
+responsiveness improvement. Luna implemented the bounded cleanup; the primary
+reviewed the integration and owns the firmware/board checks.
+
+- Restored the full PSRAM LVGL DIRECT buffer and the original 16,384-pixel
+  threshold for rebuilding the full rotated shadow.
+- Kept the extracted, tested rectangle conversion for small updates. DIRECT
+  passes a pointer offset into the full framebuffer with a 640-pixel stride.
+- Kept synchronous drawing (`LV_OS_NONE`), three reusable views, text/style
+  change detection, the existing DMA pipeline/counting semaphores/timeouts,
+  basic frame-period/transfer diagnostics, and heap/stack health reporting.
+- Removed the 30,720-byte internal drawing buffer and temporary draw,
+  conversion, and input-feedback profiling, including the UI's profiling API
+  dependency and its native stub. Tiled conversion had already been discarded.
+- Gesture policy, geometry, fonts, cache/lifetime behavior, and host code were
+  not changed. There is no new performance-improvement claim.
+
+The strict C11 conversion test passes, including a new DIRECT-style rectangle
+whose source starts inside a full framebuffer and retains full-frame stride.
+The native pointer fixture now matches production DIRECT semantics. Debug and
+Release pass with assertions retained; at-rest and mid-drag images each have
+absolute-error count zero against the accepted reference. The firmware build
+passes. The unchanged host suite was not rerun for this renderer-only cleanup.
+
+| Identity | Value |
+|---|---|
+| Board | Starship, USB serial `28:84:85:92:C2:20` |
+| Built descriptor | `b5e9e6d-dirty`, ELF prefix `cc004e27a` |
+| Firmware binary SHA-256 | `32cf7e42de9443837f5cbfbded8ecd215c290aa2e4047dd1bafddf56b0aa7df7` |
+| Firmware ELF SHA-256 | `cc004e27a697fd75fb32c387cccf43e507adbcad058ff02255d7032776ed6b7f` |
+| App size | `0x216310` bytes in the `0x800000` partition; 74% free |
+
+The board reported the matching `cc004e27a` identity and three cached/reachable
+cards with the dashboard enabled and stale false. The isolated idle/readback
+run reported minimum internal heap **83,011 bytes**, PSRAM **7,923,996 bytes**,
+and LVGL stack headroom **2,668 bytes**. There was no observed physical motion
+in this run; these values are not active-swipe or performance measurements.
+Serial evidence is `physical-20260925-234128.jsonl` in the backup directory.
+
+The user missed the first isolated check after its cards were cleared for
+normal mirroring. The cards were resent and retained through the response.
+On `cc004e27a`, the user then confirmed **clean layout, equally responsive
+motion, and working controls** after the requested drags/flicks, peek tap,
+and local dismiss. This is the bounded post-cleanup regression check, not a
+repeat of the earlier twenty-attempt acceptance trial or a new FPS target.
+The retest is recorded in `physical-20260925-234818.jsonl`; its short resource
+sample reported minimum internal heap **82,559 bytes**, PSRAM **7,923,996
+bytes**, and LVGL stack headroom **2,668 bytes**.
+
+Test cards were cleared after the user's pass and normal mirroring was resumed.
+The same daemon resumed at **23:49:35 PDT**, reported `cc004e27a` at
+**23:49:37 PDT**, and returned zero cards/overflow with stale false. The config
+remained byte-identical with SHA-256
+`61dacdef4cdfca91efe08658285379905b16c9237960879f413152c77e678cdf`.
+The earlier detailed motion timing samples identify their own builds and are
+not measurements of this cleanup image. No commit or push was performed
+during the cleanup gate.
+
+## Swipe review and source commits — 2026-09-25
+
+After the cleanup's physical check, the changes were reviewed and split into
+two source commits, followed by this design/acceptance documentation update:
+
+| Commit | Scope |
+|---|---|
+| `f17ad67` | Drag-and-snap navigation, captured-ID gesture policy, three reusable views, and native policy/LVGL pointer tests |
+| `c88eeb9` | Synchronous LVGL drawing, extracted/tested shadow conversion, and stack-headroom reporting |
+
+The commit review reran strict native deck/input/conversion checks and the
+LVGL fixture in Debug and Release; all passed. Staged diffs passed whitespace
+checks. The firmware build and physical results above belong to their recorded
+images; this commit step did not rebuild or reflash the board. Starship remains
+on the accepted `cc004e27a` image with normal mirroring restored. No push or
+Snap rollout was performed in this step.

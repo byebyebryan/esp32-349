@@ -35,12 +35,17 @@ that were exercised.
 | M4 media | Dropped from v1; protocol/rendering hooks remain dormant |
 | V1 acceptance | The first board passed static-bar, touch/notification, and replug checks. Snap's second board has a separate bring-up smoke check in `ACCEPTANCE.md`, not the full short-gate run. The user deferred the optional 24-hour soak after a 252 s attempt; no long-duration stability claim is made. The first installation assumes USB power is removed during host sleep; actual host suspend/wake is unverified. |
 | Active-card cache | Implemented with capability-gated chunked sync, up to 32 cached cards, overflow/refill, and legacy compatibility. Snap cache/recovery checks are recorded in `ACCEPTANCE.md`. |
-| UI redesign | The [UI implementation checkpoint](design/ui-deck-plan.md) adds a quarter-width telemetry rail, large idle clock/date, and a foreground notification with local side-peek navigation. Starship's short visual/touch/count gates passed; see `ACCEPTANCE.md`. Source is committed through `149f52e`; the accepted Starship image predates the final touch-race fix, and Snap has not received this UI. |
+| UI redesign | The [UI implementation checkpoint](design/ui-deck-plan.md) adds a quarter-width telemetry rail, large idle clock/date, and a foreground notification with local side-peek navigation. Starship's short visual/touch/count gates passed; see `ACCEPTANCE.md`. The original accepted image predates the final touch-race fix; the following refinement includes it. Snap has not received this UI. |
+| UI refinement | The [drag-and-snap deck](design/swipe-deck-plan.md) implements horizontal finger-following navigation with one-card snaps, previous/next browsing, peek-tap fallback, and arrival/removal rules during touch. Native policy and actual LVGL pointer checks, firmware build, font audit, and 118 host tests pass. Starship's short physical gates passed at the measured 16–20 updates/s, which the user found responsive enough; the initial 25 updates/s target was not reached. Exact build/trial scope is in `ACCEPTANCE.md`. Vertical text scrolling remains a later step; Snap has not received this refinement. |
 
 The September 23 generic-zone decisions above describe the prototype. The
 September 25 UI goal introduces capability-gated typed telemetry for the fixed
 vertical rail; the horizontal zone contract remains for legacy compatibility.
 The new card text sizes are 20/22 px with the same complete glyph repertoire.
+
+The subsequent renderer cleanup restores full PSRAM DIRECT rendering and keeps
+synchronous drawing. Build, native checks, Starship readback, and the cleaned
+image's short visual/swipe check pass; exact scope is in `ACCEPTANCE.md`.
 
 The acceptance run must record which host process and device firmware build
 were used. The device `hello.build` and `hello.build_sha` report its app

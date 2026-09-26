@@ -1,0 +1,215 @@
+<section id="swipe-deck-349" aria-label="Drag-and-snap notification design">
+  <style>
+    #swipe-deck-349 { max-width: 640px; }
+    #swipe-deck-349 .preview-caption { margin-bottom: 10px; }
+    #swipe-deck-349 .preview-frame { position: relative; width: 100%; overflow: hidden; }
+    #swipe-deck-349 .display { width: 640px; height: 172px; position: absolute;
+      transform-origin: top left; background: #0b1119; color: #edf3f7;
+      font: 400 14px/20px system-ui, sans-serif; user-select: none; }
+    #swipe-deck-349 .display * { box-sizing: border-box; }
+    #swipe-deck-349 .rail { position: absolute; width: 160px; height: 172px;
+      background: #111b26; border-right: 1px solid #2c3b49; padding: 7px 12px; }
+    #swipe-deck-349 .clock { font-size: 40px; line-height: 48px; letter-spacing: -2px; }
+    #swipe-deck-349 .reading { display: flex; justify-content: space-between;
+      align-items: baseline; height: 26px; }
+    #swipe-deck-349 .reading span { color: #9dafbe; }
+    #swipe-deck-349 .reading strong { font-size: 20px; font-weight: 400; }
+    #swipe-deck-349 .reading .net { font-size: 14px; }
+    #swipe-deck-349 .viewport { position: absolute; left: 160px; top: 0;
+      width: 480px; height: 172px; overflow: hidden; touch-action: none; }
+    #swipe-deck-349 .track { position: absolute; left: 0; top: 0;
+      width: 472px; height: 172px; overflow: hidden; }
+    #swipe-deck-349 .notification { position: absolute; left: 8px; top: 8px;
+      width: 392px; height: 156px; border-radius: 8px; background: #17232e;
+      overflow: hidden; will-change: transform; }
+    #swipe-deck-349 .accent { position: absolute; left: 0; top: 10px;
+      width: 3px; height: 136px; border-radius: 2px; background: #80c6d2; }
+    #swipe-deck-349 .source { position: absolute; left: 12px; top: 6px;
+      width: calc(100% - 70px); height: 20px; color: #80c6d2;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #swipe-deck-349 .summary { position: absolute; left: 12px; top: 28px;
+      width: calc(100% - 64px); font-size: 22px; line-height: 28px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #swipe-deck-349 .message { position: absolute; left: 12px; top: 58px;
+      width: calc(100% - 24px); height: 78px; font-size: 20px; line-height: 26px;
+      display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+      overflow: hidden; }
+    #swipe-deck-349 .position { position: absolute; left: 12px; top: 138px;
+      height: 16px; font-size: 12px; line-height: 16px; color: #9dafbe; }
+    #swipe-deck-349 .dismiss { position: absolute; right: 0; top: 0;
+      width: 48px; height: 36px; background: #17232e; color: #9dafbe;
+      border: 0; border-radius: 8px; font: 400 22px/28px system-ui, sans-serif;
+      padding: 3px 0 5px; cursor: pointer; }
+    #swipe-deck-349 .peek-hit { position: absolute; left: 408px; top: 8px;
+      width: 64px; height: 156px; border: 0; border-radius: 8px; background: transparent;
+      cursor: pointer; padding: 0; }
+    #swipe-deck-349 .idle { position: absolute; inset: 0; background: #0b1119;
+      text-align: center; padding-top: 31px; }
+    #swipe-deck-349 .idle-time { font-size: 80px; line-height: 72px; }
+    #swipe-deck-349 .idle-date { margin-top: 9px; color: #9dafbe; }
+    #swipe-deck-349 .preview-actions { margin-top: 10px; }
+    #swipe-deck-349 [hidden] { display: none !important; }
+  </style>
+  <div class="preview-caption text-small text-muted">Drag left/right · tap the peek or × · synthetic cards</div>
+  <div class="preview-frame">
+    <div class="display" aria-label="640 by 172 display layout">
+      <div class="rail">
+        <div class="clock">10:42</div>
+        <div class="reading"><span>CPU</span><strong>12%</strong></div>
+        <div class="reading"><span>MEM</span><strong>41%</strong></div>
+        <div class="reading"><span>NET</span><strong class="net">LINKED</strong></div>
+      </div>
+      <div class="viewport">
+        <div class="track">
+        <article class="notification"><div class="accent"></div><div class="source"></div><div class="summary"></div><div class="message"></div><div class="position"></div><button class="dismiss" type="button" aria-label="Dismiss notification">×</button></article>
+        <article class="notification"><div class="accent"></div><div class="source"></div><div class="summary"></div><div class="message"></div><div class="position"></div><button class="dismiss" type="button" aria-label="Dismiss notification">×</button></article>
+        <article class="notification"><div class="accent"></div><div class="source"></div><div class="summary"></div><div class="message"></div><div class="position"></div><button class="dismiss" type="button" aria-label="Dismiss notification">×</button></article>
+        <button class="peek-hit" type="button" aria-label="Show next notification"></button>
+        </div>
+        <div class="idle" hidden><div class="idle-time">10:42</div><div class="idle-date">Fri, 25 Sep 2026</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="preview-actions viz-row">
+    <button class="btn" type="button" data-action="previous">Previous</button>
+    <button class="btn" type="button" data-action="next">Next</button>
+    <span class="text-small" aria-live="polite" data-selection></span>
+  </div>
+  <script>
+    (() => {
+      const root = document.getElementById('swipe-deck-349');
+      const frame = root.querySelector('.preview-frame');
+      const display = root.querySelector('.display');
+      const viewport = root.querySelector('.viewport');
+      const slots = Array.from(root.querySelectorAll('.notification'));
+      const peek = root.querySelector('.peek-hit');
+      const previous = root.querySelector('[data-action="previous"]');
+      const next = root.querySelector('[data-action="next"]');
+      const selection = root.querySelector('[data-selection]');
+      const options = { distance: 96, duration: 180, flick: true };
+      const cards = [
+        { id: 5, source: 'CODEX', title: 'UI review ready', body: 'We’ve finished the review. The design is ready for the next implementation step.' },
+        { id: 4, source: 'SLACK', title: 'Display design feedback', body: 'The side peek feels useful. Could we make the cards follow your finger?' },
+        { id: 3, source: 'GOOGLE CALENDAR', title: 'Design review in 10 minutes', body: 'The meeting starts at 11:00. Open the calendar event for the meeting link.' },
+        { id: 2, source: 'CLAUDE CODE', title: 'Changes ready to review', body: 'The requested changes are complete. We’ve checked the build and tests.' },
+        { id: 1, source: 'OPENCODE', title: 'Firmware build complete', body: 'The build finished successfully. Please check the display before continuing.' }
+      ];
+      let index = 0, scale = 1, offset = 0, gesture = null, animation = null;
+      const modulo = value => (value % cards.length + cards.length) % cards.length;
+      const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+      function position(value) {
+        offset = value;
+        slots.forEach((slot, i) => {
+          slot.style.transform = `translateX(${(i - 1) * 400 + value}px)`;
+          slot.style.opacity = i === 1 || value !== 0 ? '1' : '0.82';
+        });
+        peek.hidden = cards.length < 2 || value !== 0 || animation !== null;
+      }
+
+      function render() {
+        slots.forEach((slot, i) => {
+          slot.hidden = !cards.length || (cards.length === 1 && i !== 1);
+          slot.style.width = cards.length === 1 ? '464px' : '392px';
+          slot.inert = i !== 1;
+          slot.setAttribute('aria-hidden', i !== 1 ? 'true' : 'false');
+          if (!cards.length) return;
+          const card = cards[modulo(index + i - 1)];
+          slot.dataset.cardId = String(card.id);
+          slot.querySelector('.source').textContent = card.source;
+          slot.querySelector('.summary').textContent = card.title;
+          slot.querySelector('.message').textContent = card.body;
+          slot.querySelector('.position').textContent = cards.length > 1 ? `${modulo(index + i - 1) + 1} / ${cards.length}` : '';
+          slot.querySelector('.dismiss').setAttribute('aria-label', `Dismiss ${card.title}`);
+        });
+        root.querySelector('.idle').hidden = cards.length > 0;
+        previous.disabled = next.disabled = cards.length < 2 || animation !== null;
+        selection.textContent = cards.length ? `${cards[index].source} · ${index + 1} / ${cards.length}` : 'No visible cards';
+        if (cards.length > 1) peek.setAttribute('aria-label', `Show ${cards[modulo(index + 1)].title}`);
+        position(0);
+      }
+
+      function settle(step) {
+        if (animation !== null || !cards.length) return;
+        step = cards.length > 1 ? step : 0;
+        const start = offset, end = -step * 400, began = performance.now();
+        const duration = reducedMotion.matches ? 0 : options.duration;
+        previous.disabled = next.disabled = true;
+        peek.hidden = true;
+        function tick(now) {
+          const progress = duration ? Math.min(1, (now - began) / duration) : 1;
+          position(start + (end - start) * (1 - Math.pow(1 - progress, 3)));
+          if (progress < 1) animation = requestAnimationFrame(tick);
+          else { animation = null; index = modulo(index + step); render(); }
+        }
+        animation = requestAnimationFrame(tick);
+      }
+
+      viewport.addEventListener('pointerdown', event => {
+        if (animation !== null || gesture || !cards.length || (event.pointerType === 'mouse' && event.button !== 0)) return;
+        const x = event.clientX / scale, y = event.clientY / scale;
+        gesture = { pointer: event.pointerId, x, y, dx: 0, axis: null,
+          button: Boolean(event.target.closest('.dismiss')), peek: Boolean(event.target.closest('.peek-hit')),
+          samples: [{ x, time: event.timeStamp }] };
+        viewport.setPointerCapture(event.pointerId);
+      });
+      viewport.addEventListener('pointermove', event => {
+        if (!gesture || gesture.pointer !== event.pointerId) return;
+        const x = event.clientX / scale, dx = x - gesture.x, dy = event.clientY / scale - gesture.y;
+        const travel = Math.max(Math.abs(dx), Math.abs(dy));
+        gesture.dx = dx;
+        if (!gesture.axis && travel >= 12) {
+          if (gesture.button) gesture.axis = 'ignored';
+          else if (Math.abs(dx) >= 1.5 * Math.abs(dy)) gesture.axis = 'horizontal';
+          else if (Math.abs(dy) >= 1.5 * Math.abs(dx) || travel >= 24) gesture.axis = 'ignored';
+        }
+        gesture.samples.push({ x, time: event.timeStamp });
+        gesture.samples = gesture.samples.filter(sample => event.timeStamp - sample.time <= 80);
+        if (gesture.axis === 'horizontal' && cards.length > 1) position(Math.max(-400, Math.min(400, dx)));
+      });
+      function finish(event, cancelled) {
+        if (!gesture || gesture.pointer !== event.pointerId) return;
+        const active = gesture;
+        gesture = null;
+        if (viewport.hasPointerCapture(event.pointerId)) viewport.releasePointerCapture(event.pointerId);
+        if (cancelled) { settle(0); return; }
+        if (!active.axis) {
+          if (active.button) { cards.splice(index, 1); if (index >= cards.length) index = 0; render(); }
+          else if (active.peek && cards.length > 1) settle(1);
+          return;
+        }
+        if (active.axis !== 'horizontal' || cards.length < 2) { position(0); return; }
+        const first = active.samples[0], last = active.samples[active.samples.length - 1];
+        const elapsed = last.time - first.time;
+        const velocity = elapsed > 0 && event.timeStamp - last.time <= 80 ? (last.x - first.x) / elapsed : 0;
+        const flick = options.flick && Math.abs(active.dx) >= 36 && Math.abs(velocity) >= 0.5 && Math.sign(velocity) === Math.sign(active.dx);
+        const commit = Math.abs(active.dx) >= options.distance || flick;
+        settle(commit ? (active.dx < 0 ? 1 : -1) : 0);
+      }
+      viewport.addEventListener('pointerup', event => finish(event, false));
+      viewport.addEventListener('pointercancel', event => finish(event, true));
+      viewport.addEventListener('lostpointercapture', event => finish(event, true));
+      // Pointer actions are handled on release; click handlers cover keyboard activation.
+      peek.addEventListener('click', event => { if (event.detail === 0 && !gesture) settle(1); });
+      slots[1].querySelector('.dismiss').addEventListener('click', event => {
+        if (event.detail === 0 && animation === null && !gesture && cards.length) {
+          cards.splice(index, 1); if (index >= cards.length) index = 0; render();
+        }
+      });
+      previous.addEventListener('click', () => { if (!gesture) settle(-1); });
+      next.addEventListener('click', () => { if (!gesture) settle(1); });
+      new ResizeObserver(() => {
+        scale = Math.min(1, frame.clientWidth / 640);
+        display.style.transform = `scale(${scale})`;
+        frame.style.height = `${172 * scale}px`;
+      }).observe(frame);
+      render();
+      if (globalThis.Tweak) {
+        const tweak = new Tweak({ container: root, onChange: () => { if (!gesture && animation === null) render(); } });
+        tweak.addSlider(options, 'distance', { label: 'Snap distance', min: 64, max: 128, step: 8, unit: 'px' });
+        tweak.addSlider(options, 'duration', { label: 'Settle duration', min: 120, max: 240, step: 20, unit: 'ms' });
+        tweak.addToggle(options, 'flick', { label: 'Short flick navigation' });
+      }
+    })();
+  </script>
+</section>
