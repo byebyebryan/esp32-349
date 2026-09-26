@@ -174,12 +174,12 @@ static int drag_offset(const deck_input_t *input, int x)
     const int64_t dx = (int64_t)x - input->start_x;
     if (dx > 0) {
         return input->has_previous
-                   ? (dx > DECK_INPUT_CARD_PITCH_PX ? DECK_INPUT_CARD_PITCH_PX : (int)dx)
+                   ? (dx > input->pitch_px ? input->pitch_px : (int)dx)
                    : 0;
     }
     if (dx < 0) {
         return input->has_next
-                   ? (dx < -DECK_INPUT_CARD_PITCH_PX ? -DECK_INPUT_CARD_PITCH_PX : (int)dx)
+                   ? (dx < -input->pitch_px ? -input->pitch_px : (int)dx)
                    : 0;
     }
     return 0;
@@ -193,6 +193,17 @@ void deck_input_init(deck_input_t *input)
     memset(input, 0, sizeof(*input));
     input->state = DECK_INPUT_IDLE;
     input->generation = 1;
+    deck_input_geometry(input, DECK_INPUT_CARD_PITCH_PX, DECK_INPUT_COMMIT_PX,
+                        DECK_INPUT_FLICK_TRAVEL_PX);
+}
+
+void deck_input_geometry(deck_input_t *input, int pitch, int commit, int flick)
+{
+    if (input && pitch > 0 && commit > 0 && flick > 0) {
+        input->pitch_px = pitch;
+        input->commit_px = commit;
+        input->flick_travel_px = flick;
+    }
 }
 
 bool deck_input_press(deck_input_t *input, int x, int y, int64_t now_us,
@@ -307,7 +318,7 @@ deck_input_action_t deck_input_release(deck_input_t *input, int64_t now_us)
         if (input->has_source && input->has_next) {
             return start_settle(input, DECK_INPUT_ACTION_NEXT_TAP,
                                 input->next_id, true, -1,
-                                -DECK_INPUT_CARD_PITCH_PX);
+                                -input->pitch_px);
         }
         input->state = DECK_INPUT_IDLE;
         clear_capture(input);
@@ -328,12 +339,12 @@ deck_input_action_t deck_input_release(deck_input_t *input, int64_t now_us)
     const bool can_commit = direction != 0 &&
                             selected_neighbor_valid(input, direction);
     const bool commit = can_commit &&
-        (travel >= DECK_INPUT_COMMIT_PX ||
-         (travel >= DECK_INPUT_FLICK_TRAVEL_PX &&
+        (travel >= input->commit_px ||
+         (travel >= input->flick_travel_px &&
           recent_velocity_matches(input, now_us, direction)));
     const int target_id = commit ? selected_neighbor_id(input, direction)
                                  : input->source_id;
-    const int target_offset = commit ? direction * DECK_INPUT_CARD_PITCH_PX : 0;
+    const int target_offset = commit ? direction * input->pitch_px : 0;
     return start_settle(input, DECK_INPUT_ACTION_SNAP, target_id, commit,
                         commit ? direction : 0, target_offset);
 }

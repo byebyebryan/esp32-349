@@ -24,6 +24,8 @@ static struct {
     int limit;
     int next_index;
     int overflow;
+    int grouped_session;
+    bool grouped;
     int64_t started_us;
     bool active;
 } s_stage;
@@ -32,6 +34,8 @@ static uint32_t s_dirty;
 static const char *TAG = "state";
 
 #define SYNC_TIMEOUT_US (5 * 1000 * 1000)
+
+static bool int_field(const cJSON *obj, const char *name, int min, int max, int *out);
 
 static void copy_str(char *dst, size_t size, const cJSON *item)
 {
@@ -147,6 +151,26 @@ static bool parse_notif(const cJSON *obj, status_notif_t *notif)
     const cJSON *urgency = cJSON_GetObjectItemCaseSensitive(obj, "urgency");
     notif->urgency = cJSON_IsNumber(urgency) ? urgency->valueint : 1;
     return true;
+}
+
+static void clear_presentation_locked(void)
+{
+    memset(&s_state.presentation, 0, sizeof(s_state.presentation));
+}
+
+static bool cached_visible_locked(int id)
+{
+    for (int i = 0; i < s_state.hidden_count; i++) {
+        if (s_state.hidden_ids[i] == id) {
+            return false;
+        }
+    }
+    for (int i = 0; i < s_state.notif_count; i++) {
+        if (s_state.notifs[i].id == id) {
+            return true;
+        }
+    }
+    return false;
 }
 
 void state_init(void)
@@ -287,6 +311,35 @@ static void request_focus(const status_notif_t *notif)
     }
 }
 
+static void remove_notif_locked(int slot)
+{
+    if (slot < 0 || slot >= s_state.notif_count) {
+        return;
+    }
+    memmove(&s_state.notifs[slot], &s_state.notifs[slot + 1],
+            sizeof(s_state.notifs[0]) * (size_t)(s_state.notif_count - slot - 1));
+    s_state.notif_count--;
+}
+
+static void update_grouped_overflow_locked(bool has_total, int total)
+{
+    if (has_total) {
+        s_state.notif_overflow = total > s_state.notif_count
+            ? total - s_state.notif_count : 0;
+    }
+}
+
+bool state_grouped_session_matches(const cJSON *obj)
+{
+    int session = 0;
+    const bool valid_session = int_field(obj, "session", 1, INT32_MAX, &session);
+    state_lock();
+    const bool grouped = s_state.grouped_enabled;
+    const bool matches = !grouped || (valid_session && session == s_state.grouped_session);
+    state_unlock();
+    return matches;
+}
+
 static void apply_notify(const cJSON *obj, bool unhide)
 {
     status_notif_t parsed;
@@ -296,6 +349,74 @@ static void apply_notify(const cJSON *obj, bool unhide)
     const int nid = parsed.id;
 
     state_lock();
+    if (s_state.grouped_enabled) {
+        int session = 0;
+        int strict_id = 0;
+        int total_value = 0;
+        const bool has_total = cJSON_GetObjectItemCaseSensitive(obj, "total") != NULL;
+        const bool has_cached = cJSON_GetObjectItemCaseSensitive(obj, "cached") != NULL;
+        const cJSON *cached = cJSON_GetObjectItemCaseSensitive(obj, "cached");
+        const cJSON *urgency = cJSON_GetObjectItemCaseSensitive(obj, "urgency");
+        if (!int_field(obj, "session", 1, INT32_MAX, &session) ||
+            session != s_state.grouped_session ||
+            !int_field(obj, "id", 1, INT32_MAX, &strict_id) ||
+            strict_id != parsed.id || parsed.urgency < 0 || parsed.urgency > 2 ||
+            (urgency != NULL && (!cJSON_IsNumber(urgency) ||
+                                  urgency->valuedouble != (double)urgency->valueint)) ||
+            (has_cached && !cJSON_IsBool(cached)) ||
+            (has_total && !int_field(obj, "total", 0, INT32_MAX, &total_value))) {
+            state_unlock();
+            return;
+        }
+
+        /* A same-ID replacement becomes newest and clears a local hide. */
+        for (int i = 0; i < s_state.hidden_count; i++) {
+            if (s_state.hidden_ids[i] == nid) {
+                memmove(&s_state.hidden_ids[i], &s_state.hidden_ids[i + 1],
+                        sizeof(s_state.hidden_ids[0]) * (size_t)(s_state.hidden_count - i - 1));
+                s_state.hidden_count--;
+                break;
+            }
+        }
+        int slot = -1;
+        for (int i = 0; i < s_state.notif_count; i++) {
+            if (s_state.notifs[i].id == nid) {
+                slot = i;
+                break;
+            }
+        }
+        if (has_cached && cJSON_IsFalse(cached)) {
+            remove_notif_locked(slot);
+            if (s_state.presentation.id == nid) {
+                s_state.presentation.active = false;
+                s_state.presentation.persistent = false;
+                s_state.presentation.deadline_us = esp_timer_get_time();
+            }
+            update_grouped_overflow_locked(has_total, total_value);
+            s_dirty |= STATE_DIRTY_NOTIF;
+            state_unlock();
+            return;
+        }
+
+        if (slot >= 0) {
+            remove_notif_locked(slot);
+        }
+        if (s_state.cache_limit > 0) {
+            if (s_state.notif_count >= s_state.cache_limit) {
+                remove_notif_locked(0);
+            }
+            s_state.notifs[s_state.notif_count++] = parsed;
+        }
+        if (!cached_visible_locked(s_state.presentation.id) && s_state.presentation.active) {
+            s_state.presentation.active = false;
+            s_state.presentation.persistent = false;
+            s_state.presentation.deadline_us = esp_timer_get_time();
+        }
+        update_grouped_overflow_locked(has_total, total_value);
+        s_dirty |= STATE_DIRTY_NOTIF;
+        state_unlock();
+        return;
+    }
     bool was_hidden = false;
     /* A live notify can replace a locally hidden card. A periodic sync must
      * preserve the local dismiss for unchanged cards. */
@@ -380,6 +501,71 @@ void state_apply_notify(const cJSON *obj)
     apply_notify(obj, true);
 }
 
+bool state_apply_present(const cJSON *obj)
+{
+    int session = 0;
+    int generation = 0;
+    int id = 0;
+    int remaining_ms = 0;
+    int urgency = 0;
+    if (!cJSON_IsObject(obj) ||
+        !int_field(obj, "session", 1, INT32_MAX, &session) ||
+        !int_field(obj, "generation", 1, INT32_MAX, &generation) ||
+        !int_field(obj, "id", 1, INT32_MAX, &id) ||
+        !int_field(obj, "remaining_ms", -1, INT32_MAX, &remaining_ms) ||
+        !int_field(obj, "urgency", 0, 2, &urgency)) {
+        return false;
+    }
+
+    const int64_t now = esp_timer_get_time();
+    const bool persistent = remaining_ms == -1;
+    const int64_t deadline = remaining_ms > 0
+        ? now + (int64_t)remaining_ms * 1000 : now;
+    state_lock();
+    status_presentation_t *current = &s_state.presentation;
+    if (!s_state.grouped_enabled || session != s_state.grouped_session ||
+        !cached_visible_locked(id) || generation < current->generation) {
+        state_unlock();
+        return false;
+    }
+
+    if (generation == current->generation) {
+        if (current->id != id || current->urgency != urgency) {
+            state_unlock();
+            return false;
+        }
+        if (!current->active) {
+            const bool already_ended = remaining_ms == 0;
+            state_unlock();
+            return already_ended;
+        }
+        if (persistent) {
+            /* An active persistent visit is unchanged; a finite visit cannot
+             * become persistent under the same generation. */
+            const bool unchanged = current->persistent;
+            state_unlock();
+            return unchanged;
+        }
+        if (remaining_ms > 0 && !current->persistent && deadline > current->deadline_us) {
+            state_unlock();
+            return false;
+        }
+        current->active = remaining_ms > 0;
+        current->persistent = false;
+        current->deadline_us = deadline;
+    } else {
+        current->generation = generation;
+        current->id = id;
+        current->urgency = urgency;
+        current->active = remaining_ms != 0;
+        current->persistent = persistent;
+        current->deadline_us = deadline;
+    }
+    s_dirty |= STATE_DIRTY_NOTIF;
+    state_unlock();
+    return true;
+}
+
 void state_hide_notif(int id)
 {
     state_lock();
@@ -404,9 +590,29 @@ void state_hide_notif(int id)
     state_unlock();
 }
 
-void state_apply_close(int id, int total)
+void state_apply_close(const cJSON *obj)
 {
+    const cJSON *id_item = cJSON_GetObjectItemCaseSensitive(obj, "id");
+    const cJSON *total_item = cJSON_GetObjectItemCaseSensitive(obj, "total");
+    if (!cJSON_IsNumber(id_item)) {
+        return;
+    }
+    const int legacy_id = id_item->valueint;
+    const int legacy_total = cJSON_IsNumber(total_item) ? total_item->valueint : -1;
+
     state_lock();
+    int id = legacy_id;
+    int total = legacy_total;
+    if (s_state.grouped_enabled) {
+        int session = 0;
+        if (!int_field(obj, "session", 1, INT32_MAX, &session) ||
+            session != s_state.grouped_session ||
+            !int_field(obj, "id", 1, INT32_MAX, &id) ||
+            (total_item != NULL && !int_field(obj, "total", 0, INT32_MAX, &total))) {
+            state_unlock();
+            return;
+        }
+    }
     for (int i = 0; i < s_state.hidden_count; i++) {
         if (s_state.hidden_ids[i] == id) {
             memmove(&s_state.hidden_ids[i], &s_state.hidden_ids[i + 1],
@@ -418,11 +624,15 @@ void state_apply_close(int id, int total)
     bool found = false;
     for (int i = 0; i < s_state.notif_count; i++) {
         if (s_state.notifs[i].id == id) {
-            memmove(&s_state.notifs[i], &s_state.notifs[i + 1], sizeof(s_state.notifs[0]) * (s_state.notif_count - i - 1));
-            s_state.notif_count--;
+            remove_notif_locked(i);
             found = true;
             break;
         }
+    }
+    if (s_state.grouped_enabled && s_state.presentation.id == id) {
+        s_state.presentation.active = false;
+        s_state.presentation.persistent = false;
+        s_state.presentation.deadline_us = esp_timer_get_time();
     }
     if (total >= s_state.notif_count) {
         s_state.notif_overflow = total - s_state.notif_count;
@@ -446,6 +656,9 @@ void state_apply_sync(const cJSON *obj)
 
     const cJSON *notifs = cJSON_GetObjectItemCaseSensitive(obj, "notifs");
     state_lock();
+    s_state.grouped_enabled = false;
+    s_state.grouped_session = 0;
+    clear_presentation_locked();
     s_state.cache_limit = STATUS_LEGACY_NOTIFS;
     s_state.notif_count = 0;
     state_unlock();
@@ -518,6 +731,18 @@ bool state_sync_begin(const cJSON *obj)
 {
     int tx, count, limit, overflow;
     const cJSON *bar = cJSON_GetObjectItemCaseSensitive(obj, "bar");
+    const cJSON *grouped = cJSON_GetObjectItemCaseSensitive(obj, "grouped");
+    const cJSON *dashboard = cJSON_GetObjectItemCaseSensitive(obj, "dashboard");
+    bool grouped_enabled = false;
+    int grouped_session = 0;
+    if (grouped != NULL) {
+        if (!cJSON_IsObject(grouped) || cJSON_GetArraySize(grouped) != 1 ||
+            !int_field(grouped, "session", 1, INT32_MAX, &grouped_session) ||
+            !cJSON_IsObject(dashboard)) {
+            return false;
+        }
+        grouped_enabled = true;
+    }
     if (s_stage.cards == NULL || s_stage.active
             || !int_field(obj, "tx", 0, INT32_MAX, &tx)
             || !int_field(obj, "count", 0, STATUS_MAX_NOTIFS, &count)
@@ -533,7 +758,10 @@ bool state_sync_begin(const cJSON *obj)
     s_stage.zone_count = zone_count;
     s_stage.clock = parse_clock(cJSON_GetObjectItemCaseSensitive(obj, "clock"));
     s_stage.media = parse_media(cJSON_GetObjectItemCaseSensitive(obj, "media"));
-    if (!dashboard_parse(cJSON_GetObjectItemCaseSensitive(obj, "dashboard"), &s_stage.dashboard)) {
+    if (!dashboard_parse(dashboard, &s_stage.dashboard)) {
+        return false;
+    }
+    if (grouped_enabled && !s_stage.dashboard.valid) {
         return false;
     }
     s_stage.tx = tx;
@@ -541,6 +769,8 @@ bool state_sync_begin(const cJSON *obj)
     s_stage.limit = limit;
     s_stage.next_index = 0;
     s_stage.overflow = overflow;
+    s_stage.grouped = grouped_enabled;
+    s_stage.grouped_session = grouped_session;
     s_stage.started_us = esp_timer_get_time();
     s_stage.active = true;
     return true;
@@ -565,6 +795,11 @@ bool state_sync_cards(const cJSON *obj)
         if (!parse_notif(item, &parsed)) {
             return false;
         }
+        if (s_stage.grouped &&
+            (parsed.id < 1 || parsed.id > INT32_MAX || parsed.urgency < 0 ||
+             parsed.urgency > 2)) {
+            return false;
+        }
         for (int previous = 0; previous < s_stage.next_index; previous++) {
             if (s_stage.cards[previous].id == parsed.id) {
                 return false;
@@ -586,36 +821,50 @@ bool state_sync_commit(const cJSON *obj, int64_t *epoch, int *offset, bool *has_
     }
 
     state_lock();
-    /* A reconnect may introduce arrivals missed while the link was down.
-     * Cards after the newest retained ID are new arrivals; a refill of older
-     * overflow cards lies before that anchor and must not steal normal focus.
-     * Any newly seen critical card (or newly critical replacement) takes
-     * priority, while unchanged snapshots and local hides preserve focus. */
-    int newest_known = -1;
-    for (int i = 0; i < s_stage.count; i++) {
-        for (int old = 0; old < s_state.notif_count; old++) {
-            if (s_stage.cards[i].id == s_state.notifs[old].id) {
-                newest_known = i;
-                break;
-            }
-        }
+    const bool new_group_session = s_stage.grouped &&
+        (!s_state.grouped_enabled || s_state.grouped_session != s_stage.grouped_session);
+    const bool leaving_grouped = !s_stage.grouped && s_state.grouped_enabled;
+    if (new_group_session) {
+        s_state.hidden_count = 0;
+        clear_presentation_locked();
+        s_state.notif_focus_id = 0;
+        s_state.notif_focus_urgency = 1;
+        s_state.notif_critical_id = 0;
+    } else if (leaving_grouped) {
+        clear_presentation_locked();
     }
-    for (int i = 0; i < s_stage.count; i++) {
-        const status_notif_t *card = &s_stage.cards[i];
-        bool hidden = false;
-        for (int h = 0; h < s_state.hidden_count; h++) {
-            hidden |= s_state.hidden_ids[h] == card->id;
-        }
-        int old_urgency = -1;
-        for (int old = 0; old < s_state.notif_count; old++) {
-            if (card->id == s_state.notifs[old].id) {
-                old_urgency = s_state.notifs[old].urgency;
-                break;
+    s_state.grouped_enabled = s_stage.grouped;
+    s_state.grouped_session = s_stage.grouped ? s_stage.grouped_session : 0;
+
+    if (!s_stage.grouped) {
+        /* Legacy reconnects may introduce arrivals missed while the link was
+         * down. Refill of older overflow cards must not steal normal focus. */
+        int newest_known = -1;
+        for (int i = 0; i < s_stage.count; i++) {
+            for (int old = 0; old < s_state.notif_count; old++) {
+                if (s_stage.cards[i].id == s_state.notifs[old].id) {
+                    newest_known = i;
+                    break;
+                }
             }
         }
-        if (!hidden && ((old_urgency < 0 && i > newest_known)
-                || (card->urgency >= 2 && old_urgency < 2))) {
-            request_focus(card);
+        for (int i = 0; i < s_stage.count; i++) {
+            const status_notif_t *card = &s_stage.cards[i];
+            bool hidden = false;
+            for (int h = 0; h < s_state.hidden_count; h++) {
+                hidden |= s_state.hidden_ids[h] == card->id;
+            }
+            int old_urgency = -1;
+            for (int old = 0; old < s_state.notif_count; old++) {
+                if (card->id == s_state.notifs[old].id) {
+                    old_urgency = s_state.notifs[old].urgency;
+                    break;
+                }
+            }
+            if (!hidden && ((old_urgency < 0 && i > newest_known)
+                    || (card->urgency >= 2 && old_urgency < 2))) {
+                request_focus(card);
+            }
         }
     }
     status_notif_t *old_cards = s_state.notifs;
@@ -640,6 +889,12 @@ bool state_sync_commit(const cJSON *obj, int64_t *epoch, int *offset, bool *has_
             }
         }
         s_state.hidden_count = retained;
+    }
+    if (s_state.grouped_enabled && s_state.presentation.active &&
+        !cached_visible_locked(s_state.presentation.id)) {
+        s_state.presentation.active = false;
+        s_state.presentation.persistent = false;
+        s_state.presentation.deadline_us = esp_timer_get_time();
     }
     s_state.got_sync = true;
     s_dirty |= STATE_DIRTY_BAR | STATE_DIRTY_NOTIF | STATE_DIRTY_DASHBOARD;

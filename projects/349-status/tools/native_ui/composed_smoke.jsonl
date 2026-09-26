@@ -1,0 +1,6 @@
+{"type":"wire","message":{"t":"sync_begin","tx":51,"count":1,"limit":1,"overflow":0,"bar":{"zones":[]},"clock":{"epoch":1790411700,"offset":-25200},"dashboard":{},"grouped":{"session":501}}}
+{"type":"wire","message":{"t":"sync_cards","tx":51,"start":0,"notifs":[{"id":501,"app":"Native demo","summary":"Shared production UI","body":"The parser, state store, and LVGL fixture share one process.","urgency":1}]}}
+{"type":"wire","message":{"t":"sync_commit","tx":51}}
+{"type":"wire","message":{"t":"present","session":501,"generation":1,"id":501,"remaining_ms":10000,"urgency":1}}
+{"type":"capture","name":"composed-smoke"}
+{"type":"readback"}

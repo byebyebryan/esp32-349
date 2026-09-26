@@ -69,7 +69,11 @@ typedef struct {
     int motion_y[DECK_INPUT_MOTION_SAMPLES];
     int64_t motion_us[DECK_INPUT_MOTION_SAMPLES];
     uint32_t generation;
+    int pitch_px, commit_px, flick_travel_px;
 } deck_input_t;
+
+/* Optional geometry for a captured axis; legacy defaults remain unchanged. */
+void deck_input_geometry(deck_input_t *input, int pitch, int commit, int flick);
 
 void deck_input_init(deck_input_t *input);
 bool deck_input_press(deck_input_t *input, int x, int y, int64_t now_us,

@@ -58,6 +58,12 @@ typedef struct {
 } status_notif_t;
 
 typedef struct {
+    int generation, id, urgency;
+    int64_t deadline_us;
+    bool active, persistent;
+} status_presentation_t;
+
+typedef struct {
     status_zone_t zones[STATUS_MAX_ZONES];
     int zone_count;
     status_clock_t clock;
@@ -80,6 +86,14 @@ typedef struct {
     /* Published by the LVGL timer for read-only acceptance diagnostics. */
     bool deck_enabled, deck_stale;
     int deck_reachable, deck_position, deck_focus_id, deck_next_id;
+    bool grouped_enabled;
+    int grouped_session;
+    status_presentation_t presentation;
+    /* UI-published state for acceptance readback. */
+    bool grouped_home, grouped_manual, grouped_presenting;
+    int grouped_generation, grouped_present_id;
+    int64_t grouped_deadline_us;
+    bool grouped_persistent;
     int64_t last_rx_us;
     bool got_sync;
 } status_state_t;
@@ -108,7 +122,9 @@ bool state_apply_clock(const cJSON *obj, int64_t *epoch, int *offset);
 void state_apply_media(const cJSON *obj);
 bool state_apply_dashboard(const cJSON *obj);
 void state_apply_notify(const cJSON *obj);
-void state_apply_close(int id, int total);
+bool state_apply_present(const cJSON *obj);
+bool state_grouped_session_matches(const cJSON *obj);
+void state_apply_close(const cJSON *obj);
 void state_apply_sync(const cJSON *obj);
 
 /* Chunked full sync is available only when both PSRAM card buffers exist. */

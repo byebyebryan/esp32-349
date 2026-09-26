@@ -1,4 +1,5 @@
 #pragma once
+#include <stdbool.h>
 
 /* Handle one JSON message from the host (prefix already stripped). */
 void proto_handle_line(const char *json);
@@ -11,3 +12,4 @@ void proto_handle_overflow(void);
 
 /* Device-initiated actions (touch). */
 void proto_send_input_dismiss(int id);
+void proto_send_input_browse(bool home, int generation);

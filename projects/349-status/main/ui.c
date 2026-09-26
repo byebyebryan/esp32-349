@@ -1,5 +1,6 @@
 #include "ui.h"
 #include "ui_deck.h"
+#include "ui_fonts.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -14,17 +15,10 @@
 #include "rtc.h"
 #include "state.h"
 
-#if !LV_FONT_SOURCE_HAN_SANS_SC_14_CJK || !LV_FONT_SOURCE_HAN_SANS_SC_16_CJK
-#error "349-status requires the Source Han 14/16 CJK fonts; enable them in sdkconfig"
-#endif
-
-LV_FONT_DECLARE(status_symbol_14);
-LV_FONT_DECLARE(status_symbol_16);
-
 #define BAR_HEIGHT 46
-#define ZONE_FONT  (&s_zone_font)
-#define BODY_FONT  (&s_body_font)
-#define SMALL_FONT (&s_small_font)
+#define ZONE_FONT  (&s_fonts.zone)
+#define BODY_FONT  (&s_fonts.body)
+#define SMALL_FONT (&s_fonts.small)
 #define OVERLAY_FONT (&lv_font_montserrat_28)
 #define TEXT_COLOR 0xE6E6E6
 #define MUTED_COLOR 0x9FB3C8
@@ -48,28 +42,7 @@ static lv_obj_t *s_media_label;
 static lv_obj_t *s_media_bar;
 
 static int s_last_second = -1;
-static lv_font_t s_zone_font;
-static lv_font_t s_body_font;
-static lv_font_t s_small_font;
-static lv_font_t s_cjk_font_14;
-static lv_font_t s_cjk_font_16;
-
-static void ui_init_fonts(void)
-{
-    /* Prefer Montserrat and the bundled CJK subset, then our punctuation and
-     * symbol subset. Copy descriptors rather than mutating LVGL's shared
-     * const fonts. Unknown glyphs still use LVGL's visible placeholder. */
-    s_cjk_font_16 = lv_font_source_han_sans_sc_16_cjk;
-    s_cjk_font_16.fallback = &status_symbol_16;
-    s_cjk_font_14 = lv_font_source_han_sans_sc_14_cjk;
-    s_cjk_font_14.fallback = &status_symbol_14;
-    s_zone_font = lv_font_montserrat_16;
-    s_zone_font.fallback = &s_cjk_font_16;
-    s_body_font = lv_font_montserrat_14;
-    s_body_font.fallback = &s_cjk_font_14;
-    s_small_font = lv_font_montserrat_12;
-    s_small_font.fallback = &s_cjk_font_14;
-}
+static status_ui_fonts_t s_fonts;
 
 static lv_text_align_t text_align(const char *align)
 {
@@ -462,7 +435,7 @@ static void ui_tick_cb(lv_timer_t *timer)
 
 void ui_init(void)
 {
-    ui_init_fonts();
+    status_ui_fonts_init(&s_fonts);
     lv_obj_t *scr = lv_screen_active();
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x0A0E14), LV_PART_MAIN);
     lv_obj_set_style_pad_all(scr, 0, 0);

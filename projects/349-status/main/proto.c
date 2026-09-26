@@ -6,6 +6,7 @@
 #include "esp_app_desc.h"
 #include "esp_log.h"
 #include "esp_random.h"
+#include "esp_timer.h"
 #include "link.h"
 #include "rtc.h"
 #include "state.h"
@@ -49,6 +50,7 @@ void proto_send_hello(void)
     if (state_card_sync_capacity() > 0) {
         cJSON_AddItemToArray(cap, cJSON_CreateString("card-sync-v1"));
         cJSON_AddItemToArray(cap, cJSON_CreateString("dashboard-v1"));
+        cJSON_AddItemToArray(cap, cJSON_CreateString("grouped-ui-v1"));
         cJSON_AddNumberToObject(obj, "cache_cards", state_card_sync_capacity());
     }
     send_object(obj);
@@ -73,11 +75,85 @@ void proto_handle_overflow(void)
     }
 }
 
+typedef struct {
+    bool enabled;
+    bool stale;
+    int reachable;
+    int position;
+    int focus_id;
+    int next_id;
+    bool grouped_enabled;
+    bool grouped_home;
+    bool grouped_manual;
+    bool grouped_presenting;
+    int grouped_session;
+    int grouped_generation;
+    int grouped_present_id;
+    bool grouped_persistent;
+    int64_t grouped_deadline_us;
+} cards_view_t;
+
+static bool contains_id(const int *ids, int count, int id)
+{
+    for (int i = 0; i < count; i++) {
+        if (ids[i] == id) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool cards_view_pending(const cards_view_t *view, const int *ids, int count)
+{
+    if (view->reachable < 0 || view->reachable > count ||
+        view->position < 0 || view->position > view->reachable ||
+        (view->reachable == 0 && view->position != 0) ||
+        (view->reachable > 0 && view->position == 0)) {
+        return true;
+    }
+    if ((view->enabled && view->reachable > 0 && view->focus_id > 0 &&
+         !contains_id(ids, count, view->focus_id)) ||
+        (view->enabled && view->reachable > 1 && view->next_id > 0 &&
+         !contains_id(ids, count, view->next_id))) {
+        return true;
+    }
+    return view->grouped_presenting && view->grouped_present_id > 0 &&
+           !contains_id(ids, count, view->grouped_present_id);
+}
+
 static void send_cards_status(void)
 {
     int ids[STATUS_MAX_NOTIFS];
     int count, overflow, capacity;
-    state_cards_status(ids, &count, &overflow, &capacity);
+    cards_view_t view;
+
+    /* Cache membership and the UI-published view must describe one state. */
+    state_lock();
+    const status_state_t *st = state_get();
+    count = st->notif_count;
+    overflow = st->notif_overflow;
+    capacity = st->notif_capacity;
+    for (int i = 0; i < count; i++) {
+        ids[i] = st->notifs[i].id;
+    }
+    view.enabled = st->deck_enabled;
+    view.stale = st->deck_stale;
+    view.reachable = st->deck_reachable;
+    view.position = st->deck_position;
+    view.focus_id = st->deck_focus_id;
+    view.next_id = st->deck_next_id;
+    view.grouped_enabled = st->grouped_enabled;
+    view.grouped_home = view.grouped_enabled ? st->grouped_home : true;
+    view.grouped_manual = view.grouped_enabled && !view.grouped_home && st->grouped_manual;
+    view.grouped_presenting = view.grouped_enabled && !view.grouped_manual && st->grouped_presenting;
+    view.grouped_session = view.grouped_enabled ? st->grouped_session : 0;
+    view.grouped_generation = view.grouped_enabled ? st->grouped_generation : 0;
+    view.grouped_present_id = st->grouped_present_id;
+    view.grouped_persistent = st->grouped_persistent;
+    view.grouped_deadline_us = st->grouped_deadline_us;
+    const bool pending = cards_view_pending(&view, ids, count);
+    state_unlock();
+
     cJSON *obj = cJSON_CreateObject();
     cJSON_AddStringToObject(obj, "t", "cards_status");
     cJSON_AddNumberToObject(obj, "count", count);
@@ -87,34 +163,98 @@ static void send_cards_status(void)
     for (int i = 0; i < count; i++) {
         cJSON_AddItemToArray(array, cJSON_CreateNumber(ids[i]));
     }
-    state_lock();
-    const status_state_t *st = state_get();
+    if (pending) {
+        cJSON_AddBoolToObject(obj, "view_pending", true);
+        send_object(obj);
+        cJSON_Delete(obj);
+        return;
+    }
+
     cJSON *deck = cJSON_AddObjectToObject(obj, "deck");
-    cJSON_AddBoolToObject(deck, "enabled", st->deck_enabled);
-    cJSON_AddNumberToObject(deck, "reachable", st->deck_reachable);
-    cJSON_AddNumberToObject(deck, "position", st->deck_position);
-    cJSON_AddBoolToObject(deck, "stale", st->deck_stale);
-    if (st->deck_enabled && st->deck_reachable > 0) {
-        cJSON_AddNumberToObject(deck, "focus_id", st->deck_focus_id);
+    cJSON_AddBoolToObject(deck, "enabled", view.enabled);
+    cJSON_AddNumberToObject(deck, "reachable", view.reachable);
+    cJSON_AddNumberToObject(deck, "position", view.position);
+    cJSON_AddBoolToObject(deck, "stale", view.stale);
+    if (view.enabled && view.reachable > 0) {
+        cJSON_AddNumberToObject(deck, "focus_id", view.focus_id);
     } else {
         cJSON_AddNullToObject(deck, "focus_id");
     }
-    if (st->deck_enabled && st->deck_reachable > 1) {
-        cJSON_AddNumberToObject(deck, "next_id", st->deck_next_id);
+    if (view.enabled && view.reachable > 1) {
+        cJSON_AddNumberToObject(deck, "next_id", view.next_id);
     } else {
         cJSON_AddNullToObject(deck, "next_id");
     }
-    state_unlock();
+    const int64_t now_us = esp_timer_get_time();
+    cJSON *grouped = cJSON_AddObjectToObject(obj, "grouped");
+    cJSON_AddBoolToObject(grouped, "enabled", view.grouped_enabled);
+    cJSON_AddNumberToObject(grouped, "session", view.grouped_session);
+    cJSON_AddStringToObject(grouped, "group", view.grouped_home ? "home" : "notifications");
+    cJSON_AddBoolToObject(grouped, "manual", view.grouped_manual);
+    cJSON_AddNumberToObject(grouped, "generation", view.grouped_generation);
+    if (view.grouped_presenting && view.grouped_present_id > 0) {
+        cJSON_AddNumberToObject(grouped, "present_id", view.grouped_present_id);
+        int remaining_ms = 0;
+        if (view.grouped_persistent) {
+            remaining_ms = -1;
+        } else if (view.grouped_deadline_us > now_us) {
+            const int64_t remaining_us = view.grouped_deadline_us - now_us;
+            remaining_ms = (int)((remaining_us + 999) / 1000);
+        }
+        cJSON_AddNumberToObject(grouped, "remaining_ms", remaining_ms);
+    } else {
+        cJSON_AddNullToObject(grouped, "present_id");
+        cJSON_AddNumberToObject(grouped, "remaining_ms", 0);
+    }
     send_object(obj);
     cJSON_Delete(obj);
 }
 
 void proto_send_input_dismiss(int id)
 {
+    int session = 0;
+    int generation = 0;
+    bool grouped = false;
+    state_lock();
+    const status_state_t *st = state_get();
+    grouped = st->grouped_enabled;
+    if (grouped) {
+        session = st->grouped_session;
+        generation = st->grouped_generation;
+    }
+    state_unlock();
+
     cJSON *obj = cJSON_CreateObject();
     cJSON_AddStringToObject(obj, "t", "input");
     cJSON_AddStringToObject(obj, "action", "dismiss");
     cJSON_AddNumberToObject(obj, "id", id);
+    if (grouped) {
+        cJSON_AddNumberToObject(obj, "session", session);
+        cJSON_AddNumberToObject(obj, "generation", generation);
+    }
+    send_object(obj);
+    cJSON_Delete(obj);
+}
+
+void proto_send_input_browse(bool home, int generation)
+{
+    int session = 0;
+    state_lock();
+    const status_state_t *st = state_get();
+    const bool grouped = st->grouped_enabled;
+    session = st->grouped_session;
+    state_unlock();
+    if (!grouped || session < 1 || session > INT32_MAX ||
+        generation < 0 || generation > INT32_MAX) {
+        return;
+    }
+
+    cJSON *obj = cJSON_CreateObject();
+    cJSON_AddStringToObject(obj, "t", "input");
+    cJSON_AddStringToObject(obj, "action", "browse");
+    cJSON_AddNumberToObject(obj, "session", session);
+    cJSON_AddNumberToObject(obj, "generation", generation);
+    cJSON_AddStringToObject(obj, "group", home ? "home" : "notifications");
     send_object(obj);
     cJSON_Delete(obj);
 }
@@ -262,15 +402,18 @@ void proto_handle_line(const char *json)
         }
         state_note_rx();
     } else if (strcmp(kind, "notify") == 0) {
-        if (!reject_interleaved()) {
+        if (!reject_interleaved() && state_grouped_session_matches(obj)) {
             state_apply_notify(obj);
         }
         state_note_rx();
     } else if (strcmp(kind, "close") == 0) {
-        const cJSON *id = cJSON_GetObjectItemCaseSensitive(obj, "id");
-        const cJSON *total = cJSON_GetObjectItemCaseSensitive(obj, "total");
-        if (!reject_interleaved() && cJSON_IsNumber(id)) {
-            state_apply_close(id->valueint, cJSON_IsNumber(total) ? total->valueint : -1);
+        if (!reject_interleaved()) {
+            state_apply_close(obj);
+        }
+        state_note_rx();
+    } else if (strcmp(kind, "present") == 0) {
+        if (!reject_interleaved()) {
+            state_apply_present(obj);
         }
         state_note_rx();
     } else if (strcmp(kind, "cards_query") == 0) {

@@ -1,0 +1,45 @@
+{
+  "name": "native horizontal swipe and state update",
+  "initial": {
+    "connected": true,
+    "overflow": 0,
+    "notifications": [
+      {
+        "id": 4102,
+        "app": "Native replay",
+        "urgency": 1,
+        "summary": "Current card",
+        "body": "This is the focused card before the swipe."
+      },
+      {
+        "id": 4101,
+        "app": "Native replay",
+        "urgency": 1,
+        "summary": "Next card",
+        "body": "This card should become focused after the swipe."
+      }
+    ]
+  },
+  "commands": [
+    { "type": "assert", "field": "focus_id", "equals": 4102 },
+    { "type": "press", "x": 320, "y": 80, "ms": 1 },
+    { "type": "move", "x": 220, "y": 80, "ms": 200 },
+    { "type": "release", "x": 220, "y": 80, "ms": 1 },
+    { "type": "advance", "ms": 300 },
+    { "type": "assert", "field": "focus_id", "equals": 4101 },
+    { "type": "screenshot", "name": "after-swipe" },
+    {
+      "type": "notification",
+      "id": 4103,
+      "app": "Native replay",
+      "urgency": 1,
+      "summary": "New arrival",
+      "body": "Replay notification update."
+    },
+    { "type": "advance", "ms": 300 },
+    { "type": "assert", "field": "focus_id", "equals": 4103 },
+    { "type": "state", "connected": true, "overflow": 1 },
+    { "type": "assert", "field": "count", "equals": 3 },
+    { "type": "assert", "field": "connected", "equals": true }
+  ]
+}
