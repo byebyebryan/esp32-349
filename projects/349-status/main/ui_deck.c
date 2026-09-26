@@ -25,6 +25,9 @@ LV_FONT_DECLARE(status_clock_80);
 #define ACCENT 0x80C6D2
 #define WARNING 0xE9B66A
 #define CRITICAL 0xF07C86
+#define DISMISS_WIDTH 64
+#define DISMISS_HEIGHT 48
+#define DISMISS_CROSS_SPAN 28
 
 static lv_obj_t *s_root, *s_rail_header, *s_rail_clock, *s_rail_footer;
 static lv_obj_t *s_metric_names[4], *s_metric_values[4];
@@ -154,6 +157,30 @@ static lv_obj_t *label(lv_obj_t *parent, int x, int y, int w, int h,
     lv_obj_set_user_data(obj, stored);
     lv_label_set_text(obj, value);
     return obj;
+}
+
+static lv_obj_t *dismiss_button(lv_obj_t *parent, int x)
+{
+    lv_obj_t *button = box(parent, x, 0, DISMISS_WIDTH, DISMISS_HEIGHT, 0x243544, 8);
+    lv_obj_add_flag(button, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_PRESS_LOCK | LV_OBJ_FLAG_EVENT_BUBBLE);
+    /* Draw the cross at its intended size rather than relying on a small
+     * text glyph. Non-clickable strokes keep the whole button as the target. */
+    static const lv_point_precise_t points[2][2] = {
+        {{0, 0}, {DISMISS_CROSS_SPAN, DISMISS_CROSS_SPAN}},
+        {{0, DISMISS_CROSS_SPAN}, {DISMISS_CROSS_SPAN, 0}},
+    };
+    for (int i = 0; i < 2; i++) {
+        lv_obj_t *stroke = lv_line_create(button);
+        lv_obj_remove_style_all(stroke);
+        lv_obj_remove_flag(stroke, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+        lv_line_set_points(stroke, points[i], 2);
+        lv_obj_set_pos(stroke, (DISMISS_WIDTH - DISMISS_CROSS_SPAN) / 2,
+                       (DISMISS_HEIGHT - DISMISS_CROSS_SPAN) / 2);
+        lv_obj_set_style_line_width(stroke, 3, 0);
+        lv_obj_set_style_line_color(stroke, lv_color_hex(FOREGROUND), 0);
+        lv_obj_set_style_line_rounded(stroke, true, 0);
+    }
+    return button;
 }
 
 static bool locally_hidden(const status_state_t *st, int id)
@@ -367,11 +394,11 @@ static void bind_cards(const snapshot_t *view)
         lv_obj_set_height(slot->body, 78);
         lv_obj_set_y(slot->position, 140);
         lv_obj_set_width(slot->root, width);
-        lv_obj_set_width(slot->app, width - 70);
-        lv_obj_set_width(slot->title, width - 64);
+        lv_obj_set_width(slot->app, width - DISMISS_WIDTH - 24);
+        lv_obj_set_width(slot->title, width - DISMISS_WIDTH - 24);
         lv_obj_set_width(slot->body, width - 24);
         lv_obj_set_width(slot->position, width - 24);
-        lv_obj_set_x(slot->dismiss, width - 48);
+        lv_obj_set_x(slot->dismiss, width - DISMISS_WIDTH);
         if (!slot->valid) {
             continue;
         }
@@ -662,12 +689,13 @@ static void grouped_bind(const snapshot_t *view)
         hide(slot->dismiss, i != 1);
         lv_obj_set_size(slot->root, 464, multiple ? 120 : 144);
         lv_obj_set_size(slot->accent, 3, multiple ? 100 : 124);
-        lv_obj_set_pos(slot->app, 12, 4); lv_obj_set_width(slot->app, 394);
-        lv_obj_set_pos(slot->title, 12, 24); lv_obj_set_width(slot->title, 400);
+        const int header_width = i == 1 ? 464 - DISMISS_WIDTH - 24 : 440;
+        lv_obj_set_pos(slot->app, 12, 4); lv_obj_set_width(slot->app, header_width);
+        lv_obj_set_pos(slot->title, 12, 24); lv_obj_set_width(slot->title, header_width);
         lv_obj_set_pos(slot->body, 12, 52);
         lv_obj_set_size(slot->body, 440, multiple ? 52 : view->overflow ? 72 : 84);
         lv_obj_set_pos(slot->position, 12, multiple ? 104 : 128);
-        lv_obj_set_width(slot->position, 440); lv_obj_set_x(slot->dismiss, 416);
+        lv_obj_set_width(slot->position, 440); lv_obj_set_x(slot->dismiss, 464 - DISMISS_WIDTH);
         if (!slot->valid) continue;
         const lv_color_t accent = lv_color_hex(n->urgency >= 2 ? CRITICAL : ACCENT);
         if (!lv_color_eq(lv_obj_get_style_bg_color(slot->accent, 0), accent)) {
@@ -980,10 +1008,7 @@ void ui_deck_init(lv_obj_t *parent, const lv_font_t *small, const lv_font_t *met
         slot->body = label(slot->root, 12, 58, 368, 78, &status_text_20, FOREGROUND, "");
         lv_obj_set_style_text_line_space(slot->body, 0, 0);
         slot->position = label(slot->root, 12, 140, 368, 16, s_small, SECONDARY, "");
-        slot->dismiss = box(slot->root, 344, 0, 48, 36, SURFACE, 8);
-        lv_obj_add_flag(slot->dismiss, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_PRESS_LOCK | LV_OBJ_FLAG_EVENT_BUBBLE);
-        lv_obj_t *cross = label(slot->dismiss, 0, 3, 48, 28, &status_text_22, SECONDARY, "×");
-        lv_obj_set_style_text_align(cross, LV_TEXT_ALIGN_CENTER, 0);
+        slot->dismiss = dismiss_button(slot->root, 392 - DISMISS_WIDTH);
     }
     s_group_cue = label(s_root, 172, 1, 456, 18, s_small, SECONDARY, "");
     ui_deck_show(false);

@@ -200,9 +200,14 @@ static void counts_controls_and_text(void)
     assert(current_id() == 1);
     pointer_press(350, 95); pointer_release(350, 95);
     assert(!s_group_home && s_dismiss_count == 0);
-    pointer_press(608, 34); pointer_move(480, 34, 100); pointer_release(480, 34);
+    /* Lower-left part of the enlarged target was outside the former button.
+     * A drag from there cancels the button without acquiring either axis. */
+    pointer_press(577, 60); pointer_move(470, 100, 100); pointer_release(470, 100);
     assert(s_dismiss_count == 0);
-    pointer_press(608, 34); pointer_release(608, 34);
+    assert(current_id() == 1 && !s_group_home);
+    assert(lv_obj_get_x(s_cards[1].title) + lv_obj_get_width(s_cards[1].title)
+           <= lv_obj_get_x(s_cards[1].dismiss) - 8);
+    pointer_press(577, 60); pointer_release(577, 60);
     assert(s_dismiss_count == 1 && s_group_home);
 
     int pair[] = {2, 1};
