@@ -21,13 +21,17 @@ notification mode, WiFi, audio, battery tuning, now-playing/media controls
 (M4 dropped), and bespoke per-content widgets (the status area is generic
 zones).
 
-The v1 exclusions above describe the implemented active-notification product.
+The v1 exclusions above describe the accepted active-notification prototype.
 The [grouped UI direction](design/grouped-ui-plan.md), reviewed on 2026-09-26,
-proposes a subsequent goal with horizontal Home/Notifications groups, vertical
-card browsing, and bounded retention after presentation timeout. It is design
-work; the current host still removes board cards on expiry.
+now has an implementation with horizontal Home/Notifications groups,
+vertical whole-card browsing, and bounded retention after presentation timeout.
+Automated acceptance and Starship's short physical check passed on firmware
+`be39d5e49`; normal mirroring is restored. See the
+[acceptance evidence](design/grouped-ui-acceptance.md).
+The larger close-control follow-up passed its focused Starship check on
+`604fd70da`, the currently deployed image.
 
-## Current validation boundary (2026-09-25)
+## Current validation boundary (2026-09-26)
 
 The hardware findings below describe the 2026-09-23 builds. The fresh
 on-device run for the later review fixes is recorded in
@@ -43,6 +47,7 @@ that were exercised.
 | Active-card cache | Implemented with capability-gated chunked sync, up to 32 cached cards, overflow/refill, and legacy compatibility. Snap cache/recovery checks are recorded in `ACCEPTANCE.md`. |
 | UI redesign | The [UI implementation checkpoint](design/ui-deck-plan.md) adds a quarter-width telemetry rail, large idle clock/date, and a foreground notification with local side-peek navigation. Starship's short visual/touch/count gates passed; see `ACCEPTANCE.md`. The original accepted image predates the final touch-race fix; the following refinement includes it. Snap has not received this UI. |
 | UI refinement | The [drag-and-snap deck](design/swipe-deck-plan.md) implements horizontal finger-following navigation with one-card snaps, previous/next browsing, peek-tap fallback, and arrival/removal rules during touch. Native policy and actual LVGL pointer checks, firmware build, font audit, and 118 host tests pass. Starship's short physical gates passed at the measured 16–20 updates/s, which the user found responsive enough; the initial 25 updates/s target was not reached. Exact build/trial scope is in `ACCEPTANCE.md`. Vertical text scrolling remains a later step; Snap has not received this refinement. |
+| Grouped UI | Home/Notifications group navigation and retained notification history are implemented with capability-gated legacy fallback. Host, native LVGL, composed parser/state, serial and short physical Starship gates passed on `be39d5e49`; see [grouped acceptance](design/grouped-ui-acceptance.md). Snap has not received this UI. Whole cards navigate vertically; body text does not scroll. |
 
 The September 23 generic-zone decisions above describe the prototype. The
 September 25 UI goal introduces capability-gated typed telemetry for the fixed
@@ -53,7 +58,7 @@ The subsequent renderer cleanup restores full PSRAM DIRECT rendering and keeps
 synchronous drawing. Build, native checks, Starship readback, and the cleaned
 image's short visual/swipe check pass; exact scope is in `ACCEPTANCE.md`.
 
-### Next direction — grouped UI (2026-09-26, proposed)
+### Implemented direction — grouped UI (2026-09-26)
 
 Keep the quarter-width telemetry rail. Make clock/date a Home group and move
 notifications into a vertically browsable group. Presentation expiry returns
@@ -61,12 +66,20 @@ an automatic visit to Home while keeping the card available in a bounded
 recent collection. Manual browsing and two-axis gesture ownership need explicit
 rules; retention also changes host lifecycle and capability-gated sync semantics.
 
-The [design review and checkpoint plan](design/grouped-ui-plan.md) proposes
+The [design review and checkpoint plan](design/grouped-ui-plan.md) established
 Home plus Notifications and up to 32 retained records for the first goal:
 interaction preview, host lifecycle/wire contract, firmware/native UI, then
 Starship short physical checks. Additional groups, body-text scrolling, and
-disk history follow separately. No implementation or new hardware acceptance
-is implied by this roadmap entry.
+disk history follow separately. Implementation and Starship's short acceptance
+and implementation commits are recorded in
+[grouped acceptance](design/grouped-ui-acceptance.md).
+
+The [execution plan](design/grouped-ui-execution.md) starts with shared native
+LVGL replay/capture and a desktop viewer, then grouped UI, host lifecycle/wire
+contract, and production parser/state integration. Held-gesture event races
+are automated; Starship acceptance uses serial probes plus one approximately
+3–5 minute readability/touch/timeout/replug session. QEMU/custom board modeling
+is deferred unless an ESP-IDF-specific gap warrants it.
 
 The acceptance run must record which host process and device firmware build
 were used. The device `hello.build` and `hello.build_sha` report its app

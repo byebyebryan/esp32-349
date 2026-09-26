@@ -1,0 +1,25 @@
+{
+  "scope": "Native LVGL virtual data, production fonts; not board photographs",
+  "dimensions": [
+    640,
+    172
+  ],
+  "source": "tools/native_ui/test_groups.c",
+  "sha256": {
+    "groups-home.png": "ce1fd8dc270a6e80fadda6ab83f1a47d0f0afe0761eb9a23d4ca61d92771ac95",
+    "groups-long-two.png": "6148aec1c7186c02a1ac94ee6fcfc0b23f4edba4714127360f1695324e8f646e",
+    "groups-one-fonts.png": "a5f91cd34e40d0758eddc3530df40c0b815bfd9fc51c4362fdac7fc4394c3f51",
+    "groups-empty-notifications.png": "d8b3afc44cb2510ac12e53b5e928721f39d14272b73ee92fd970d5c3aaa80d08",
+    "groups-close-large.png": "8fd28d5dd21373d024538a5e0a63659b0ff9c4f1b8b651cee463533574c6bf30"
+  },
+  "close_control_followup": {
+    "image": "groups-close-large.png",
+    "firmware_source_build": "604fd70da",
+    "target_px": [
+      64,
+      48
+    ],
+    "cross_span_px": 28,
+    "stroke_px": 3
+  }
+}

@@ -1,10 +1,14 @@
-# Grouped UI and retained notifications — proposed direction
+# Grouped UI and retained notifications — reviewed direction
 
-Reviewed direction, 2026-09-26. **Design only; not implemented or accepted on
-hardware.** The current implementation is the
-[drag-and-snap notification deck](swipe-deck-plan.md), committed in `f17ad67`,
-with renderer simplification in `c88eeb9`. Its firmware and physical trial
-identities remain in [ACCEPTANCE.md](../ACCEPTANCE.md).
+Reviewed direction, 2026-09-26. The implementation now follows this
+design; **Starship's automated and short physical gates passed** on
+`be39d5e49`. Resolved geometry and wire
+rules are in [the protocol contract](grouped-ui-protocol.md), and current
+evidence is in [grouped acceptance](grouped-ui-acceptance.md). The proposals
+below preserve the design review context. The previously accepted
+[drag-and-snap deck](swipe-deck-plan.md), committed in `f17ad67` with renderer
+simplification in `c88eeb9`, remains the compatibility fallback. Its historical
+firmware and physical trial identities remain in [ACCEPTANCE.md](../ACCEPTANCE.md).
 
 ## Requested direction
 
@@ -19,6 +23,11 @@ The first implementation should contain only **Home and Notifications**.
 Other group content, app-specific notification groups, and a configurable
 group editor are later decisions. The generic group concept should not require
 those features to establish the interaction model.
+
+The [execution and automated acceptance plan](grouped-ui-execution.md) expands
+the checkpoints below. Held-gesture races become routine simulator/replay
+checks; physical acceptance is a short visual/touch session plus automated
+board readback, rather than repeating involved human sequences across builds.
 
 ## Design review
 
