@@ -5,6 +5,7 @@
 #include <time.h>
 
 #include "deck.h"
+#include "deck_input.h"
 #include "esp_timer.h"
 #include "link.h"
 #include "proto.h"
@@ -27,10 +28,21 @@ LV_FONT_DECLARE(status_clock_80);
 static lv_obj_t *s_root, *s_rail_header, *s_rail_clock, *s_rail_footer;
 static lv_obj_t *s_metric_names[4], *s_metric_values[4];
 static lv_obj_t *s_idle, *s_idle_clock, *s_date, *s_message, *s_idle_transient;
-static lv_obj_t *s_primary, *s_accent, *s_app, *s_title, *s_body, *s_position, *s_dismiss;
-static lv_obj_t *s_peek, *s_peek_app, *s_peek_title;
+typedef struct {
+    lv_obj_t *root, *accent, *app, *title, *body, *position, *dismiss;
+    int id;
+    bool valid;
+} card_view_t;
+static lv_obj_t *s_viewport;
+static card_view_t s_cards[3];
+static bool s_multiple;
+static int s_offset;
 static const lv_font_t *s_small, *s_meta;
 static deck_t s_deck;
+static deck_input_t s_input;
+static lv_indev_t *s_input_indev;
+static bool s_pending_critical;
+static int s_pending_critical_id;
 static uint32_t s_seen_focus_seq;
 static uint32_t s_seen_critical_seq;
 static status_dashboard_t s_previous_dashboard;
@@ -40,15 +52,40 @@ static int64_t s_transient_until;
 static bool s_visible;
 /* LVGL's DOT mode modifies its displayed string. Keep the supplied text so
  * an ellipsized card does not get allocated and redrawn every 100 ms. */
-static char s_label_text[24][STATUS_NOTIF_BODY_MAX];
+static char s_label_text[40][STATUS_NOTIF_BODY_MAX];
 static int s_label_count;
 
 typedef struct {
     status_dashboard_t dashboard;
-    status_notif_t foreground, next;
+    status_notif_t cards[3]; /* Previous, foreground, next. */
     int overflow;
     bool stale;
 } snapshot_t;
+/* Persistent copies keep three records off the LVGL task's callback stack. */
+static snapshot_t s_view;
+static void input_cb(lv_event_t *event);
+static void start_snap(deck_input_action_t action);
+static void animation_exec(void *var, int32_t value);
+
+static bool reachable(int id)
+{
+    for (int i = 0; i < s_deck.count; i++) {
+        if (s_deck.ids[i] == id) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static int urgency(const status_state_t *st, int id)
+{
+    for (int i = 0; i < st->notif_count; i++) {
+        if (st->notifs[i].id == id) {
+            return st->notifs[i].urgency;
+        }
+    }
+    return 1;
+}
 
 static void hide(lv_obj_t *obj, bool hidden)
 {
@@ -99,7 +136,7 @@ static lv_obj_t *label(lv_obj_t *parent, int x, int y, int w, int h,
     lv_obj_set_style_text_color(obj, lv_color_hex(color), 0);
     lv_label_set_long_mode(obj, LV_LABEL_LONG_DOT);
     lv_obj_remove_flag(obj, LV_OBJ_FLAG_CLICKABLE);
-    LV_ASSERT(s_label_count < 24);
+    LV_ASSERT(s_label_count < 40);
     char *stored = s_label_text[s_label_count++];
     strlcpy(stored, value, STATUS_NOTIF_BODY_MAX);
     lv_obj_set_user_data(obj, stored);
@@ -117,7 +154,7 @@ static bool locally_hidden(const status_state_t *st, int id)
     return false;
 }
 
-/* The deck keeps IDs; only the foreground and peek text are copied out of
+/* The deck keeps IDs; only the foreground and its neighbors are copied out of
  * PSRAM. Syncs can swap the cache without leaving a dangling card pointer. */
 static void snapshot(snapshot_t *out, bool focus_events)
 {
@@ -132,44 +169,50 @@ static void snapshot(snapshot_t *out, bool focus_events)
         }
     }
     deck_reconcile(&s_deck, ids, count);
-    int focused_urgency = 1;
-    for (int i = 0; i < st->notif_count; i++) {
-        if (s_deck.has_focus && st->notifs[i].id == s_deck.focus_id) {
-            focused_urgency = st->notifs[i].urgency;
-            break;
+    const bool automatic = focus_events && !deck_input_busy(&s_input);
+    if (s_pending_critical && automatic) {
+        if (reachable(s_pending_critical_id) && urgency(st, s_pending_critical_id) >= 2) {
+            deck_request_focus(&s_deck, s_pending_critical_id, 2, 1, esp_timer_get_time());
         }
+        s_pending_critical = false;
     }
+    int focused_urgency = s_deck.has_focus ? urgency(st, s_deck.focus_id) : 1;
     if (st->notif_critical_seq != s_seen_critical_seq) {
         s_seen_critical_seq = st->notif_critical_seq;
-        if (focus_events) {
+        if (automatic && reachable(st->notif_critical_id) && urgency(st, st->notif_critical_id) >= 2) {
             deck_request_focus(&s_deck, st->notif_critical_id, 2, focused_urgency, st->notif_critical_us);
-            for (int i = 0; i < st->notif_count; i++) {
-                if (s_deck.has_focus && st->notifs[i].id == s_deck.focus_id) {
-                    focused_urgency = st->notifs[i].urgency;
-                    break;
-                }
-            }
+            focused_urgency = s_deck.has_focus ? urgency(st, s_deck.focus_id) : 1;
+        } else if (reachable(st->notif_critical_id) && urgency(st, st->notif_critical_id) >= 2) {
+            /* Normal events are consumed during touch; critical events survive
+             * until release/settlement and are revalidated against the cache. */
+            s_pending_critical = true;
+            s_pending_critical_id = st->notif_critical_id;
         }
     }
     if (st->notif_focus_seq != s_seen_focus_seq) {
         s_seen_focus_seq = st->notif_focus_seq;
-        if (focus_events) {
+        if (automatic) {
             deck_request_focus(&s_deck, st->notif_focus_id, st->notif_focus_urgency,
                                focused_urgency, st->notif_focus_us);
         }
     }
-    /* A peek tap acts on the displayed foreground. Let deck_advance cancel
-     * any queued arrival before a timer can move focus under that tap. */
-    if (focus_events) {
+    if (automatic) {
         deck_tick(&s_deck, esp_timer_get_time());
+    } else {
+        deck_cancel_pending(&s_deck);
     }
     const int next_id = deck_next_id(&s_deck);
+    int previous_id = 0;
+    const bool has_previous = deck_neighbor_id(&s_deck, -1, &previous_id);
     for (int i = 0; i < st->notif_count; i++) {
         if (s_deck.has_focus && st->notifs[i].id == s_deck.focus_id) {
-            out->foreground = st->notifs[i];
+            out->cards[1] = st->notifs[i];
         }
         if (s_deck.count > 1 && st->notifs[i].id == next_id) {
-            out->next = st->notifs[i];
+            out->cards[2] = st->notifs[i];
+        }
+        if (has_previous && st->notifs[i].id == previous_id) {
+            out->cards[0] = st->notifs[i];
         }
     }
     out->dashboard = st->dashboard;
@@ -184,25 +227,6 @@ static void snapshot(snapshot_t *out, bool focus_events)
     live->deck_focus_id = s_deck.focus_id;
     live->deck_next_id = next_id;
     state_unlock();
-}
-
-static void dismiss_cb(lv_event_t *event)
-{
-    if (s_deck.has_focus) {
-        const int id = s_deck.focus_id;
-        deck_cancel_pending(&s_deck);
-        state_hide_notif(id);
-        proto_send_input_dismiss(id);
-        ui_deck_tick(STATE_DIRTY_NOTIF);
-    }
-}
-
-static void peek_cb(lv_event_t *event)
-{
-    snapshot_t current;
-    snapshot(&current, false);
-    deck_advance(&s_deck);
-    ui_deck_tick(STATE_DIRTY_NOTIF);
 }
 
 static void transient(const status_dashboard_t *now)
@@ -285,37 +309,206 @@ static void clocks(void)
     text(s_date, date);
 }
 
-static void card(const snapshot_t *view)
+static void position_text(card_view_t *slot, int overflow)
 {
-    const status_notif_t *n = &view->foreground;
-    const bool multiple = s_deck.count > 1;
-    const int width = multiple ? 392 : 464;
-    lv_obj_set_width(s_primary, width);
-    lv_obj_set_width(s_app, width - 70);
-    lv_obj_set_width(s_title, width - 64);
-    lv_obj_set_width(s_body, width - 24);
-    lv_obj_set_width(s_position, width - 24);
-    lv_obj_set_x(s_dismiss, width - 48);
-    const lv_color_t accent = lv_color_hex(n->urgency >= 2 ? CRITICAL : ACCENT);
-    if (!lv_color_eq(lv_obj_get_style_bg_color(s_accent, 0), accent)) {
-        lv_obj_set_style_bg_color(s_accent, accent, 0);
+    int index = -1;
+    for (int i = 0; i < s_deck.count; i++) {
+        if (slot->valid && s_deck.ids[i] == slot->id) {
+            index = i;
+            break;
+        }
     }
-    text(s_app, n->app);
-    text(s_title, n->summary[0] ? n->summary : "Notification");
-    text(s_body, n->body);
-    char position[64];
-    if (view->overflow > 0) {
-        snprintf(position, sizeof(position), "%d / %d   +%d uncached", deck_position(&s_deck) + 1,
-                 s_deck.count, view->overflow);
-    } else if (multiple) {
-        snprintf(position, sizeof(position), "%d / %d", deck_position(&s_deck) + 1, s_deck.count);
-    } else {
-        position[0] = '\0';
+    char value[64] = "";
+    if (index >= 0 && overflow > 0) {
+        snprintf(value, sizeof(value), "%d / %d   +%d uncached", index + 1, s_deck.count, overflow);
+    } else if (index >= 0 && s_deck.count > 1) {
+        snprintf(value, sizeof(value), "%d / %d", index + 1, s_deck.count);
     }
-    text(s_position, position);
-    hide(s_peek, !multiple);
-    text(s_peek_app, view->next.app[0] ? view->next.app : "NEXT");
-    text(s_peek_title, view->next.summary);
+    text(slot->position, value);
+}
+
+static void position_cards(int offset)
+{
+    s_offset = offset;
+    for (int i = 0; i < 3; i++) {
+        lv_obj_set_x(s_cards[i].root, 8 + (i - 1) * 400 + offset);
+    }
+}
+
+static void bind_cards(const snapshot_t *view)
+{
+    s_multiple = s_deck.count > 1;
+    const int width = s_multiple ? 392 : 464;
+    for (int i = 0; i < 3; i++) {
+        card_view_t *slot = &s_cards[i];
+        const status_notif_t *n = &view->cards[i];
+        slot->valid = n->valid && (i == 1 || s_multiple);
+        slot->id = n->id;
+        hide(slot->root, !slot->valid);
+        lv_obj_set_width(slot->root, width);
+        lv_obj_set_width(slot->app, width - 70);
+        lv_obj_set_width(slot->title, width - 64);
+        lv_obj_set_width(slot->body, width - 24);
+        lv_obj_set_width(slot->position, width - 24);
+        lv_obj_set_x(slot->dismiss, width - 48);
+        if (!slot->valid) {
+            continue;
+        }
+        const lv_color_t accent = lv_color_hex(n->urgency >= 2 ? CRITICAL : ACCENT);
+        if (!lv_color_eq(lv_obj_get_style_bg_color(slot->accent, 0), accent)) {
+            lv_obj_set_style_bg_color(slot->accent, accent, 0);
+        }
+        text(slot->app, n->app);
+        text(slot->title, n->summary[0] ? n->summary : "Notification");
+        text(slot->body, n->body);
+        position_text(slot, view->overflow);
+    }
+    position_cards(0);
+}
+
+static void cancel_interaction(void)
+{
+    lv_anim_delete(&s_input, animation_exec);
+    deck_input_cancel(&s_input);
+    position_cards(0);
+    if (s_input_indev && deck_input_pointer_down(&s_input)) {
+        /* Hidden/stale views must not turn the same held press into a click
+         * on the replacement UI. Poll the release latch on later UI ticks. */
+        lv_indev_wait_release(s_input_indev);
+    }
+}
+
+static deck_input_action_t validate_input(void)
+{
+    return deck_input_validate(&s_input,
+        s_input.has_source && reachable(s_input.source_id),
+        s_input.captured_previous && reachable(s_input.previous_id),
+        s_input.captured_next && reachable(s_input.next_id));
+}
+
+static void animation_exec(void *var, int32_t value)
+{
+    (void)var;
+    position_cards(value);
+}
+
+static void animation_completed(lv_anim_t *animation)
+{
+    const uint32_t generation = (uint32_t)(uintptr_t)lv_anim_get_user_data(animation);
+    if (generation != deck_input_generation(&s_input)) {
+        return;
+    }
+    snapshot(&s_view, false);
+    const deck_input_action_t action = deck_input_complete(&s_input, generation,
+        s_input.has_source && reachable(s_input.source_id),
+        s_input.captured_previous && reachable(s_input.previous_id),
+        s_input.captured_next && reachable(s_input.next_id));
+    if (action.kind == DECK_INPUT_ACTION_SNAP) {
+        start_snap(action);
+        return;
+    }
+    if (action.kind == DECK_INPUT_ACTION_SETTLED && action.commit_target && action.has_target) {
+        deck_select_id(&s_deck, action.target_id);
+    }
+    if (deck_input_state(&s_input) == DECK_INPUT_IGNORED) {
+        /* A destination-expiry rollback can finish while the finger is down. */
+        bind_cards(&s_view);
+    }
+    ui_deck_tick(STATE_DIRTY_NOTIF);
+}
+
+static void start_snap(deck_input_action_t action)
+{
+    lv_anim_delete(&s_input, animation_exec);
+    lv_anim_t animation;
+    lv_anim_init(&animation);
+    lv_anim_set_var(&animation, &s_input);
+    lv_anim_set_exec_cb(&animation, animation_exec);
+    lv_anim_set_values(&animation, s_offset, action.offset_px);
+    lv_anim_set_duration(&animation, 180);
+    lv_anim_set_path_cb(&animation, lv_anim_path_ease_out);
+    lv_anim_set_user_data(&animation, (void *)(uintptr_t)action.generation);
+    lv_anim_set_completed_cb(&animation, animation_completed);
+    if (!lv_anim_start(&animation)) {
+        cancel_interaction();
+        ui_deck_tick(STATE_DIRTY_NOTIF);
+    }
+}
+
+static void input_cb(lv_event_t *event)
+{
+    const lv_event_code_t code = lv_event_get_code(event);
+    if (code != LV_EVENT_PRESSED && code != LV_EVENT_PRESSING && code != LV_EVENT_RELEASED
+            && code != LV_EVENT_PRESS_LOST && code != LV_EVENT_INDEV_RESET) {
+        return;
+    }
+    lv_indev_t *indev = lv_event_get_indev(event);
+    if (!indev) {
+        return;
+    }
+    if (code == LV_EVENT_PRESS_LOST || code == LV_EVENT_INDEV_RESET) {
+        if (deck_input_busy(&s_input)) {
+            cancel_interaction();
+            ui_deck_tick(STATE_DIRTY_NOTIF);
+        }
+        return;
+    }
+    lv_point_t point;
+    lv_indev_get_point(indev, &point);
+    if (code == LV_EVENT_PRESSED) {
+        if (!s_visible || deck_input_busy(&s_input)) {
+            return;
+        }
+        s_input_indev = indev;
+        snapshot(&s_view, false);
+        if (s_view.stale || !s_cards[1].valid || !reachable(s_cards[1].id)) {
+            lv_indev_wait_release(indev);
+            ui_deck_tick(STATE_DIRTY_NOTIF);
+            return;
+        }
+        /* Capture the displayed slots. A pending arrival must not change the
+         * preview or focus before this press has chosen its destination. */
+        deck_select_id(&s_deck, s_cards[1].id);
+        const lv_obj_t *target = lv_event_get_target_obj(event);
+        deck_input_press(&s_input, point.x, point.y, esp_timer_get_time(),
+            s_cards[1].id, s_cards[0].id, s_cards[2].id,
+            s_multiple ? s_deck.count : 1,
+            target == s_cards[1].dismiss,
+            s_multiple && point.x >= 568 && point.x < 632);
+    } else if (indev == s_input_indev && deck_input_busy(&s_input)) {
+        snapshot(&s_view, false);
+        if (s_view.stale) {
+            cancel_interaction();
+            ui_deck_tick(STATE_DIRTY_NOTIF);
+            return;
+        }
+        const uint32_t old_generation = deck_input_generation(&s_input);
+        const deck_input_action_t invalidation = validate_input();
+        if (invalidation.kind == DECK_INPUT_ACTION_SNAP) {
+            start_snap(invalidation);
+        } else if (old_generation != deck_input_generation(&s_input)) {
+            lv_anim_delete(&s_input, animation_exec);
+            position_cards(0);
+            bind_cards(&s_view);
+        }
+        if (code == LV_EVENT_PRESSING) {
+            const int offset = deck_input_move(&s_input, point.x, point.y, esp_timer_get_time());
+            if (deck_input_state(&s_input) == DECK_INPUT_DRAGGING) {
+                position_cards(offset);
+            }
+        } else if (code == LV_EVENT_RELEASED) {
+            const deck_input_action_t action = deck_input_release(&s_input, esp_timer_get_time());
+            if (action.kind == DECK_INPUT_ACTION_SNAP || action.kind == DECK_INPUT_ACTION_NEXT_TAP) {
+                start_snap(action);
+            } else if (action.kind == DECK_INPUT_ACTION_DISMISS && action.has_target && reachable(action.target_id)) {
+                state_hide_notif(action.target_id);
+                proto_send_input_dismiss(action.target_id);
+                ui_deck_tick(STATE_DIRTY_NOTIF);
+            } else if (!deck_input_busy(&s_input)) {
+                ui_deck_tick(STATE_DIRTY_NOTIF);
+            }
+        }
+    }
 }
 
 void ui_deck_tick(uint32_t dirty)
@@ -323,34 +516,61 @@ void ui_deck_tick(uint32_t dirty)
     if (!s_visible) {
         return;
     }
-    snapshot_t view;
-    snapshot(&view, true);
-    if (dirty & STATE_DIRTY_DASHBOARD) {
-        transient(&view.dashboard);
+    if (deck_input_state(&s_input) == DECK_INPUT_IGNORED && s_input_indev
+            && lv_indev_get_state(s_input_indev) == LV_INDEV_STATE_RELEASED) {
+        deck_input_release(&s_input, esp_timer_get_time());
     }
-    const bool active = s_deck.has_focus && !view.stale;
-    hide(s_primary, !active);
+    snapshot_t *view = &s_view;
+    snapshot(view, true);
+    if (deck_input_busy(&s_input)) {
+        if (view->stale) {
+            cancel_interaction();
+        } else {
+            const uint32_t generation = deck_input_generation(&s_input);
+            const deck_input_action_t action = validate_input();
+            if (action.kind == DECK_INPUT_ACTION_SNAP) {
+                start_snap(action);
+            } else if (generation != deck_input_generation(&s_input)) {
+                lv_anim_delete(&s_input, animation_exec);
+                position_cards(0);
+                bind_cards(view);
+            }
+        }
+    }
+    if (dirty & STATE_DIRTY_DASHBOARD) {
+        transient(&view->dashboard);
+    }
+    const bool active = s_deck.has_focus && !view->stale;
+    hide(s_viewport, !active);
     hide(s_idle, active);
     if (active) {
-        card(&view);
+        if (!deck_input_busy(&s_input)) {
+            bind_cards(view);
+        } else {
+            for (int i = 0; i < 3; i++) {
+                position_text(&s_cards[i], view->overflow);
+            }
+        }
     } else {
-        hide(s_peek, true);
-        if (view.stale) {
+        if (view->stale) {
             text(s_message, "Host disconnected");
-        } else if (view.overflow > 0) {
+        } else if (view->overflow > 0) {
             char message[64];
-            snprintf(message, sizeof(message), "%d uncached notifications", view.overflow);
+            snprintf(message, sizeof(message), "%d uncached notifications", view->overflow);
             text(s_message, message);
         } else {
             text(s_message, "");
         }
     }
-    metrics(&view, active);
+    metrics(view, active);
     clocks();
 }
 
 void ui_deck_show(bool visible)
 {
+    if (!visible && s_visible) {
+        cancel_interaction();
+    }
     s_visible = visible;
     hide(s_root, !visible);
     if (!visible) {
@@ -368,10 +588,13 @@ void ui_deck_show(bool visible)
 
 void ui_deck_init(lv_obj_t *parent, const lv_font_t *small, const lv_font_t *meta)
 {
+    deck_input_init(&s_input);
     s_small = small;
     s_meta = meta;
     s_root = box(parent, 0, 0, 640, 172, BACKGROUND, 0);
     lv_obj_t *rail = box(s_root, 0, 0, 160, 172, RAIL, 0);
+    /* A press starting on the rail stays owned there even if it moves right. */
+    lv_obj_add_flag(rail, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_PRESS_LOCK);
     box(s_root, 159, 0, 1, 172, 0x2C3B49, 0);
     s_rail_header = label(rail, 12, 12, 136, 20, s_meta, SECONDARY, "HOST");
     s_rail_clock = label(rail, 10, 7, 144, 48, &lv_font_montserrat_40, FOREGROUND, "--:--");
@@ -393,23 +616,24 @@ void ui_deck_init(lv_obj_t *parent, const lv_font_t *small, const lv_font_t *met
     s_idle_transient = label(s_idle, 12, 141, 456, 21, s_meta, SECONDARY, "");
     lv_obj_set_style_text_align(s_idle_transient, LV_TEXT_ALIGN_CENTER, 0);
 
-    s_primary = box(s_root, 168, 8, 464, 156, SURFACE, 8);
-    s_accent = box(s_primary, 0, 10, 3, 136, ACCENT, 2);
-    s_app = label(s_primary, 12, 6, 394, 20, s_meta, ACCENT, "");
-    s_title = label(s_primary, 12, 28, 440, 28, &status_text_22, FOREGROUND, "");
-    s_body = label(s_primary, 12, 58, 440, 78, &status_text_20, FOREGROUND, "");
-    lv_obj_set_style_text_line_space(s_body, 0, 0);
-    s_position = label(s_primary, 12, 140, 440, 16, s_small, SECONDARY, "");
-    s_dismiss = box(s_primary, 416, 0, 48, 36, SURFACE, 8);
-    lv_obj_add_flag(s_dismiss, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(s_dismiss, dismiss_cb, LV_EVENT_CLICKED, NULL);
-    lv_obj_t *cross = label(s_dismiss, 0, 3, 48, 28, &status_text_22, SECONDARY, "×");
-    lv_obj_set_style_text_align(cross, LV_TEXT_ALIGN_CENTER, 0);
-    s_peek = box(s_root, 568, 16, 64, 140, 0x1A2A36, 8);
-    lv_obj_add_flag(s_peek, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(s_peek, peek_cb, LV_EVENT_CLICKED, NULL);
-    s_peek_app = label(s_peek, 8, 10, 48, 20, s_small, ACCENT, "NEXT");
-    s_peek_title = label(s_peek, 8, 34, 48, 66, s_meta, SECONDARY, "");
-    label(s_peek, 8, 109, 48, 26, &status_text_20, ACCENT, "→");
+    /* The viewport ends at x=632, keeping the 8 px outer margin. */
+    s_viewport = box(s_root, 160, 0, 472, 172, BACKGROUND, 0);
+    lv_obj_add_flag(s_viewport, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_PRESS_LOCK);
+    lv_obj_add_event_cb(s_viewport, input_cb, LV_EVENT_ALL, NULL);
+    for (int i = 0; i < 3; i++) {
+        card_view_t *slot = &s_cards[i];
+        slot->root = box(s_viewport, 8 + (i - 1) * 400, 8, 392, 156, SURFACE, 8);
+        lv_obj_add_flag(slot->root, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_PRESS_LOCK | LV_OBJ_FLAG_EVENT_BUBBLE);
+        slot->accent = box(slot->root, 0, 10, 3, 136, ACCENT, 2);
+        slot->app = label(slot->root, 12, 6, 322, 20, s_meta, ACCENT, "");
+        slot->title = label(slot->root, 12, 28, 328, 28, &status_text_22, FOREGROUND, "");
+        slot->body = label(slot->root, 12, 58, 368, 78, &status_text_20, FOREGROUND, "");
+        lv_obj_set_style_text_line_space(slot->body, 0, 0);
+        slot->position = label(slot->root, 12, 140, 368, 16, s_small, SECONDARY, "");
+        slot->dismiss = box(slot->root, 344, 0, 48, 36, SURFACE, 8);
+        lv_obj_add_flag(slot->dismiss, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_PRESS_LOCK | LV_OBJ_FLAG_EVENT_BUBBLE);
+        lv_obj_t *cross = label(slot->dismiss, 0, 3, 48, 28, &status_text_22, SECONDARY, "×");
+        lv_obj_set_style_text_align(cross, LV_TEXT_ALIGN_CENTER, 0);
+    }
     ui_deck_show(false);
 }

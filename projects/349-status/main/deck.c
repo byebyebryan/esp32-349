@@ -17,6 +17,32 @@ int deck_position(const deck_t *deck)
     return deck->has_focus ? index_of(deck, deck->focus_id) : -1;
 }
 
+bool deck_neighbor_id(const deck_t *deck, int direction, int *out_id)
+{
+    if (deck == NULL) {
+        return false;
+    }
+    const int position = deck_position(deck);
+    if (out_id == NULL || position < 0 || deck->count <= 1 ||
+        (direction != -1 && direction != 1)) {
+        return false;
+    }
+    const int neighbor = (position + direction + deck->count) % deck->count;
+    *out_id = deck->ids[neighbor];
+    return true;
+}
+
+bool deck_select_id(deck_t *deck, int id)
+{
+    if (deck == NULL || index_of(deck, id) < 0) {
+        return false;
+    }
+    deck->focus_id = id;
+    deck->has_focus = true;
+    deck_cancel_pending(deck);
+    return true;
+}
+
 void deck_cancel_pending(deck_t *deck)
 {
     deck->has_pending = false;

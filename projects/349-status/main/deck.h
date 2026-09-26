@@ -23,4 +23,6 @@ bool deck_tick(deck_t *deck, int64_t now_us);
 void deck_advance(deck_t *deck);
 void deck_cancel_pending(deck_t *deck);
 int deck_position(const deck_t *deck);
+bool deck_neighbor_id(const deck_t *deck, int direction, int *out_id);
+bool deck_select_id(deck_t *deck, int id);
 int deck_next_id(const deck_t *deck);

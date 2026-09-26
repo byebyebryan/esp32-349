@@ -12,6 +12,10 @@ int main(void)
     assert(deck.has_focus && deck.focus_id == 1);
     int two[] = {2, 1};
     deck_reconcile(&deck, two, 2);
+    int neighbor = -1;
+    assert(deck_neighbor_id(&deck, -1, &neighbor) && neighbor == 2);
+    assert(deck_neighbor_id(&deck, 1, &neighbor) && neighbor == 2);
+    assert(!deck_neighbor_id(&deck, 0, &neighbor));
     deck_request_focus(&deck, 2, 1, 1, 1000);
     assert(deck.focus_id == 1 && !deck_tick(&deck, 200000));
     int three[] = {3, 2, 1};
@@ -55,12 +59,17 @@ int main(void)
     int zero_id[] = {0};
     deck_reconcile(&deck, zero_id, 1);
     assert(deck.has_focus && deck.focus_id == 0);
+    assert(!deck_neighbor_id(&deck, -1, &neighbor));
+    assert(!deck_neighbor_id(&deck, 1, &neighbor));
 
     /* A tap at an elapsed arrival deadline still selects the visible next
      * card, rather than advancing from a pending foreground. */
     deck_reconcile(&deck, two, 2);
     deck_reconcile(&deck, three, 3);
     deck_request_focus(&deck, 3, 1, 1, 5000000);
+    assert(deck_select_id(&deck, 2));
+    assert(deck.focus_id == 2 && !deck.has_pending);
+    assert(!deck_select_id(&deck, 99));
     assert(deck_next_id(&deck) == 1);
     deck_advance(&deck);
     assert(deck.focus_id == 1 && !deck_tick(&deck, 5500000));
