@@ -472,7 +472,7 @@ async def self_test(native_path: Path, artifacts: Path) -> None:
             hello = next(m for m in native.outbound if m.get("t") == "hello")
             await host.connected(hello); await advance(100)
             assert native.status()["grouped"]["group"] == "home" and native.status()["count"] == 3
-            await host.present_cards(); await advance(100)
+            await host.present_cards(); await advance(200)
             nid = native.status()["deck"]["focus_id"]
             native.command("press", x=600, y=35, ms=1)
             native.command("release", x=600, y=35, ms=1)

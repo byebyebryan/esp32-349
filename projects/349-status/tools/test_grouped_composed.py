@@ -144,6 +144,7 @@ async def scenario(native: Native) -> None:
 
         await notify(1)
         await advance(301)
+        await advance(200)  # Automatic Home-to-Notifications transition.
         status = native.status()
         assert status["ids"] == [1] and status["grouped"]["present_id"] == 1
         native.command("capture", name="composed-automatic")
@@ -162,12 +163,13 @@ async def scenario(native: Native) -> None:
         # The same newer-generation takeover must survive a held × tap.
         await notify(2)
         await advance(301)
+        await advance(200)
         native.command("press", x=600, y=35, ms=1)
         await notify(1)
         await advance(301)
         native.command("release", x=600, y=35, ms=1)
         await route_inputs()
-        await advance(100)
+        await advance(200)  # Dismissal hands the viewport to its successor.
         assert daemon._manual_notifications, "Held dismiss lost newer-generation manual takeover"
         assert 2 not in daemon.model.retained_notifs
         assert native.status()["grouped"]["manual"]
@@ -198,6 +200,7 @@ async def scenario(native: Native) -> None:
         native.command("release", x=350, y=150, ms=1)
         await advance(200)
         assert native.status()["deck"]["focus_id"] == 3
+        await advance(200)  # Deferred critical arrival follows the user's settle.
 
         # UI × produces the session-scoped input consumed by actual host handling.
         native.command("press", x=608, y=34, ms=1)

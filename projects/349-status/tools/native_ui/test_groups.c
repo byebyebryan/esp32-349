@@ -35,8 +35,10 @@ static void groups_reset(const int *ids, int count)
 
 static void group_finish(void)
 {
-    for (int i = 0; i < 16 && s_group_input.motion.state == DECK_INPUT_SETTLING; i++) step(20);
+    for (int i = 0; i < 32 && (s_group_input.motion.state == DECK_INPUT_SETTLING ||
+                              s_group_lifecycle.active); i++) step(20);
     assert(s_group_input.motion.state != DECK_INPUT_SETTLING);
+    assert(!s_group_lifecycle.active);
     repaint();
 }
 
@@ -49,12 +51,19 @@ static void group_swipe(int x, int y, int dx, int dy)
     group_finish();
 }
 
-static void present(int generation, int id, int urgency, int duration_ms)
+static void present_begin(int generation, int id, int urgency, int duration_ms)
 {
     s_state.presentation = (status_presentation_t){.generation = generation, .id = id,
         .urgency = urgency, .active = true, .persistent = duration_ms < 0,
         .deadline_us = s_now_us + (int64_t)duration_ms * 1000};
     ui_deck_tick(STATE_DIRTY_NOTIF);
+    repaint();
+}
+
+static void present(int generation, int id, int urgency, int duration_ms)
+{
+    present_begin(generation, id, urgency, duration_ms);
+    group_finish();
 }
 
 static void set_open(int id, int revision, bool ready)
@@ -414,6 +423,167 @@ static void action_controls_and_capture(void)
     assert(capture_frame("actions-legacy-baseline"));
 }
 
+static void lifecycle_capture(const char *prefix)
+{
+    for (int frame = 0; frame <= 12; frame++) {
+        char name[80];
+        snprintf(name, sizeof(name), "%s-%02d", prefix, frame);
+        assert(capture_frame(name));
+        if (frame < 12) step(15);
+    }
+    group_finish();
+}
+
+static void lifecycle_motion_and_removal(void)
+{
+    const int ids[] = {3, 2, 1};
+    groups_reset(ids, 3);
+    s_state.actions_enabled = true;
+    set_open(3, 1, true);
+    present_begin(1, 3, 1, -1);
+    assert(s_group_lifecycle.active && s_group_lifecycle.kind == GROUP_LIFECYCLE_GROUP);
+    assert(lv_obj_get_x(s_idle) == 0 && lv_obj_get_x(s_viewport) == 480);
+    step(60);
+    repaint();
+    assert(lv_obj_get_x(s_viewport) > 0 && lv_obj_get_x(s_viewport) < 480);
+    assert(lv_obj_get_x(s_content) == 160);
+    group_finish();
+    assert(!s_group_home && current_id() == 3);
+
+    const int dismisses = s_dismiss_count, activations = s_activate_count;
+    char outgoing_title[160], outgoing_body[STATUS_NOTIF_BODY_MAX];
+    snprintf(outgoing_title, sizeof(outgoing_title), "%s", label_storage(s_cards[1].title));
+    snprintf(outgoing_body, sizeof(outgoing_body), "%s", label_storage(s_cards[1].body));
+    pointer_press(600, 44); pointer_release(600, 44);
+    repaint();
+    assert(s_dismiss_count == dismisses + 1 && !reachable(3));
+    assert(s_group_lifecycle.active && s_group_lifecycle.kind == GROUP_LIFECYCLE_CARD);
+    assert(s_cards[0].id == 3 && current_id() == 2);
+    assert(strcmp(label_storage(s_cards[0].title), outgoing_title) == 0);
+    assert(strcmp(label_storage(s_cards[0].body), outgoing_body) == 0);
+    assert(lv_obj_get_y(s_cards[0].root) == 0);
+    assert(lv_obj_get_y(s_cards[1].root) == GROUP_CARD_PITCH_PX);
+    /* Repeated touch during motion cannot dismiss or open a moving card,
+     * including a finger held past the animation's completion. */
+    pointer_press(600, 44);
+    step(80);
+    repaint();
+    assert(lv_obj_get_y(s_cards[0].root) < 0);
+    assert(lv_obj_get_y(s_cards[1].root) > 0 &&
+           lv_obj_get_y(s_cards[1].root) < GROUP_CARD_PITCH_PX);
+    assert(lv_obj_get_x(s_content) == 160);
+    group_finish();
+    pointer_release(600, 44);
+    assert(s_dismiss_count == dismisses + 1 && s_activate_count == activations);
+    assert(current_id() == 2 && reachable(2) && !reachable(3));
+
+    /* The outgoing two-card geometry stays frozen as its successor expands. */
+    pointer_press(600, 44); pointer_release(600, 44);
+    repaint();
+    assert(s_group_lifecycle.active && s_cards[0].id == 2 && current_id() == 1);
+    assert(lv_obj_get_height(s_cards[0].root) == 120);
+    assert(lv_obj_get_height(s_cards[1].root) == 144);
+    lifecycle_capture("lifecycle-dismiss");
+    assert(s_deck.count == 1 && current_id() == 1 && !reachable(2));
+    pointer_press(600, 44); pointer_release(600, 44);
+    repaint();
+    assert(s_group_home && s_deck.count == 0 && !reachable(1));
+    assert(s_group_lifecycle.active && s_group_lifecycle.kind == GROUP_LIFECYCLE_GROUP);
+    assert(lv_obj_get_x(s_idle) == -480 && lv_obj_get_x(s_viewport) == 0);
+    assert(s_cards[1].id == 1); /* Frozen pixels, absent from the live collection. */
+    lifecycle_capture("lifecycle-last-dismiss");
+    assert(s_group_home && !s_cards[1].valid && !s_group_lifecycle.active);
+
+    groups_reset(ids, 3);
+    present(1, 2, 1, -1);
+    char old_body[STATUS_NOTIF_BODY_MAX];
+    snprintf(old_body, sizeof(old_body), "%s", label_storage(s_cards[1].body));
+    present_begin(2, 3, 1, -1);
+    assert(s_group_lifecycle.active && s_group_lifecycle.kind == GROUP_LIFECYCLE_CARD);
+    assert(s_cards[2].id == 2 && current_id() == 3);
+    assert(lv_obj_get_y(s_cards[2].root) == 0);
+    assert(lv_obj_get_y(s_cards[1].root) == -GROUP_CARD_PITCH_PX);
+    assert(strcmp(label_storage(s_cards[2].body), old_body) == 0);
+    lifecycle_capture("lifecycle-arrival");
+    assert(current_id() == 3 && !s_group_lifecycle.active);
+
+    /* A same-ID replacement and background insertion keep the visible focus. */
+    strcpy(s_notifs[2].body, "Updated text without moving the whole card");
+    ui_deck_tick(STATE_DIRTY_NOTIF);
+    assert(!s_group_lifecycle.active);
+    assert(strcmp(label_storage(s_cards[1].body), s_notifs[2].body) == 0);
+    group_swipe(350, 110, 0, -65);
+    assert(current_id() == 2 && !s_group_lifecycle.active);
+    present_begin(3, 1, 1, -1);
+    assert(current_id() == 2 && !s_group_lifecycle.active && s_group_manual);
+    /* Desktop removal of a background card is quiet; removal of the visible
+     * card uses the same transition as local × without emitting a dismiss. */
+    const int without_background[] = {2, 1};
+    set_raw_order(without_background, 2);
+    ui_deck_tick(STATE_DIRTY_NOTIF);
+    assert(!s_group_lifecycle.active && current_id() == 2);
+    const int before_desktop_close = s_dismiss_count;
+    const int survivor[] = {1};
+    set_raw_order(survivor, 1);
+    ui_deck_tick(STATE_DIRTY_NOTIF);
+    assert(s_group_lifecycle.active && current_id() == 1 && s_cards[0].id == 2);
+    assert(s_dismiss_count == before_desktop_close && !reachable(2));
+    group_finish();
+    assert(!s_group_home && current_id() == 1);
+}
+
+static void lifecycle_concurrent_updates(void)
+{
+    const int ids[] = {3, 2, 1};
+    groups_reset(ids, 3);
+    present(1, 1, 1, -1);
+    present_begin(2, 2, 1, -1);
+    const uint32_t first_generation = s_group_lifecycle.generation;
+    present_begin(3, 1, 1, -1);
+    present_begin(4, 3, 2, -1);
+    assert(s_group_lifecycle.generation == first_generation && current_id() == 2);
+    group_finish();
+    assert(current_id() == 3 && s_group_generation == 4);
+    assert(!s_group_lifecycle.active && s_group_auto);
+
+    /* Removing the incoming destination cancels, without a late callback
+     * resurrecting it or changing focus in the following session. */
+    present_begin(5, 2, 2, -1);
+    assert(s_group_lifecycle.active);
+    const int without_destination[] = {3, 1};
+    set_raw_order(without_destination, 2);
+    ui_deck_tick(STATE_DIRTY_NOTIF);
+    assert(!s_group_lifecycle.active && !reachable(2));
+    step(250); group_finish();
+    assert(!reachable(2) && s_cards[1].id != 2);
+
+    groups_reset(ids, 3);
+    present_begin(1, 3, 1, -1);
+    s_state.grouped_session++;
+    s_state.presentation = (status_presentation_t){0};
+    ui_deck_tick(STATE_DIRTY_NOTIF);
+    assert(!s_group_lifecycle.active && s_group_home);
+    step(250);
+    assert(s_group_home && !s_group_auto);
+    present_begin(1, 3, 1, -1);
+    s_host_connected = false;
+    ui_deck_tick(0);
+    assert(!s_group_lifecycle.active && s_group_home && s_view.stale);
+    step(250);
+    assert(s_group_home && s_view.stale);
+
+    /* Lease expiry returns Home with motion, leaving the card browsable. */
+    const int one[] = {1};
+    groups_reset(one, 1);
+    present(1, 1, 1, 500);
+    step(501);
+    assert(s_group_home && reachable(1) && s_group_lifecycle.active);
+    group_finish();
+    group_swipe(450, 90, -130, 0);
+    assert(!s_group_home && current_id() == 1 && s_group_manual);
+    assert(!s_group_lifecycle.active); /* User swipe already animated once. */
+}
+
 int main(int argc, char **argv)
 {
     s_artifact_dir = argc > 2 && strcmp(argv[1], "--artifacts") == 0
@@ -429,6 +599,8 @@ int main(int argc, char **argv)
     held_updates_and_removal();
     counts_controls_and_text();
     action_controls_and_capture();
+    lifecycle_motion_and_removal();
+    lifecycle_concurrent_updates();
     fixture_shutdown();
     fclose(s_trace_file);
     puts("grouped production LVGL: passed");

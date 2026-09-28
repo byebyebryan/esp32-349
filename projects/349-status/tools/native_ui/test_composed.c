@@ -173,6 +173,7 @@ static bool run_command(const cJSON *command)
             return false;
         }
         step((uint32_t)elapsed);
+        repaint();
         return true;
     }
     if (strcmp(type, "pointer") == 0) {
