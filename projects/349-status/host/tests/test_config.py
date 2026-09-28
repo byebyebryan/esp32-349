@@ -11,6 +11,7 @@ def test_defaults():
     assert cfg.daemon.sync_interval_s == 60.0
     assert cfg.notifications.mode == "mirror"
     assert cfg.notifications.device_dismiss == "local"
+    assert cfg.notifications.device_open == "off"
     assert cfg.notifications.cache_limit == 32
     assert cfg.notifications.ignore_apps
     assert cfg.notifications.popup_timeout_ms == 10000
@@ -58,6 +59,13 @@ def test_toml_overlay(tmp_path):
     assert cfg.notifications.popup_timeout_ms == 4000
     assert cfg.notifications.cache_limit == 32
     assert cfg.notifications.device_dismiss == "local"
+    assert cfg.notifications.device_open == "off"
+
+
+def test_device_open_can_be_opted_into_dms(tmp_path):
+    path = tmp_path / "349d.toml"
+    path.write_text("[notifications]\ndevice_open = 'dms'\n")
+    assert load_config(str(path)).notifications.device_open == "dms"
 
 
 def test_cache_limit_can_disable_device_cards_or_reduce_capacity(tmp_path):
@@ -97,6 +105,7 @@ def test_unknown_key_rejected(tmp_path):
         ("[bar]\npreset = [{ id = 'long', kind = 'text', w = 20, text = '" + "x" * 96 + "' }]\n", "text"),
         ("[daemon]\ntick_s = 0.2\nsync_interval_s = 0.1\n", "at least"),
         ("[notifications]\nmode = 'consume'\n", "mode"),
+        ("[notifications]\ndevice_open = 'notify'\n", "device_open"),
     ],
 )
 def test_protocol_limits_rejected(tmp_path, config_text, message):

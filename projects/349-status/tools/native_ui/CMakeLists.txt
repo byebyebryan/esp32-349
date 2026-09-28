@@ -125,6 +125,12 @@ if(UV_EXECUTABLE)
                 "${CMAKE_CURRENT_SOURCE_DIR}/../run_grouped_smoke.py"
                 --self-test --native $<TARGET_FILE:native_ui_composed>
                 --artifacts "${CMAKE_CURRENT_BINARY_DIR}/artifacts/smoke-recorder")
+    add_test(NAME host_actions_composed
+        COMMAND "${UV_EXECUTABLE}" run --project
+                "${CMAKE_CURRENT_SOURCE_DIR}/../../host" --frozen python
+                "${CMAKE_CURRENT_SOURCE_DIR}/../test_notification_actions_composed.py"
+                --native $<TARGET_FILE:native_ui_composed>
+                --artifacts "${CMAKE_CURRENT_BINARY_DIR}/artifacts/actions-composed")
 else()
     add_test(NAME host_composed
         COMMAND "${CMAKE_COMMAND}" -E echo "SKIP: uv is unavailable")
@@ -133,4 +139,7 @@ else()
     add_test(NAME smoke_recorder
         COMMAND "${CMAKE_COMMAND}" -E echo "SKIP: uv is unavailable")
     set_tests_properties(smoke_recorder PROPERTIES SKIP_REGULAR_EXPRESSION "SKIP:")
+    add_test(NAME host_actions_composed
+        COMMAND "${CMAKE_COMMAND}" -E echo "SKIP: uv is unavailable")
+    set_tests_properties(host_actions_composed PROPERTIES SKIP_REGULAR_EXPRESSION "SKIP:")
 endif()

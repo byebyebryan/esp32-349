@@ -19,6 +19,7 @@ typedef enum {
     DECK_INPUT_DRAGGING,
     DECK_INPUT_SETTLING,
     DECK_INPUT_BUTTON_DISMISS,
+    DECK_INPUT_BUTTON_OPEN,
     DECK_INPUT_BUTTON_PEEK,
     DECK_INPUT_IGNORED,
 } deck_input_state_t;
@@ -26,6 +27,7 @@ typedef enum {
 typedef enum {
     DECK_INPUT_ACTION_NONE,
     DECK_INPUT_ACTION_DISMISS,
+    DECK_INPUT_ACTION_OPEN,
     DECK_INPUT_ACTION_NEXT_TAP,
     DECK_INPUT_ACTION_SNAP,
     DECK_INPUT_ACTION_SETTLED,
@@ -37,6 +39,8 @@ typedef struct {
     int target_id;
     /* True only when a settled destination should become selected. */
     bool commit_target;
+    /* Host action revision captured by an Open control gesture. */
+    int open_revision;
     /* Settling endpoint relative to the captured source card. */
     int offset_px;
     uint32_t generation;

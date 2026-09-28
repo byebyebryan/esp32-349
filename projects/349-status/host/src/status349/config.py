@@ -70,6 +70,7 @@ class DaemonConfig:
 class NotificationsConfig:
     mode: str = "mirror"  # mirror | off
     device_dismiss: str = "local"  # local | propagate
+    device_open: str = "off"  # off | dms; desktop default-action invocation is opt-in
     ignore_apps: list[str] = field(default_factory=lambda: list(DEFAULT_IGNORE_APPS))
     max_visible: int = 3
     # Zero disables device card caching while preserving the host's active set
@@ -275,6 +276,8 @@ def validate_config(cfg: Config) -> None:
         raise ValueError("notifications.mode must be 'mirror' or 'off'")
     if not isinstance(cfg.notifications.device_dismiss, str) or cfg.notifications.device_dismiss not in {"local", "propagate"}:
         raise ValueError("notifications.device_dismiss must be 'local' or 'propagate'")
+    if not isinstance(cfg.notifications.device_open, str) or cfg.notifications.device_open not in {"off", "dms"}:
+        raise ValueError("notifications.device_open must be 'off' or 'dms'")
     if not isinstance(cfg.notifications.ignore_apps, list) or any(not isinstance(app, str) for app in cfg.notifications.ignore_apps):
         raise ValueError("notifications.ignore_apps must be an array of strings")
     if (

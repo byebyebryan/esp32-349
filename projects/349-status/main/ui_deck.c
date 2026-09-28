@@ -8,6 +8,7 @@
 #include "deck_input.h"
 #include "group_input.h"
 #include "esp_timer.h"
+#include "src/misc/lv_text.h"
 #include "link.h"
 #include "proto.h"
 #include "rtc.h"
@@ -28,12 +29,14 @@ LV_FONT_DECLARE(status_clock_80);
 #define DISMISS_WIDTH 64
 #define DISMISS_HEIGHT 48
 #define DISMISS_CROSS_SPAN 28
+#define OPEN_X 328
+#define CONTROL_GAP 8
 
 static lv_obj_t *s_root, *s_rail_header, *s_rail_clock, *s_rail_footer;
 static lv_obj_t *s_metric_names[4], *s_metric_values[4];
 static lv_obj_t *s_idle, *s_idle_clock, *s_date, *s_message, *s_idle_transient;
 typedef struct {
-    lv_obj_t *root, *accent, *app, *title, *body, *position, *dismiss;
+    lv_obj_t *root, *accent, *app, *title, *body, *position, *open, *open_label, *dismiss;
     int id;
     bool valid;
 } card_view_t;
@@ -71,6 +74,11 @@ typedef struct {
     status_notif_t cards[3]; /* Previous, foreground, next. */
     int overflow;
     bool stale;
+    bool actions_enabled, action_pending, open_enabled, open_pending;
+    int action_pending_id, action_pending_open_rev;
+    status_action_feedback_t action_feedback;
+    int action_feedback_id, action_feedback_open_rev;
+    int64_t action_feedback_until_us;
 } snapshot_t;
 /* Persistent copies keep three records off the LVGL task's callback stack. */
 static snapshot_t s_view;
@@ -118,6 +126,57 @@ static void text(lv_obj_t *label, const char *value)
         strlcpy(previous, value, STATUS_NOTIF_BODY_MAX);
         lv_label_set_text(label, value);
     }
+}
+
+static int title_width(const char *value)
+{
+    lv_point_t size = {0};
+    lv_text_get_size(&size, value, &status_text_22, 0, 0, LV_COORD_MAX,
+                     LV_TEXT_FLAG_BREAK_ALL);
+    return size.x;
+}
+
+static size_t next_utf8_boundary(const char *text_value, size_t byte, size_t length)
+{
+    const unsigned char lead = (unsigned char)text_value[byte];
+    size_t step = lead < 0x80 ? 1 : (lead & 0xE0) == 0xC0 ? 2
+        : (lead & 0xF0) == 0xE0 ? 3 : (lead & 0xF8) == 0xF0 ? 4 : 1;
+    if (byte + step > length) step = 1;
+    return byte + step;
+}
+
+static void grouped_title(card_view_t *slot, const char *summary,
+                          bool reserve_open, int width)
+{
+    const lv_label_long_mode_t wanted_mode = reserve_open
+        ? LV_LABEL_LONG_MODE_CLIP : LV_LABEL_LONG_MODE_DOTS;
+    if (lv_label_get_long_mode(slot->title) != wanted_mode) {
+        lv_label_set_long_mode(slot->title, wanted_mode);
+    }
+    if (!reserve_open || title_width(summary) <= width) {
+        text(slot->title, summary);
+        return;
+    }
+
+    char rendered[STATUS_NOTIF_SUMMARY_MAX];
+    const size_t length = strlen(summary);
+    size_t prefix = 0;
+    rendered[0] = '\0';
+    while (prefix < length) {
+        const size_t next = next_utf8_boundary(summary, prefix, length);
+        if (next + 3 >= sizeof(rendered)) break;
+        memcpy(rendered, summary, next);
+        memcpy(rendered + next, "...", 4);
+        if (title_width(rendered) > width) break;
+        prefix = next;
+    }
+    if (prefix == 0) {
+        strlcpy(rendered, "...", sizeof(rendered));
+    } else {
+        memcpy(rendered, summary, prefix);
+        memcpy(rendered + prefix, "...", 4);
+    }
+    text(slot->title, rendered);
 }
 
 static void text_color(lv_obj_t *obj, uint32_t color)
@@ -181,6 +240,23 @@ static lv_obj_t *dismiss_button(lv_obj_t *parent, int x)
         lv_obj_set_style_line_rounded(stroke, true, 0);
     }
     return button;
+}
+
+static void open_button(lv_obj_t *parent, lv_obj_t **button_out,
+                        lv_obj_t **label_out)
+{
+    lv_obj_t *button = box(parent, OPEN_X, 0, DISMISS_WIDTH, DISMISS_HEIGHT,
+                           0x213641, 8);
+    lv_obj_add_flag(button, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_PRESS_LOCK |
+                            LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_set_style_border_width(button, 1, 0);
+    lv_obj_set_style_border_color(button, lv_color_hex(ACCENT), 0);
+    lv_obj_set_style_border_opa(button, LV_OPA_COVER, 0);
+    lv_obj_t *caption = label(button, 2, 12, DISMISS_WIDTH - 4, 24,
+                              &status_text_20, ACCENT, "Open");
+    lv_obj_set_style_text_align(caption, LV_TEXT_ALIGN_CENTER, 0);
+    *button_out = button;
+    *label_out = caption;
 }
 
 static bool locally_hidden(const status_state_t *st, int id)
@@ -348,7 +424,7 @@ static void clocks(void)
     text(s_date, date);
 }
 
-static void position_text(card_view_t *slot, int overflow)
+static void position_text(card_view_t *slot, int overflow, const snapshot_t *view)
 {
     int index = -1;
     for (int i = 0; i < s_deck.count; i++) {
@@ -362,6 +438,26 @@ static void position_text(card_view_t *slot, int overflow)
         snprintf(value, sizeof(value), "%d / %d   +%d uncached", index + 1, s_deck.count, overflow);
     } else if (index >= 0 && s_deck.count > 1) {
         snprintf(value, sizeof(value), "%d / %d", index + 1, s_deck.count);
+    }
+    if (slot == &s_cards[1] && view->actions_enabled &&
+        view->action_feedback != STATUS_ACTION_FEEDBACK_NONE &&
+        view->action_feedback_id == slot->id &&
+        view->action_feedback_open_rev > 0 &&
+        view->action_feedback_open_rev == view->cards[1].open_revision &&
+        esp_timer_get_time() < view->action_feedback_until_us) {
+        const char *message = "";
+        switch (view->action_feedback) {
+        case STATUS_ACTION_FEEDBACK_SENT: message = "Sent"; break;
+        case STATUS_ACTION_FEEDBACK_UNAVAILABLE: message = "Unavailable"; break;
+        case STATUS_ACTION_FEEDBACK_TRY_AGAIN: message = "Try again"; break;
+        case STATUS_ACTION_FEEDBACK_NO_CONFIRMATION: message = "No confirmation"; break;
+        case STATUS_ACTION_FEEDBACK_NONE: break;
+        }
+        if (message[0]) {
+            const size_t used = strlen(value);
+            snprintf(value + used, sizeof(value) - used, "%s%s",
+                     used ? "   " : "", message);
+        }
     }
     text(slot->position, value);
 }
@@ -385,6 +481,7 @@ static void bind_cards(const snapshot_t *view)
         slot->id = n->id;
         hide(slot->root, !slot->valid);
         hide(slot->dismiss, false);
+        hide(slot->open, true);
         lv_obj_set_height(slot->root, 156);
         lv_obj_set_y(slot->root, 8);
         lv_obj_set_height(slot->accent, 136);
@@ -409,7 +506,7 @@ static void bind_cards(const snapshot_t *view)
         text(slot->app, n->app);
         text(slot->title, n->summary[0] ? n->summary : "Notification");
         text(slot->body, n->body);
-        position_text(slot, view->overflow);
+        position_text(slot, view->overflow, view);
     }
     position_cards(0);
 }
@@ -599,9 +696,17 @@ static bool group_busy(void) { return deck_input_busy(&s_group_input.motion); }
 static deck_input_action_t grouped_validate(void)
 {
     const group_input_t *g = &s_group_input;
-    return group_input_validate(&s_group_input, reachable(g->source),
-                                 reachable(g->newer), reachable(g->older),
-                                 reachable(g->selected));
+    return group_input_validate_action(&s_group_input, reachable(g->source),
+        reachable(g->newer), reachable(g->older), reachable(g->selected),
+        s_view.actions_enabled, s_view.cards[1].id,
+        s_view.cards[1].open_revision, s_view.open_enabled);
+}
+
+static bool button_hit(lv_obj_t *button, int x, int y, lv_area_t *bounds)
+{
+    lv_obj_get_coords(button, bounds);
+    return x >= bounds->x1 && x <= bounds->x2 &&
+           y >= bounds->y1 && y <= bounds->y2;
 }
 
 static void grouped_snapshot(snapshot_t *out)
@@ -666,6 +771,19 @@ static void grouped_snapshot(snapshot_t *out)
     out->dashboard = st->dashboard; out->overflow = st->notif_overflow;
     out->stale = !st->got_sync || !link_host_connected() || !st->last_rx_us ||
                   now - st->last_rx_us > STATUS_STALE_TIMEOUT_US;
+    out->actions_enabled = st->actions_enabled;
+    out->action_pending = st->action_pending;
+    out->action_pending_id = st->action_pending_id;
+    out->action_pending_open_rev = st->action_pending_open_rev;
+    out->action_feedback = st->action_feedback;
+    out->action_feedback_id = st->action_feedback_id;
+    out->action_feedback_open_rev = st->action_feedback_open_rev;
+    out->action_feedback_until_us = st->action_feedback_until_us;
+    out->open_enabled = !out->stale && !s_group_home &&
+        state_action_open_enabled(st, &out->cards[1], now);
+    out->open_pending = st->action_pending &&
+        st->action_pending_id == out->cards[1].id &&
+        st->action_pending_open_rev == out->cards[1].open_revision;
     st->deck_enabled = s_visible; st->deck_stale = out->stale;
     st->deck_reachable = count; st->deck_position = position + 1;
     st->deck_focus_id = s_deck.focus_id; st->deck_next_id = neighbors[2];
@@ -687,24 +805,40 @@ static void grouped_bind(const snapshot_t *view)
         slot->valid = n->valid; slot->id = n->id;
         hide(slot->root, !slot->valid);
         hide(slot->dismiss, i != 1);
+        hide(slot->open, i != 1 || !view->actions_enabled);
         lv_obj_set_size(slot->root, 464, multiple ? 120 : 144);
         lv_obj_set_size(slot->accent, 3, multiple ? 100 : 124);
-        const int header_width = i == 1 ? 464 - DISMISS_WIDTH - 24 : 440;
+        const int header_width = i == 1
+            ? (view->actions_enabled ? OPEN_X - 24 : 464 - DISMISS_WIDTH - 24)
+            : 440;
         lv_obj_set_pos(slot->app, 12, 4); lv_obj_set_width(slot->app, header_width);
         lv_obj_set_pos(slot->title, 12, 24); lv_obj_set_width(slot->title, header_width);
         lv_obj_set_pos(slot->body, 12, 52);
         lv_obj_set_size(slot->body, 440, multiple ? 52 : view->overflow ? 72 : 84);
         lv_obj_set_pos(slot->position, 12, multiple ? 104 : 128);
-        lv_obj_set_width(slot->position, 440); lv_obj_set_x(slot->dismiss, 464 - DISMISS_WIDTH);
+        lv_obj_set_width(slot->position, 440);
+        lv_obj_set_x(slot->dismiss, OPEN_X + DISMISS_WIDTH + CONTROL_GAP);
+        lv_obj_set_pos(slot->open, OPEN_X, 0);
         if (!slot->valid) continue;
         const lv_color_t accent = lv_color_hex(n->urgency >= 2 ? CRITICAL : ACCENT);
         if (!lv_color_eq(lv_obj_get_style_bg_color(slot->accent, 0), accent)) {
             lv_obj_set_style_bg_color(slot->accent, accent, 0);
         }
         text(slot->app, i == 1 ? n->app : n->summary);
-        text(slot->title, n->summary[0] ? n->summary : "Notification");
+        grouped_title(slot, n->summary[0] ? n->summary : "Notification",
+                      i == 1 && view->actions_enabled, header_width);
         text(slot->body, n->body);
-        position_text(slot, view->overflow);
+        if (i == 1 && view->actions_enabled) {
+            const bool ready = view->open_enabled;
+            const bool pending = view->open_pending;
+            const uint32_t color = ready ? ACCENT : SECONDARY;
+            lv_obj_set_style_bg_color(slot->open,
+                lv_color_hex(ready ? 0x213641 : 0x202A33), 0);
+            lv_obj_set_style_border_color(slot->open, lv_color_hex(color), 0);
+            text_color(slot->open_label, color);
+            text(slot->open_label, pending ? "…" : "Open");
+        }
+        position_text(slot, view->overflow, view);
     }
     grouped_position(0);
 }
@@ -782,12 +916,32 @@ static void grouped_input_cb(lv_event_t *event)
         s_input_indev = indev;
         grouped_snapshot(&s_view);
         if (s_view.stale) { lv_indev_wait_release(indev); return; }
+        const bool has_foreground = !s_group_home && s_cards[1].valid;
+        lv_area_t open_bounds = {0}, dismiss_bounds = {0};
+        const bool hit_open = has_foreground && s_view.actions_enabled &&
+                              button_hit(s_cards[1].open, point.x, point.y, &open_bounds);
+        const bool hit_dismiss = has_foreground &&
+                                 button_hit(s_cards[1].dismiss, point.x, point.y, &dismiss_bounds);
         group_input_press(&s_group_input, point.x, point.y, esp_timer_get_time(),
             s_group_home, s_deck.count > 0 ? s_cards[1].id : GROUP_EMPTY_NOTIFICATIONS_ID,
             s_deck.count > 0,
             s_cards[0].id, s_cards[0].valid, s_cards[2].id, s_cards[2].valid,
-            !s_group_home && lv_event_get_target_obj(event) == s_cards[1].dismiss,
+            hit_open || hit_dismiss,
             !s_group_home && point.y >= 148 && s_cards[2].valid);
+        if (hit_open) {
+            group_input_capture_control(&s_group_input, GROUP_CONTROL_OPEN,
+                open_bounds.x1, open_bounds.y1,
+                open_bounds.x2 - open_bounds.x1 + 1,
+                open_bounds.y2 - open_bounds.y1 + 1,
+                s_cards[1].id, s_view.cards[1].open_revision,
+                s_view.open_enabled);
+        } else if (hit_dismiss) {
+            group_input_capture_control(&s_group_input, GROUP_CONTROL_DISMISS,
+                dismiss_bounds.x1, dismiss_bounds.y1,
+                dismiss_bounds.x2 - dismiss_bounds.x1 + 1,
+                dismiss_bounds.y2 - dismiss_bounds.y1 + 1,
+                s_cards[1].id, 0, true);
+        }
     } else if (indev == s_input_indev && group_busy()) {
         grouped_snapshot(&s_view);
         if (s_view.stale) { grouped_cancel(); grouped_tick(STATE_DIRTY_NOTIF); return; }
@@ -804,10 +958,15 @@ static void grouped_input_cb(lv_event_t *event)
             if (old_axis == GROUP_AXIS_NONE && s_group_input.axis != GROUP_AXIS_NONE) grouped_takeover();
             if (s_group_input.motion.state == DECK_INPUT_DRAGGING) grouped_position(offset);
         } else if (code == LV_EVENT_RELEASED) {
-            deck_input_action_t action = group_input_release(&s_group_input, esp_timer_get_time());
+            deck_input_action_t action = group_input_release_at(
+                &s_group_input, point.x, point.y, esp_timer_get_time());
             if (action.kind == DECK_INPUT_ACTION_SNAP || action.kind == DECK_INPUT_ACTION_NEXT_TAP) {
                 if (action.kind == DECK_INPUT_ACTION_NEXT_TAP) grouped_takeover();
                 grouped_start_snap(action);
+            } else if (action.kind == DECK_INPUT_ACTION_OPEN && reachable(action.target_id)) {
+                grouped_takeover();
+                (void)proto_send_input_activate(action.target_id, action.open_revision);
+                grouped_tick(STATE_DIRTY_NOTIF);
             } else if (action.kind == DECK_INPUT_ACTION_DISMISS && reachable(action.target_id)) {
                 grouped_takeover();
                 state_hide_notif(action.target_id);
@@ -820,6 +979,8 @@ static void grouped_input_cb(lv_event_t *event)
 
 static void grouped_tick(uint32_t dirty)
 {
+    state_action_tick(esp_timer_get_time());
+    if (!link_host_connected()) state_action_disconnect();
     if (s_group_input.motion.state == DECK_INPUT_IGNORED && s_input_indev &&
         lv_indev_get_state(s_input_indev) == LV_INDEV_STATE_RELEASED) {
         group_input_release(&s_group_input, esp_timer_get_time());
@@ -918,7 +1079,7 @@ void ui_deck_tick(uint32_t dirty)
             bind_cards(view);
         } else {
             for (int i = 0; i < 3; i++) {
-                position_text(&s_cards[i], view->overflow);
+                position_text(&s_cards[i], view->overflow, view);
             }
         }
     } else {
@@ -1009,6 +1170,7 @@ void ui_deck_init(lv_obj_t *parent, const lv_font_t *small, const lv_font_t *met
         lv_obj_set_style_text_line_space(slot->body, 0, 0);
         slot->position = label(slot->root, 12, 140, 368, 16, s_small, SECONDARY, "");
         slot->dismiss = dismiss_button(slot->root, 392 - DISMISS_WIDTH);
+        open_button(slot->root, &slot->open, &slot->open_label);
     }
     s_group_cue = label(s_root, 172, 1, 456, 18, s_small, SECONDARY, "");
     ui_deck_show(false);

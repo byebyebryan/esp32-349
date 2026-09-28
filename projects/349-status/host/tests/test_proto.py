@@ -87,6 +87,21 @@ def test_grouped_capability_requires_cache_dashboard_and_grouped_v1():
     )
 
 
+def test_notification_action_capability_requires_grouped_cache_and_valid_boot_id():
+    capable = {
+        "cap": [
+            "card-sync-v1", "dashboard-v1", "grouped-ui-v1", "notification-actions-v1",
+        ],
+        "cache_cards": 32,
+        "boot_id": 7,
+    }
+    assert proto.notification_actions_capable(capable)
+    for boot_id in (None, 0, True, -1, 0x1_0000_0000):
+        assert not proto.notification_actions_capable({**capable, "boot_id": boot_id})
+    assert not proto.notification_actions_capable({**capable, "cap": capable["cap"][:-1]})
+    assert not proto.notification_actions_capable({**capable, "cap": ["notification-actions-v1"], "cache_cards": 32})
+
+
 def test_cards_status_requires_nonnegative_counts_and_integer_ids():
     assert proto.card_status({"count": 2, "overflow": 1, "ids": [8, 7], "capacity": 32}) == {
         "count": 2,
@@ -104,6 +119,35 @@ def test_cards_status_requires_nonnegative_counts_and_integer_ids():
     assert proto.card_status({"count": 2, "overflow": 0, "ids": [1], "capacity": 32}) is None
     assert proto.card_status({"count": 2, "overflow": 0, "ids": [1, 2], "capacity": 1}) is None
     assert proto.card_status({"count": 2, "overflow": 0, "ids": [1, 1], "capacity": 32}) is None
+
+
+def test_cards_status_validates_action_metadata_and_pending_identity():
+    base = {"count": 2, "overflow": 0, "ids": [8, 7], "capacity": 32}
+    actions = {
+        "enabled": True,
+        "open": [
+            {"id": 8, "rev": 3, "state": "ready"},
+            {"id": 7, "rev": 4, "state": "unavailable"},
+        ],
+        # A dispatched request can still be pending after its card was closed.
+        "pending": {"id": 99, "open_rev": 5, "request": 12},
+    }
+    assert proto.card_status({**base, "actions": actions}) == {**base, "actions": actions}
+    assert proto.card_status({**base, "actions": {"enabled": False, "open": [], "pending": None}})[
+        "actions"
+    ] == {"enabled": False, "open": [], "pending": None}
+    for invalid in (
+        {**actions, "enabled": 1},
+        {**actions, "open": [{"id": 8, "rev": True, "state": "ready"}]},
+        {**actions, "open": [{"id": 8, "rev": 3, "state": []}]},
+        {**actions, "open": [{"id": 9, "rev": 3, "state": "ready"}]},
+        {**actions, "open": [actions["open"][0], actions["open"][0]]},
+        {**actions, "pending": {"id": 99, "open_rev": 0, "request": 12}},
+        {**actions, "pending": {"id": 99, "open_rev": 5, "request": True}},
+        {"enabled": False, "open": actions["open"], "pending": None},
+        {"enabled": False, "open": [], "pending": {"id": 99, "open_rev": 5, "request": 12}},
+    ):
+        assert proto.card_status({**base, "actions": invalid}) is None
 
 
 def test_cards_status_preserves_and_validates_optional_deck_readback():
@@ -255,6 +299,59 @@ def test_grouped_sync_begin_carries_session_only_when_requested():
     assert "grouped" not in legacy[0]
     assert grouped[0]["grouped"] == {"session": 123}
     assert all(len(proto.encode(message)) <= proto.LINE_MAX for message in grouped)
+
+
+def test_action_sync_is_opt_in_and_requires_valid_card_open_metadata():
+    snapshot = {
+        "rev": 9,
+        "bar": {"t": "bar", "rev": 9, "zones": []},
+        "clock": None,
+        "media": None,
+        "notifs": [
+            {**proto.notify(7, "app", "sum", "body", 1, 1000, 1),
+             "open": {"rev": 3, "state": "unavailable"}},
+        ],
+        "limit": 32,
+        "overflow": 0,
+    }
+    messages = proto.card_sync_messages(
+        snapshot, tx=1, grouped_session=4, include_actions=True,
+    )
+    assert messages[0]["actions"] == {"enabled": True}
+    assert messages[1]["notifs"][0]["open"] == {"rev": 3, "state": "unavailable"}
+    legacy = proto.card_sync_messages(snapshot, tx=2, grouped_session=4)
+    assert "actions" not in legacy[0]
+
+    for invalid in (
+        {"rev": 0, "state": "ready"},
+        {"rev": True, "state": "ready"},
+        {"rev": 3, "state": "disabled"},
+        {"rev": 3, "state": []},
+    ):
+        malformed = {**snapshot, "notifs": [{**snapshot["notifs"][0], "open": invalid}]}
+        with pytest.raises(ValueError, match="valid open object"):
+            proto.card_sync_messages(malformed, tx=3, grouped_session=4, include_actions=True)
+    with pytest.raises(ValueError, match="require grouped sync"):
+        proto.card_sync_messages(snapshot, tx=4, include_actions=True)
+
+
+def test_card_action_and_action_result_builders_reject_malformed_types():
+    assert proto.card_action(4, 7, 3, "ready") == {
+        "t": "card_action", "session": 4, "id": 7,
+        "open": {"rev": 3, "state": "ready"},
+    }
+    assert proto.action_result(4, 12, 7, 3, 5, "unknown") == {
+        "t": "action_result", "session": 4, "boot_id": 12, "id": 7,
+        "open_rev": 3, "request": 5, "status": "unknown",
+    }
+    with pytest.raises(ValueError):
+        proto.card_action(True, 7, 3, "ready")
+    with pytest.raises(ValueError):
+        proto.card_action(4, 7, 3, [])
+    with pytest.raises(ValueError):
+        proto.action_result(4, True, 7, 3, 5, "unknown")
+    with pytest.raises(ValueError):
+        proto.action_result(4, 12, 7, 3, 5, [])
 
 
 @pytest.mark.parametrize(

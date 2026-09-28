@@ -16,11 +16,12 @@ import os
 import secrets
 import signal
 import time
-from collections import deque
+from collections import OrderedDict, deque
 
 import serial_asyncio
 
 from . import proto
+from .actions import BridgeClient, NotificationActionManager
 from .composition import build_zones
 from .config import Config, apply_config, load_config, validate_config
 from .ipc import IpcServer, pause_path
@@ -43,6 +44,7 @@ CARD_STATUS_TIMEOUT_S = 2.0
 DASHBOARD_CPU_EMA_TAU_S = 3.0
 NORMAL_PRESENT_COALESCE_S = 0.300
 SESSION_MAX = proto.IDENTITY_MAX
+ACTION_RESULT_LIMIT = 64
 
 
 class Daemon:
@@ -74,6 +76,27 @@ class Daemon:
             on_monitor_reset=self._device_monitor_reset,
             grouped_mode=lambda: self._grouped_mode,
             allocate_local_id=self._allocate_local_notification_id,
+        )
+        self._actions_capable = False
+        self._actions_negotiated = False
+        self._action_ledger_boot_id: int | None = None
+        self._action_highwater = 0
+        self._action_results: OrderedDict[int, tuple[tuple[int, int, int, int, int], str]] = OrderedDict()
+        self._action_pending: dict | None = None
+        self._action_tasks: set[asyncio.Task] = set()
+        self.action_manager = NotificationActionManager(
+            self.notifications,
+            BridgeClient(),
+            enabled=lambda: (
+                self.cfg.notifications.device_open == "dms"
+                and self._actions_negotiated and self._actions_capable
+                and self._action_ledger_boot_id is not None
+                and self._device_boot_id == self._action_ledger_boot_id
+                and self._writer is not None
+            ),
+            context=lambda: (self.grouped_session, self._action_ledger_boot_id),
+            retained_ids=lambda: list(self.model.retained_notifs),
+            on_change=self._action_state_changed,
         )
         self._writer: asyncio.StreamWriter | None = None
         self._state_lock = asyncio.Lock()
@@ -110,6 +133,20 @@ class Daemon:
         self._next_local_notification_id += 1
         return local_id
 
+    async def _action_state_changed(self, local_id: int, opened: dict) -> None:
+        """Publish only metadata for a retained card in the committed device cache."""
+        async with self._state_lock:
+            if (
+                not self._actions_negotiated or not self._grouped_enabled
+                or local_id not in self.model.retained_notifs
+                or local_id not in self.model.cached_notification_ids(self._card_sync_capacity, retained=True)
+            ):
+                return
+            entry = self.action_manager.entries.get(local_id)
+            if entry is None or opened != {"rev": entry.revision, "state": entry.state}:
+                return
+            await self.send(proto.card_action(self.grouped_session, local_id, entry.revision, entry.state))
+
     async def run(self) -> None:
         try:
             await self.notifications.start()
@@ -118,6 +155,7 @@ class Daemon:
                 asyncio.create_task(self._link_loop(), name="link"),
                 asyncio.create_task(self._tick_loop(), name="tick"),
                 asyncio.create_task(self._ping_loop(), name="ping"),
+                asyncio.create_task(self.action_manager.run(self.stop), name="notification-actions"),
             }
             stop_waiter = asyncio.create_task(self.stop.wait(), name="stop")
             notification_failure = asyncio.create_task(self.notifications.failed.wait(), name="notification-failure")
@@ -135,6 +173,10 @@ class Daemon:
                     task.cancel()
                 await asyncio.gather(*workers, stop_waiter, notification_failure, return_exceptions=True)
         finally:
+            for task in tuple(self._action_tasks):
+                task.cancel()
+            if self._action_tasks:
+                await asyncio.gather(*self._action_tasks, return_exceptions=True)
             if self._writer is not None:
                 self._writer.close()
             await self.notifications.stop()
@@ -157,6 +199,7 @@ class Daemon:
             if retained_changed and not active_changed:
                 self.model.rev += 1
             for evicted_id in evicted:
+                self._cancel_unsent_action(evicted_id)
                 self.notifications.forget(evicted_id)
                 self._injected_expiry.pop(evicted_id, None)
                 if self._grouped_mode:
@@ -170,6 +213,8 @@ class Daemon:
                 update["session"] = self.grouped_session
                 update["total"] = len(self.model.retained_notifs)
                 update["cached"] = local_id in cached_ids
+                if self._actions_negotiated:
+                    update["open"] = self.action_manager.open_for(local_id)
                 # A retained replacement may move the cache boundary. Remove
                 # cards that have fallen out before publishing the new record.
                 for old_id in previous_cached:
@@ -189,6 +234,7 @@ class Daemon:
 
     async def _device_close(self, local_id: int) -> None:
         async with self._state_lock:
+            self._cancel_unsent_action(local_id)
             self._injected_expiry.pop(local_id, None)
             grouped = self._grouped_enabled
             collection = self.model.retained_notifs if grouped else self.model.notifs
@@ -200,6 +246,9 @@ class Daemon:
                     self._pending_present_due = None
                 if self._presentation is not None and self._presentation["id"] == local_id:
                     await self._end_presentation_locked(send_end=False)
+                if grouped and not self.model.retained_notifs:
+                    self._grouped_group = "home"
+                    self._manual_notifications = False
                 await self.send(
                     proto.close(
                         local_id,
@@ -243,6 +292,7 @@ class Daemon:
         """Archive grouped text and cancel actions tied to the lost monitor."""
         async with self._state_lock:
             for local_id in local_ids:
+                self._cancel_unsent_action(local_id)
                 self.model.close_active_notification(local_id)
             self._pending_present_id = None
             self._pending_present_due = None
@@ -453,11 +503,17 @@ class Daemon:
             self._sync_tx += 1
             grouped = self._grouped_enabled
             snapshot = self.model.card_snapshot(self._card_sync_capacity, retained=grouped)
+            if grouped and self._actions_negotiated:
+                snapshot["notifs"] = [
+                    {**card, "open": self.action_manager.open_for(int(card["id"]))}
+                    for card in snapshot["notifs"]
+                ]
             messages = proto.card_sync_messages(
                 snapshot,
                 self._sync_tx,
                 include_dashboard=self._dashboard_capable,
                 grouped_session=self.grouped_session if grouped else None,
+                include_actions=bool(grouped and self._actions_negotiated),
             )
 
         # Hold the wire lock across the full transaction, including begin and
@@ -504,6 +560,8 @@ class Daemon:
             backoff = min_backoff
             async with self._state_lock:
                 self._grouped_enabled = False
+                self._actions_capable = False
+                self._actions_negotiated = False
                 self._device_expected_generation = 0
                 self._pending_present_id = None
                 self._pending_present_due = None
@@ -534,6 +592,11 @@ class Daemon:
                 async with self._state_lock:
                     self._writer = None
                     self._grouped_enabled = False
+                    self._actions_capable = False
+                    self._actions_negotiated = False
+                    self.action_manager.invalidate_for_link_reset()
+                    if self._action_pending is not None and not self._action_pending.get("started"):
+                        self._action_pending["cancelled"] = True
                     self._pending_present_id = None
                     self._pending_present_due = None
                     await self._end_presentation_locked(send_end=False)
@@ -577,7 +640,7 @@ class Daemon:
         kind = message.get("t")
         if kind == "hello":
             boot_id = message.get("boot_id")
-            if isinstance(boot_id, bool) or not isinstance(boot_id, int):
+            if isinstance(boot_id, bool) or not isinstance(boot_id, int) or not 1 <= boot_id <= 0xFFFFFFFF:
                 boot_id = None
             log.info(
                 "device hello: fw=%s build=%s sha=%s proto=%s cap=%s",
@@ -591,17 +654,30 @@ class Daemon:
                 new_capacity = proto.card_sync_capacity(message)
                 new_dashboard = new_capacity is not None and proto.dashboard_capable(message)
                 new_grouped = new_capacity is not None and proto.grouped_ui_capable(message)
+                new_actions_capable = proto.notification_actions_capable(message)
+                new_actions_negotiated = (
+                    self.cfg.notifications.device_open == "dms" and new_actions_capable
+                )
                 first_grouped = new_grouped and not self._grouped_enabled
                 changed_boot = boot_id is not None and boot_id != self._device_boot_id
                 capabilities_changed = (
                     new_capacity != self._card_sync_capacity
                     or new_dashboard != self._dashboard_capable
                     or new_grouped != self._grouped_enabled
+                    or new_actions_negotiated != self._actions_negotiated
                 )
                 self._card_sync_capacity = new_capacity
                 self._dashboard_capable = new_dashboard
                 self._grouped_enabled = new_grouped
                 self._grouped_mode = new_grouped
+                self._actions_capable = new_actions_capable
+                self._actions_negotiated = new_actions_negotiated
+                if boot_id is not None and boot_id != self._action_ledger_boot_id:
+                    self._action_ledger_boot_id = boot_id
+                    self._action_highwater = 0
+                    self._action_results.clear()
+                    self._action_pending = None
+                self.notifications.actions_changed.set()
                 if first_grouped or changed_boot:
                     self._device_expected_generation = 0
                 if changed_boot:
@@ -652,6 +728,9 @@ class Daemon:
 
     async def _handle_input(self, message: dict) -> None:
         action = message.get("action")
+        if action == "activate":
+            await self._handle_action_input(message)
+            return
         if action == "browse" and self._grouped_enabled:
             session = message.get("session")
             generation = message.get("generation")
@@ -702,6 +781,7 @@ class Daemon:
                 if local_id not in cached:
                     return
                 overflowed = len(self.model.retained_notifs) > len(cached)
+                self._cancel_unsent_action(local_id)
                 self.notifications.hide_locally(local_id)
                 self._injected_expiry.pop(local_id, None)
                 if not self.model.close_notification(local_id):
@@ -711,6 +791,9 @@ class Daemon:
                     self._pending_present_due = None
                 if self._presentation is not None and self._presentation["id"] == local_id:
                     self._presentation = None
+                if not self.model.retained_notifs:
+                    self._grouped_group = "home"
+                    self._manual_notifications = False
                 await self.send(
                     proto.close(
                         local_id,
@@ -733,6 +816,178 @@ class Daemon:
                 return
         else:
             log.info("device input: %s", message)
+
+    @staticmethod
+    def _valid_action_identity(message: dict) -> tuple[int, int, int, int, int] | None:
+        values = tuple(message.get(name) for name in ("session", "boot_id", "id", "open_rev", "request"))
+        session, boot_id, local_id, revision, request = values
+        if (
+            isinstance(session, bool) or not isinstance(session, int) or not 1 <= session <= SESSION_MAX
+            or isinstance(boot_id, bool) or not isinstance(boot_id, int) or not 1 <= boot_id <= 0xFFFFFFFF
+            or any(isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= SESSION_MAX
+                   for value in (local_id, revision, request))
+        ):
+            return None
+        return session, boot_id, local_id, revision, request
+
+    def _cancel_unsent_action(self, local_id: int) -> None:
+        pending = self._action_pending
+        if (
+            pending is not None and pending["identity"][2] == local_id
+            and not pending.get("started")
+        ):
+            pending["cancelled"] = True
+
+    def _remember_action_result(self, identity: tuple[int, int, int, int, int], status: str) -> None:
+        request = identity[4]
+        self._action_results[request] = (identity, status)
+        self._action_results.move_to_end(request)
+        while len(self._action_results) > ACTION_RESULT_LIMIT:
+            self._action_results.popitem(last=False)
+
+    async def _send_action_result(self, identity: tuple[int, int, int, int, int], status: str) -> None:
+        session, boot_id, local_id, revision, request = identity
+        await self.send(proto.action_result(session, boot_id, local_id, revision, request, status))
+
+    async def _handle_action_input(self, message: dict) -> None:
+        identity = self._valid_action_identity(message)
+        if identity is None or not self._actions_negotiated:
+            return
+        session, boot_id, local_id, revision, request = identity
+        if session != self.grouped_session or boot_id != self._device_boot_id:
+            await self._send_action_result(identity, "stale")
+            return
+
+        immediate: str | None = None
+        duplicate = False
+        refresh_binding = False
+        dispatch = False
+        async with self._state_lock:
+            if (
+                not self._actions_negotiated or not self._grouped_enabled
+                or self._action_ledger_boot_id != boot_id or self._device_boot_id != boot_id
+            ):
+                immediate = "stale"
+            else:
+                old = self._action_results.get(request)
+                if old is not None:
+                    immediate = old[1] if old[0] == identity else "stale"
+                    duplicate = old[0] == identity
+                elif self._action_pending is not None:
+                    pending_identity = self._action_pending["identity"]
+                    if pending_identity == identity:
+                        return
+                    if request <= self._action_highwater:
+                        immediate = "stale"
+                    else:
+                        self._action_highwater = request
+                        immediate = "unavailable"
+                        self._remember_action_result(identity, immediate)
+                        refresh_binding = True
+                elif request <= self._action_highwater:
+                    immediate = "stale"
+                else:
+                    self._action_highwater = request
+                    cached = self.model.cached_notification_ids(self._card_sync_capacity, retained=True)
+                    if local_id not in cached or local_id not in self.model.retained_notifs:
+                        immediate = "stale"
+                    else:
+                        entry = self.action_manager.entries.get(local_id)
+                        if entry is None:
+                            self.action_manager.open_for(local_id)
+                            entry = self.action_manager.entries.get(local_id)
+                        if entry is None or entry.revision != revision:
+                            immediate = "stale"
+                            refresh_binding = True
+                        elif entry.state != "ready" or not self.action_manager.ready_binding(
+                            local_id, revision, session, boot_id
+                        ):
+                            immediate = "unavailable" if entry.state != "ready" else "stale"
+                            refresh_binding = True
+                            self.notifications.actions_changed.set()
+                        else:
+                            self._action_pending = {
+                                "identity": identity,
+                                "started": False,
+                                "cancelled": False,
+                            }
+                            self._pending_present_id = None
+                            self._pending_present_due = None
+                            self._grouped_group = "notifications"
+                            self._manual_notifications = True
+                            if self._presentation is not None:
+                                await self._end_presentation_locked(send_end=True)
+                            dispatch = True
+                    if immediate is not None:
+                        self._remember_action_result(identity, immediate)
+                        refresh_binding = True
+
+        if immediate is not None:
+            await self._send_action_result(identity, immediate)
+            if refresh_binding and not duplicate:
+                await self.action_manager.refresh_after_terminal(local_id, revision)
+            return
+        if dispatch:
+            task = asyncio.create_task(self._dispatch_action(identity), name=f"notification-action-{request}")
+            self._action_tasks.add(task)
+            task.add_done_callback(self._action_task_done)
+
+    def _action_task_done(self, task: asyncio.Task) -> None:
+        self._action_tasks.discard(task)
+        if task.cancelled():
+            return
+        try:
+            error = task.exception()
+        except asyncio.CancelledError:
+            return
+        if error is not None:
+            log.warning("notification action task failed (%s)", type(error).__name__)
+
+    async def _dispatch_action(self, identity: tuple[int, int, int, int, int]) -> None:
+        session, boot_id, local_id, revision, request = identity
+        immediate: str | None = None
+        async with self._state_lock:
+            pending = self._action_pending
+            if (
+                pending is None or pending["identity"] != identity
+                or self._action_ledger_boot_id != boot_id
+            ):
+                return
+            if pending.get("cancelled") or self._writer is None or not self._actions_negotiated:
+                immediate = "unavailable"
+            elif not self.action_manager.ready_binding(local_id, revision, session, boot_id):
+                immediate = "stale"
+            else:
+                pending["started"] = True
+
+        if immediate is None:
+            try:
+                status = await self.action_manager.activate(local_id, revision, request, session, boot_id)
+            except Exception as exc:  # No retry: the provider outcome may be uncertain.
+                log.warning("notification action handler failed (%s)", type(exc).__name__)
+                status = "unknown"
+        else:
+            status = immediate
+        if status != "dispatched":
+            try:
+                await self.action_manager.refresh_after_terminal(local_id, revision)
+            except Exception as exc:
+                log.warning("notification action refresh failed (%s)", type(exc).__name__)
+        await self._finish_action(identity, status)
+
+    async def _finish_action(self, identity: tuple[int, int, int, int, int], status: str) -> None:
+        session, boot_id, local_id, revision, request = identity
+        async with self._state_lock:
+            if session != self.grouped_session or boot_id != self._action_ledger_boot_id:
+                return
+            self._remember_action_result(identity, status)
+            if self._action_pending is not None and self._action_pending["identity"] == identity:
+                self._action_pending = None
+            if (
+                self._writer is not None and self._actions_negotiated
+                and self._device_boot_id == boot_id
+            ):
+                await self.send(proto.action_result(session, boot_id, local_id, revision, request, status))
 
     async def _query_device_cards(self) -> dict:
         async with self._cards_query_lock:
@@ -768,6 +1023,11 @@ class Daemon:
                 self.cfg.link.port = self._port_override
             self.model.max_visible = self.cfg.notifications.max_visible
             self.model.cache_limit = self.cfg.notifications.cache_limit
+            self._actions_negotiated = (
+                self.cfg.notifications.device_open == "dms"
+                and self._actions_capable and self._action_ledger_boot_id is not None
+            )
+            self.notifications.actions_changed.set()
             self._needs_sync = True
             self._tick_wakeup.set()
         await self.notifications.reconfigure()
@@ -808,6 +1068,18 @@ class Daemon:
             "notifs": len(self.model.notifs),
             "retained_notifs": len(self.model.retained_notifs),
             "grouped": self._grouped_enabled,
+            "notification_actions": {
+                "configured": self.cfg.notifications.device_open == "dms",
+                "capable": self._actions_capable,
+                "negotiated": self._actions_negotiated,
+                "provider": {
+                    "available": self.action_manager._provider_epoch is not None,
+                    "epoch": self.action_manager._provider_epoch,
+                    "pid": self.action_manager._provider_pid,
+                },
+                "ready": sum(entry.state == "ready" for entry in self.action_manager.entries.values()),
+                "pending": self._action_pending is not None,
+            },
             "presentation": presentation,
             "last_rx_s": age,
             "config": self.cfg_path,

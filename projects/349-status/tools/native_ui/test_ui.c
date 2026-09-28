@@ -44,6 +44,11 @@ static bool s_host_connected = true;
 static bool s_test_clock_valid;
 static int s_dismiss_count;
 static int s_last_dismiss_id = -1;
+#ifndef NATIVE_PROTOCOL
+static int s_activate_count;
+static int s_last_activate_id = -1;
+static int s_last_activate_revision = -1;
+#endif
 static lv_display_t *s_display;
 static lv_indev_t *s_pointer;
 static lv_point_t s_pointer_point;
@@ -149,6 +154,69 @@ void proto_send_input_browse(bool home, int generation)
 {
     (void)home;
     (void)generation;
+}
+
+bool proto_send_input_activate(int id, int open_revision)
+{
+    status_notif_t *notif = NULL;
+    for (int i = 0; i < s_state.notif_count; i++) {
+        if (s_state.notifs[i].id == id) {
+            notif = &s_state.notifs[i];
+            break;
+        }
+    }
+    if (!notif || notif->open_revision != open_revision ||
+        !state_action_open_enabled(&s_state, notif, s_now_us)) return false;
+    s_activate_count++;
+    s_last_activate_id = id;
+    s_last_activate_revision = open_revision;
+    s_state.action_next_request++;
+    s_state.action_pending = true;
+    s_state.action_pending_session = s_state.grouped_session;
+    s_state.action_pending_boot_id = 1;
+    s_state.action_pending_id = id;
+    s_state.action_pending_open_rev = open_revision;
+    s_state.action_pending_request = s_state.action_next_request;
+    s_state.action_pending_deadline_us = s_now_us + 3000000;
+    return true;
+}
+
+bool state_action_open_enabled(const status_state_t *state,
+                               const status_notif_t *notif, int64_t now_us)
+{
+    return state && notif && state->actions_enabled && state->grouped_enabled &&
+        notif->valid && notif->open_ready && !state->action_pending &&
+        !state->action_request_exhausted && now_us >= state->action_cooldown_until_us &&
+        !(state->action_blocked && state->action_blocked_id == notif->id &&
+          state->action_blocked_open_rev == notif->open_revision);
+}
+
+void state_action_tick(int64_t now_us)
+{
+    if (s_state.action_pending && now_us >= s_state.action_pending_deadline_us) {
+        s_state.action_blocked = true;
+        s_state.action_blocked_id = s_state.action_pending_id;
+        s_state.action_blocked_open_rev = s_state.action_pending_open_rev;
+        s_state.action_pending = false;
+        s_state.action_feedback = STATUS_ACTION_FEEDBACK_NO_CONFIRMATION;
+        s_state.action_feedback_id = s_state.action_pending_id;
+        s_state.action_feedback_open_rev = s_state.action_pending_open_rev;
+        s_state.action_feedback_until_us = now_us + 2000000;
+    }
+    if (s_state.action_feedback != STATUS_ACTION_FEEDBACK_NONE &&
+        now_us >= s_state.action_feedback_until_us) {
+        s_state.action_feedback = STATUS_ACTION_FEEDBACK_NONE;
+    }
+}
+
+void state_action_disconnect(void)
+{
+    if (s_state.action_pending) {
+        s_state.action_blocked = true;
+        s_state.action_blocked_id = s_state.action_pending_id;
+        s_state.action_blocked_open_rev = s_state.action_pending_open_rev;
+        s_state.action_pending = false;
+    }
 }
 
 void state_hide_notif(int id)
@@ -808,6 +876,11 @@ static void fixture_init(bool demo)
     s_test_clock_valid = false;
     s_dismiss_count = 0;
     s_last_dismiss_id = -1;
+#ifndef NATIVE_PROTOCOL
+    s_activate_count = 0;
+    s_last_activate_id = -1;
+    s_last_activate_revision = -1;
+#endif
     s_pointer_state = LV_INDEV_STATE_RELEASED;
     s_mouse_down = false;
 #ifdef NATIVE_PROTOCOL
@@ -1084,6 +1157,7 @@ static const char *input_state_name(void)
     case DECK_INPUT_DRAGGING: return "dragging";
     case DECK_INPUT_SETTLING: return "settling";
     case DECK_INPUT_BUTTON_DISMISS: return "dismiss";
+    case DECK_INPUT_BUTTON_OPEN: return "open";
     case DECK_INPUT_BUTTON_PEEK: return "peek";
     case DECK_INPUT_IGNORED: return "ignored";
     }

@@ -16,6 +16,7 @@ LINE_MAX = 8192
 CARD_SYNC_CAPABILITY = "card-sync-v1"
 DASHBOARD_CAPABILITY = "dashboard-v1"
 GROUPED_UI_CAPABILITY = "grouped-ui-v1"
+NOTIFICATION_ACTIONS_CAPABILITY = "notification-actions-v1"
 CARD_CHUNK_MAX = 2048
 IDENTITY_MAX = 0x7FFFFFFF
 
@@ -96,6 +97,25 @@ def grouped_ui_capable(message: dict) -> bool:
         and dashboard_capable(message)
         and isinstance(capabilities, list)
         and GROUPED_UI_CAPABILITY in capabilities
+    )
+
+
+def _device_boot_id(value: object) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 0xFFFFFFFF:
+        return None
+    return value
+
+
+def notification_actions_capable(message: dict) -> bool:
+    """Actions require grouped cache, a supported capability, and a real boot ID."""
+    capabilities = message.get("cap", [])
+    if isinstance(capabilities, str):
+        capabilities = [capabilities]
+    return (
+        grouped_ui_capable(message)
+        and isinstance(capabilities, list)
+        and NOTIFICATION_ACTIONS_CAPABILITY in capabilities
+        and _device_boot_id(message.get("boot_id")) is not None
     )
 
 
@@ -250,6 +270,52 @@ def card_status(message: dict) -> dict | None:
             "remaining_ms": remaining_ms,
         }
 
+    if "actions" in message:
+        actions = message["actions"]
+        if not isinstance(actions, dict) or not {"enabled", "open", "pending"}.issubset(actions):
+            return None
+        enabled = actions.get("enabled")
+        opened = actions.get("open")
+        pending = actions.get("pending")
+        if not isinstance(enabled, bool) or not isinstance(opened, list) or len(opened) > capacity:
+            return None
+        parsed_open = []
+        seen: set[int] = set()
+        for item in opened:
+            if not isinstance(item, dict):
+                return None
+            local_id, revision, state = item.get("id"), item.get("rev"), item.get("state")
+            if (
+                isinstance(local_id, bool) or not isinstance(local_id, int)
+                or not 1 <= local_id <= IDENTITY_MAX or local_id not in ids or local_id in seen
+                or isinstance(revision, bool) or not isinstance(revision, int)
+                or not 1 <= revision <= IDENTITY_MAX
+                or not isinstance(state, str) or state not in {"ready", "unavailable"}
+            ):
+                return None
+            seen.add(local_id)
+            parsed_open.append({"id": local_id, "rev": revision, "state": state})
+        parsed_pending = None
+        if pending is not None:
+            if not isinstance(pending, dict):
+                return None
+            local_id, revision, request = (
+                pending.get("id"), pending.get("open_rev"), pending.get("request")
+            )
+            if (
+                isinstance(local_id, bool) or not isinstance(local_id, int)
+                or not 1 <= local_id <= IDENTITY_MAX
+                or isinstance(revision, bool) or not isinstance(revision, int)
+                or not 1 <= revision <= IDENTITY_MAX
+                or isinstance(request, bool) or not isinstance(request, int)
+                or not 1 <= request <= IDENTITY_MAX
+            ):
+                return None
+            parsed_pending = {"id": local_id, "open_rev": revision, "request": request}
+        if not enabled and (parsed_open or parsed_pending is not None):
+            return None
+        result["actions"] = {"enabled": enabled, "open": parsed_open, "pending": parsed_pending}
+
     return result
 
 
@@ -259,6 +325,7 @@ def card_sync_messages(
     *,
     include_dashboard: bool = False,
     grouped_session: int | None = None,
+    include_actions: bool = False,
 ) -> list[dict]:
     """Build a bounded begin/cards/commit transfer for a card-cache snapshot."""
     cards = snapshot["notifs"]
@@ -275,6 +342,10 @@ def card_sync_messages(
     }
     if include_dashboard:
         begin["dashboard"] = dashboard_payload(snapshot.get("dashboard"))
+    if include_actions:
+        if grouped_session is None:
+            raise ValueError("notification actions require grouped sync")
+        begin["actions"] = {"enabled": True}
     if grouped_session is not None:
         if isinstance(grouped_session, bool) or not isinstance(grouped_session, int) or not 1 <= grouped_session <= IDENTITY_MAX:
             raise ValueError("grouped session must be a positive 31-bit integer")
@@ -299,6 +370,18 @@ def card_sync_messages(
         batch = []
 
     for card in cards:
+        if include_actions:
+            opened = card.get("open") if isinstance(card, dict) else None
+            if (
+                not isinstance(opened, dict)
+                or set(opened) != {"rev", "state"}
+                or isinstance(opened.get("rev"), bool)
+                or not isinstance(opened.get("rev"), int)
+                or not 1 <= opened["rev"] <= IDENTITY_MAX
+                or not isinstance(opened.get("state"), str)
+                or opened["state"] not in {"ready", "unavailable"}
+            ):
+                raise ValueError("action sync card requires a valid open object")
         candidate = {"t": "sync_cards", "tx": int(tx), "start": start, "notifs": [*batch, card]}
         try:
             encoded_size = len(encode(candidate))
@@ -330,6 +413,40 @@ def card_sync_messages(
     encode(commit)
     messages.append(commit)
     return messages
+
+
+def card_action(session: int, nid: int, revision: int, state: str) -> dict:
+    """Build a session-scoped action-availability delta."""
+    for name, value in (("session", session), ("id", nid), ("revision", revision)):
+        if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= IDENTITY_MAX:
+            raise ValueError(f"{name} must be a positive 31-bit integer")
+    if not isinstance(state, str) or state not in {"ready", "unavailable"}:
+        raise ValueError("action state must be ready or unavailable")
+    return {"t": "card_action", "session": session, "id": nid, "open": {"rev": revision, "state": state}}
+
+
+def action_result(
+    session: int,
+    boot_id: int,
+    nid: int,
+    revision: int,
+    request: int,
+    status: str,
+) -> dict:
+    """Build a fully correlated terminal action response."""
+    for name, value in (("session", session), ("id", nid), ("open_rev", revision), ("request", request)):
+        if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= IDENTITY_MAX:
+            raise ValueError(f"{name} must be a positive 31-bit integer")
+    if _device_boot_id(boot_id) is None:
+        raise ValueError("boot_id must be a nonzero uint32")
+    if not isinstance(status, str) or status not in {
+        "dispatched", "unavailable", "stale", "failed", "unknown"
+    }:
+        raise ValueError("invalid action result status")
+    return {
+        "t": "action_result", "session": session, "boot_id": boot_id,
+        "id": nid, "open_rev": revision, "request": request, "status": status,
+    }
 
 
 def bar(zones: list[dict], rev: int) -> dict:

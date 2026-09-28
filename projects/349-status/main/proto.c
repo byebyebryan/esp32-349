@@ -51,6 +51,7 @@ void proto_send_hello(void)
         cJSON_AddItemToArray(cap, cJSON_CreateString("card-sync-v1"));
         cJSON_AddItemToArray(cap, cJSON_CreateString("dashboard-v1"));
         cJSON_AddItemToArray(cap, cJSON_CreateString("grouped-ui-v1"));
+        cJSON_AddItemToArray(cap, cJSON_CreateString("notification-actions-v1"));
         cJSON_AddNumberToObject(obj, "cache_cards", state_card_sync_capacity());
     }
     send_object(obj);
@@ -91,6 +92,11 @@ typedef struct {
     int grouped_present_id;
     bool grouped_persistent;
     int64_t grouped_deadline_us;
+    bool actions_enabled;
+    bool action_pending;
+    int action_pending_id, action_pending_open_rev, action_pending_request;
+    struct { int id, revision; bool ready; } action_open[STATUS_MAX_NOTIFS];
+    int action_open_count;
 } cards_view_t;
 
 static bool contains_id(const int *ids, int count, int id)
@@ -151,6 +157,20 @@ static void send_cards_status(void)
     view.grouped_present_id = st->grouped_present_id;
     view.grouped_persistent = st->grouped_persistent;
     view.grouped_deadline_us = st->grouped_deadline_us;
+    view.actions_enabled = st->actions_enabled;
+    view.action_pending = st->action_pending;
+    view.action_pending_id = st->action_pending_id;
+    view.action_pending_open_rev = st->action_pending_open_rev;
+    view.action_pending_request = st->action_pending_request;
+    view.action_open_count = 0;
+    if (view.actions_enabled) {
+        for (int i = 0; i < count; i++) {
+            view.action_open[i].id = st->notifs[i].id;
+            view.action_open[i].revision = st->notifs[i].open_revision;
+            view.action_open[i].ready = st->notifs[i].open_ready;
+            view.action_open_count++;
+        }
+    }
     const bool pending = cards_view_pending(&view, ids, count);
     state_unlock();
 
@@ -162,6 +182,24 @@ static void send_cards_status(void)
     cJSON *array = cJSON_AddArrayToObject(obj, "ids");
     for (int i = 0; i < count; i++) {
         cJSON_AddItemToArray(array, cJSON_CreateNumber(ids[i]));
+    }
+    cJSON *actions = cJSON_AddObjectToObject(obj, "actions");
+    cJSON_AddBoolToObject(actions, "enabled", view.actions_enabled);
+    cJSON *open = cJSON_AddArrayToObject(actions, "open");
+    for (int i = 0; i < view.action_open_count; i++) {
+        cJSON *item = cJSON_CreateObject();
+        cJSON_AddNumberToObject(item, "id", view.action_open[i].id);
+        cJSON_AddNumberToObject(item, "rev", view.action_open[i].revision);
+        cJSON_AddStringToObject(item, "state", view.action_open[i].ready ? "ready" : "unavailable");
+        cJSON_AddItemToArray(open, item);
+    }
+    if (view.action_pending) {
+        cJSON *pending_action = cJSON_AddObjectToObject(actions, "pending");
+        cJSON_AddNumberToObject(pending_action, "id", view.action_pending_id);
+        cJSON_AddNumberToObject(pending_action, "open_rev", view.action_pending_open_rev);
+        cJSON_AddNumberToObject(pending_action, "request", view.action_pending_request);
+    } else {
+        cJSON_AddNullToObject(actions, "pending");
     }
     if (pending) {
         cJSON_AddBoolToObject(obj, "view_pending", true);
@@ -257,6 +295,27 @@ void proto_send_input_browse(bool home, int generation)
     cJSON_AddStringToObject(obj, "group", home ? "home" : "notifications");
     send_object(obj);
     cJSON_Delete(obj);
+}
+
+bool proto_send_input_activate(int id, int open_revision)
+{
+    if (s_boot_id == 0) return false;
+    int session = 0, request = 0;
+    if (!state_action_begin(s_boot_id, id, open_revision, esp_timer_get_time(),
+                            &session, &request)) {
+        return false;
+    }
+    cJSON *obj = cJSON_CreateObject();
+    cJSON_AddStringToObject(obj, "t", "input");
+    cJSON_AddStringToObject(obj, "action", "activate");
+    cJSON_AddNumberToObject(obj, "session", session);
+    cJSON_AddNumberToObject(obj, "boot_id", s_boot_id);
+    cJSON_AddNumberToObject(obj, "id", id);
+    cJSON_AddNumberToObject(obj, "open_rev", open_revision);
+    cJSON_AddNumberToObject(obj, "request", request);
+    send_object(obj);
+    cJSON_Delete(obj);
+    return true;
 }
 
 static void handle_text(const cJSON *value)
@@ -415,6 +474,14 @@ void proto_handle_line(const char *json)
         if (!reject_interleaved()) {
             state_apply_present(obj);
         }
+        state_note_rx();
+    } else if (strcmp(kind, "card_action") == 0) {
+        if (!reject_interleaved()) {
+            (void)state_apply_card_action(obj);
+        }
+        state_note_rx();
+    } else if (strcmp(kind, "action_result") == 0) {
+        (void)state_apply_action_result(obj, s_boot_id);
         state_note_rx();
     } else if (strcmp(kind, "cards_query") == 0) {
         send_cards_status();

@@ -18,6 +18,7 @@ Two bus quirks drive the implementation:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import time
@@ -39,6 +40,7 @@ MONITOR_RULES = [
     "interface='org.freedesktop.Notifications'",
     f"type='method_return',sender='{NOTIFICATIONS_NAME}'",
     f"type='error',sender='{NOTIFICATIONS_NAME}'",
+    "type='signal',sender='org.freedesktop.DBus',interface='org.freedesktop.DBus',member='NameOwnerChanged',arg0='org.freedesktop.Notifications'",
 ]
 
 # One message per interval keeps a notification burst from overflowing the
@@ -48,6 +50,36 @@ NOTIFY_OUTBOX_LIMIT = 32
 ASSOCIATION_LIMIT = 32
 PENDING_REPLY_LIMIT = 64
 MONITOR_QUEUE_LIMIT = 256
+OPEN_ACTION_PAIR_LIMIT = 64
+IDENTITY_QUERY_TIMEOUT_S = 0.5
+
+
+def parse_open_metadata(body: list) -> dict | None:
+    """Keep a bounded, unnormalized default-action validation payload."""
+    if len(body) < 8:
+        return None
+    app, _, _, summary, text, actions, _, _ = body[:8]
+    if (
+        not all(isinstance(value, str) for value in (app, summary, text))
+        or not isinstance(actions, list)
+        or len(actions) % 2
+        or len(actions) > 2 * OPEN_ACTION_PAIR_LIMIT
+        or not all(isinstance(value, str) for value in actions)
+    ):
+        return None
+    defaults = [actions[i + 1] for i in range(0, len(actions), 2) if actions[i] == "default"]
+    if len(defaults) != 1:
+        return None
+    expected = {"app": app, "summary": summary, "body": text, "default_label": defaults[0]}
+    # Leave room for the bridge's bounded identity/envelope fields. Do not keep
+    # image hints or a second unbounded copy of the notification's body.
+    try:
+        size = len(json.dumps(expected, ensure_ascii=False, separators=(",", ":")).encode())
+    except UnicodeError:
+        return None
+    if size > proto.LINE_MAX - 1024:
+        return None
+    return expected
 
 
 def is_ignored(app: str, ignore_apps: list[str]) -> bool:
@@ -126,6 +158,12 @@ class NotificationSource:
         self._daemon_to_local: dict[int, int] = {}
         self._local_to_daemon: dict[int, int | None] = {}
         self._action_daemon_id: dict[int, int] = {}
+        self.actions_changed = asyncio.Event()
+        self._open_info: dict[int, dict] = {}
+        self._open_reply_versions: dict[tuple[str, int], int] = {}
+        self._next_open_version = 1
+        self._server_owner: str | None = None
+        self._server_pid: int | None = None
         self._mirrored_local_ids: set[int] = set()
         self._expiry_deadlines: dict[int, float] = {}
         self._locally_removed: dict[int, None] = {}
@@ -191,6 +229,8 @@ class NotificationSource:
                 await self._on_close(local_id)
 
     def _forget_local(self, local_id: int) -> None:
+        self._open_info.pop(local_id, None)
+        self.actions_changed.set()
         self._mirrored_local_ids.discard(local_id)
         self._locally_removed.pop(local_id, None)
         self._attention_expired.pop(local_id, None)
@@ -207,6 +247,7 @@ class NotificationSource:
         for key, (pending_id, _requested_id) in tuple(self._by_serial.items()):
             if pending_id == local_id:
                 self._by_serial.pop(key, None)
+                self._open_reply_versions.pop(key, None)
 
     def forget(self, local_id: int) -> None:
         """Release all bounded source metadata for an evicted/removed record."""
@@ -216,6 +257,7 @@ class NotificationSource:
         """Suppress queued delivery while preserving a live desktop association."""
         local_id = int(local_id)
         self._outbox.pop(local_id, None)
+        self.actions_changed.set()
         if local_id in self._mirrored_local_ids:
             self._locally_removed[local_id] = None
             while len(self._locally_removed) > ASSOCIATION_LIMIT:
@@ -251,7 +293,71 @@ class NotificationSource:
 
     def _trim_pending_replies(self) -> None:
         while len(self._by_serial) > PENDING_REPLY_LIMIT:
-            self._by_serial.pop(next(iter(self._by_serial)))
+            key = next(iter(self._by_serial))
+            self._by_serial.pop(key)
+            self._open_reply_versions.pop(key, None)
+
+    def action_candidate(self, local_id: int) -> dict | None:
+        """Return only a confirmed current server association, never history."""
+        info = self._open_info.get(local_id)
+        desktop_id = self._action_daemon_id.get(local_id)
+        if (
+            info is None or info["expected"] is None or not info["confirmed"]
+            or self._server_owner is None or self._server_pid is None
+            or info.get("owner") != self._server_owner
+            or desktop_id is None or self._daemon_to_local.get(desktop_id) != local_id
+            or not 0 < desktop_id <= 0xFFFFFFFF or isinstance(desktop_id, bool)
+            or not 0 < info["version"] <= proto.IDENTITY_MAX
+            or local_id in self._locally_removed or local_id in self._forgotten_local_ids
+        ):
+            return None
+        return {
+            "id": local_id, "version": info["version"], "desktop_id": desktop_id,
+            "owner": self._server_owner, "pid": self._server_pid,
+            "expected": dict(info["expected"]),
+        }
+
+    def action_candidates(self) -> dict[int, dict]:
+        return {nid: candidate for nid in self._open_info if (candidate := self.action_candidate(nid)) is not None}
+
+    async def _refresh_server_identity(self) -> None:
+        self._server_owner = self._server_pid = None
+        if self._control is None:
+            return
+        try:
+            reply = await asyncio.wait_for(
+                self._control.call(Message(
+                    destination="org.freedesktop.DBus", path="/org/freedesktop/DBus",
+                    interface="org.freedesktop.DBus", member="GetNameOwner",
+                    signature="s", body=[NOTIFICATIONS_NAME],
+                )),
+                timeout=IDENTITY_QUERY_TIMEOUT_S,
+            )
+            if reply.message_type == MessageType.ERROR or not reply.body or not isinstance(reply.body[0], str):
+                return
+            owner = reply.body[0]
+            pid_reply = await asyncio.wait_for(
+                self._control.call(Message(
+                    destination="org.freedesktop.DBus", path="/org/freedesktop/DBus",
+                    interface="org.freedesktop.DBus", member="GetConnectionUnixProcessID",
+                    signature="s", body=[owner],
+                )),
+                timeout=IDENTITY_QUERY_TIMEOUT_S,
+            )
+            if (
+                pid_reply.message_type != MessageType.ERROR and pid_reply.body
+                and isinstance(pid_reply.body[0], int) and not isinstance(pid_reply.body[0], bool)
+                and pid_reply.body[0] > 0
+            ):
+                self._server_owner, self._server_pid = owner, pid_reply.body[0]
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # Owner identity is advisory for action eligibility. An unresponsive
+            # bus must not stall the monitor queue or retain an old PID.
+            pass
+        finally:
+            self.actions_changed.set()
 
     async def _expire_due(self) -> None:
         now = time.monotonic()
@@ -324,6 +430,7 @@ class NotificationSource:
             raise RuntimeError(f"BecomeMonitor failed: {reply.error_name} {reply.body}")
 
         self._monitor.add_message_handler(self._enqueue)
+        await self._refresh_server_identity()
         log.info("notification mirror active")
 
     async def _teardown(self) -> None:
@@ -336,6 +443,10 @@ class NotificationSource:
         self._monitor = self._control = None
         # Ids from a previous daemon session are meaningless now.
         self._by_serial.clear()
+        self._open_info.clear()
+        self._open_reply_versions.clear()
+        self._server_owner = self._server_pid = None
+        self.actions_changed.set()
         self._daemon_to_local.clear()
         self._local_to_daemon.clear()
         self._action_daemon_id.clear()
@@ -388,6 +499,21 @@ class NotificationSource:
 
     async def _handle(self, message: Message) -> None:
         if (
+            message.message_type == MessageType.SIGNAL
+            and message.sender == "org.freedesktop.DBus"
+            and message.interface == "org.freedesktop.DBus"
+            and message.member == "NameOwnerChanged"
+            and len(message.body) >= 3 and message.body[0] == NOTIFICATIONS_NAME
+            and message.body[1] != message.body[2]
+        ):
+            # Owner replacement does not necessarily disconnect the monitor.
+            # Archive text and revoke numeric IDs before accepting new events.
+            self._server_owner = self._server_pid = None
+            await self._close_mirrored_notifications()
+            self._by_serial.clear()
+            self._open_reply_versions.clear()
+            await self._refresh_server_identity()
+        elif (
             message.message_type == MessageType.METHOD_CALL
             and message.interface == NOTIFICATIONS_NAME
             and message.member == "Notify"
@@ -396,6 +522,7 @@ class NotificationSource:
         elif message.message_type in {MessageType.METHOD_RETURN, MessageType.ERROR}:
             key = (message.destination, message.reply_serial) if message.destination and message.reply_serial else None
             pending = self._by_serial.pop(key, None) if key is not None else None
+            open_version = self._open_reply_versions.pop(key, None) if key is not None else None
             if pending is None:
                 return
             local_id, requested_id = pending
@@ -430,6 +557,11 @@ class NotificationSource:
                     self._action_daemon_id.pop(local_id, None)
                 self._local_to_daemon[local_id] = daemon_id
                 self._action_daemon_id[local_id] = daemon_id
+                info = self._open_info.get(local_id)
+                if info is not None and info["version"] == open_version and message.sender == self._server_owner:
+                    info["confirmed"] = True
+                    info["owner"] = message.sender
+                    self.actions_changed.set()
             elif requested_id and self._daemon_to_local.get(requested_id) == local_id:
                 self._daemon_to_local.pop(requested_id, None)
                 self._local_to_daemon[local_id] = None
@@ -450,6 +582,8 @@ class NotificationSource:
                         # closed; keep replacement correlation but no longer
                         # allow CloseNotification against its ID.
                         self._action_daemon_id.pop(local_id, None)
+                        self._open_info.pop(local_id, None)
+                        self.actions_changed.set()
                         await self._on_expire(local_id)
                     else:
                         self._forget_local(local_id)
@@ -484,8 +618,21 @@ class NotificationSource:
         self._attention_expired.pop(local_id, None)
         self._forgotten_local_ids.pop(local_id, None)
 
+        # Every Notify changes action identity, including identical replacements.
+        version = self._next_open_version
+        self._next_open_version += 1
+        self._open_info.pop(local_id, None)
+        self._open_info[local_id] = {
+            "version": version, "expected": parse_open_metadata(message.body),
+            "confirmed": False, "owner": None,
+        }
+        while len(self._open_info) > ASSOCIATION_LIMIT:
+            self._open_info.pop(next(iter(self._open_info)))
+        self.actions_changed.set()
+
         if message.serial and message.sender:
             self._by_serial[(message.sender, message.serial)] = (local_id, replaces)
+            self._open_reply_versions[(message.sender, message.serial)] = version
             self._trim_pending_replies()
 
         # This deadline expires the legacy active projection. Grouped attention

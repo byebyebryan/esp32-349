@@ -55,7 +55,17 @@ typedef struct {
     char summary[STATUS_NOTIF_SUMMARY_MAX];
     char body[STATUS_NOTIF_BODY_MAX];
     int urgency;
+    int open_revision;
+    bool open_ready;
 } status_notif_t;
+
+typedef enum {
+    STATUS_ACTION_FEEDBACK_NONE,
+    STATUS_ACTION_FEEDBACK_SENT,
+    STATUS_ACTION_FEEDBACK_UNAVAILABLE,
+    STATUS_ACTION_FEEDBACK_TRY_AGAIN,
+    STATUS_ACTION_FEEDBACK_NO_CONFIRMATION,
+} status_action_feedback_t;
 
 typedef struct {
     int generation, id, urgency;
@@ -88,6 +98,19 @@ typedef struct {
     int deck_reachable, deck_position, deck_focus_id, deck_next_id;
     bool grouped_enabled;
     int grouped_session;
+    bool actions_enabled;
+    bool action_pending;
+    int action_pending_session;
+    uint32_t action_pending_boot_id;
+    int action_pending_id, action_pending_open_rev, action_pending_request;
+    int64_t action_pending_deadline_us, action_cooldown_until_us;
+    bool action_request_exhausted;
+    int action_next_request;
+    bool action_blocked;
+    int action_blocked_id, action_blocked_open_rev;
+    status_action_feedback_t action_feedback;
+    int action_feedback_id, action_feedback_open_rev;
+    int64_t action_feedback_until_us;
     status_presentation_t presentation;
     /* UI-published state for acceptance readback. */
     bool grouped_home, grouped_manual, grouped_presenting;
@@ -124,6 +147,14 @@ bool state_apply_dashboard(const cJSON *obj);
 void state_apply_notify(const cJSON *obj);
 bool state_apply_present(const cJSON *obj);
 bool state_grouped_session_matches(const cJSON *obj);
+bool state_apply_card_action(const cJSON *obj);
+bool state_apply_action_result(const cJSON *obj, uint32_t boot_id);
+void state_action_tick(int64_t now_us);
+void state_action_disconnect(void);
+bool state_action_open_enabled(const status_state_t *state,
+                               const status_notif_t *notif, int64_t now_us);
+bool state_action_begin(uint32_t boot_id, int id, int open_revision,
+                        int64_t now_us, int *session, int *request);
 void state_apply_close(const cJSON *obj);
 void state_apply_sync(const cJSON *obj);
 

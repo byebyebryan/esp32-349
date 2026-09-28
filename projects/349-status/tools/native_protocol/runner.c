@@ -2,6 +2,7 @@
 
 #include <assert.h>
 #include <limits.h>
+#include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -124,6 +125,51 @@ static void sync_grouped(int session, const char *records)
     }
     CHECK(send_wire("{\"t\":\"sync_commit\",\"tx\":17}") == NULL);
     cJSON_Delete(cards);
+}
+
+static void sync_grouped_actions(int session, const char *records, bool actions_enabled)
+{
+    cJSON *cards = parse_json(records);
+    const int count = cJSON_GetArraySize(cards);
+    char message[1200];
+    snprintf(message, sizeof(message),
+        "{\"t\":\"sync_begin\",\"tx\":27,\"count\":%d,\"limit\":%d,"
+        "\"overflow\":0,\"bar\":{\"zones\":[]},\"dashboard\":{},"
+        "\"grouped\":{\"session\":%d}%s}",
+        count, count, session,
+        actions_enabled ? ",\"actions\":{\"enabled\":true}" : "");
+    CHECK(send_wire(message) == NULL);
+    if (count > 0) {
+        char chunk[4096];
+        snprintf(chunk, sizeof(chunk),
+            "{\"t\":\"sync_cards\",\"tx\":27,\"start\":0,\"notifs\":%s}", records);
+        CHECK(send_wire(chunk) == NULL);
+    }
+    CHECK(send_wire("{\"t\":\"sync_commit\",\"tx\":27}") == NULL);
+    cJSON_Delete(cards);
+}
+
+static cJSON *action_result(int session, uint32_t boot_id, int id, int revision,
+                            int request, const char *status)
+{
+    cJSON *obj = cJSON_CreateObject();
+    cJSON_AddStringToObject(obj, "t", "action_result");
+    cJSON_AddNumberToObject(obj, "session", session);
+    cJSON_AddNumberToObject(obj, "boot_id", (double)boot_id);
+    cJSON_AddNumberToObject(obj, "id", id);
+    cJSON_AddNumberToObject(obj, "open_rev", revision);
+    cJSON_AddNumberToObject(obj, "request", request);
+    cJSON_AddStringToObject(obj, "status", status);
+    return obj;
+}
+
+static bool apply_action_result(uint32_t boot_id, int session, int id,
+                                int revision, int request, const char *status)
+{
+    cJSON *obj = action_result(session, boot_id, id, revision, request, status);
+    const bool accepted = state_apply_action_result(obj, boot_id);
+    cJSON_Delete(obj);
+    return accepted;
 }
 
 static void test_staged_validation_and_deltas(void)
@@ -250,8 +296,291 @@ static void test_presentation_and_session_reset(void)
     state_unlock();
 }
 
+static void test_notification_actions_lifecycle(void)
+{
+    state_init();
+    sync_grouped_actions(501,
+        "[{\"id\":10,\"app\":\"A\",\"summary\":\"ready\",\"body\":\"a\",\"urgency\":1,"
+        "\"open\":{\"rev\":5,\"state\":\"ready\"}},"
+        "{\"id\":11,\"app\":\"B\",\"summary\":\"history\",\"body\":\"b\",\"urgency\":1,"
+        "\"open\":{\"rev\":3,\"state\":\"unavailable\"}}]", true);
+
+    state_lock();
+    status_state_t *st = state_get();
+    CHECK(st->actions_enabled && st->grouped_enabled && st->grouped_session == 501);
+    CHECK(st->notif_count == 2 && st->notifs[0].id == 10 && st->notifs[1].id == 11);
+    CHECK(st->notifs[0].open_revision == 5 && st->notifs[0].open_ready);
+    CHECK(st->notifs[1].open_revision == 3 && !st->notifs[1].open_ready);
+    CHECK(state_action_open_enabled(st, &st->notifs[0], s_now_us));
+    CHECK(!state_action_open_enabled(st, &st->notifs[1], s_now_us));
+    state_unlock();
+
+    /* A malformed action field rejects its whole staged chunk. */
+    CHECK(send_wire(
+        "{\"t\":\"sync_begin\",\"tx\":28,\"count\":1,\"limit\":1,\"overflow\":0,"
+        "\"bar\":{\"zones\":[]},\"dashboard\":{},\"grouped\":{\"session\":501},"
+        "\"actions\":{\"enabled\":true}}") == NULL);
+    cJSON *response = send_wire(
+        "{\"t\":\"sync_cards\",\"tx\":28,\"start\":0,\"notifs\":["
+        "{\"id\":99,\"app\":\"X\",\"summary\":\"bad\",\"body\":\"x\",\"urgency\":1}]}");
+    CHECK(response && strcmp(string(response, "reason"), "sync_cards_invalid") == 0);
+    cJSON_Delete(response);
+    state_lock();
+    CHECK(state_get()->notif_count == 2 && state_get()->notifs[0].id == 10);
+    state_unlock();
+
+    /* Metadata deltas update only existing records and enforce revision order. */
+    CHECK(send_wire(
+        "{\"t\":\"card_action\",\"session\":501,\"id\":10,"
+        "\"open\":{\"rev\":4,\"state\":\"unavailable\"}}") == NULL);
+    CHECK(send_wire(
+        "{\"t\":\"card_action\",\"session\":501,\"id\":10,"
+        "\"open\":{\"rev\":5,\"state\":\"unavailable\"}}") == NULL);
+    CHECK(send_wire(
+        "{\"t\":\"card_action\",\"session\":501,\"id\":99,"
+        "\"open\":{\"rev\":6,\"state\":\"ready\"}}") == NULL);
+    state_lock();
+    CHECK(state_get()->notifs[0].id == 10 && state_get()->notifs[0].open_revision == 5);
+    state_unlock();
+    CHECK(send_wire(
+        "{\"t\":\"card_action\",\"session\":501,\"id\":10,"
+        "\"open\":{\"rev\":6,\"state\":\"unavailable\"}}") == NULL);
+    state_lock();
+    CHECK(state_get()->notifs[0].id == 10 && state_get()->notifs[0].open_revision == 6);
+    CHECK(!state_get()->notifs[0].open_ready && state_get()->notif_focus_seq == 0);
+    state_unlock();
+
+    /* An older atomic snapshot cannot restore revoked availability. */
+    CHECK(send_wire(
+        "{\"t\":\"sync_begin\",\"tx\":29,\"count\":1,\"limit\":1,\"overflow\":0,"
+        "\"bar\":{\"zones\":[]},\"dashboard\":{},\"grouped\":{\"session\":501},"
+        "\"actions\":{\"enabled\":true}}") == NULL);
+    CHECK(send_wire(
+        "{\"t\":\"sync_cards\",\"tx\":29,\"start\":0,\"notifs\":["
+        "{\"id\":10,\"app\":\"A\",\"summary\":\"stale\",\"body\":\"a\",\"urgency\":1,"
+        "\"open\":{\"rev\":5,\"state\":\"ready\"}}]}") == NULL);
+    response = send_wire("{\"t\":\"sync_commit\",\"tx\":29}");
+    CHECK(response != NULL && strcmp(string(response, "reason"), "sync_commit_invalid") == 0);
+    cJSON_Delete(response);
+    state_lock();
+    CHECK(state_get()->notif_count == 2 && state_get()->notifs[0].id == 10);
+    CHECK(state_get()->notifs[0].open_revision == 6 && !state_get()->notifs[0].open_ready);
+    state_unlock();
+
+    /* Negotiated notify requires metadata, and replacements must move revision forward. */
+    CHECK(send_wire(
+        "{\"t\":\"notify\",\"session\":501,\"id\":10,\"app\":\"A\","
+        "\"summary\":\"missing action metadata\",\"body\":\"a\",\"urgency\":1}") == NULL);
+    state_lock();
+    CHECK(strcmp(state_get()->notifs[0].summary, "ready") == 0);
+    state_unlock();
+    CHECK(send_wire(
+        "{\"t\":\"notify\",\"session\":501,\"id\":10,\"app\":\"A\","
+        "\"summary\":\"replacement\",\"body\":\"a2\",\"urgency\":1,"
+        "\"open\":{\"rev\":7,\"state\":\"ready\"},\"cached\":true,\"total\":2}") == NULL);
+    state_lock();
+    CHECK(state_get()->notifs[1].id == 10 && state_get()->notifs[1].open_revision == 7);
+    CHECK(state_get()->notifs[1].open_ready && state_get()->notif_focus_seq == 0);
+    state_unlock();
+
+    const uint32_t high_boot = UINT32_MAX;
+    int action_session = 0, request = 0;
+    CHECK(state_action_begin(high_boot, 10, 7, s_now_us, &action_session, &request));
+    CHECK(action_session == 501 && request == 1);
+    CHECK(send_wire(
+        "{\"t\":\"card_action\",\"session\":501,\"id\":11,"
+        "\"open\":{\"rev\":4,\"state\":\"ready\"}}") == NULL);
+    CHECK(!state_action_begin(high_boot, 10, 7, s_now_us, &action_session, &request));
+    CHECK(!state_action_begin(high_boot, 11, 4, s_now_us, &action_session, &request));
+
+    cJSON *wrong = action_result(501, high_boot - 1, 10, 7, 1, "dispatched");
+    CHECK(!state_apply_action_result(wrong, high_boot));
+    cJSON_Delete(wrong);
+    CHECK(!apply_action_result(high_boot, 502, 10, 7, 1, "dispatched"));
+    CHECK(!apply_action_result(high_boot, 501, 10, 6, 1, "dispatched"));
+    CHECK(!apply_action_result(high_boot, 501, 10, 7, 2, "dispatched"));
+    CHECK(!apply_action_result(high_boot, 501, 10, 7, 1, "invented"));
+    wrong = action_result(501, high_boot, 10, 7, 1, "dispatched");
+    cJSON_ReplaceItemInObjectCaseSensitive(wrong, "boot_id", cJSON_CreateNumber(4294967296.0));
+    CHECK(!state_apply_action_result(wrong, high_boot));
+    cJSON_ReplaceItemInObjectCaseSensitive(wrong, "boot_id", cJSON_CreateNumber(4294967295.5));
+    CHECK(!state_apply_action_result(wrong, high_boot));
+    cJSON_ReplaceItemInObjectCaseSensitive(wrong, "boot_id", cJSON_CreateNumber(NAN));
+    CHECK(!state_apply_action_result(wrong, high_boot));
+    cJSON_Delete(wrong);
+    state_lock();
+    CHECK(state_get()->action_pending);
+    state_unlock();
+
+    /* A successful dispatch can close the card before its result arrives. */
+    CHECK(send_wire("{\"t\":\"close\",\"id\":10,\"session\":501,\"total\":1}") == NULL);
+    CHECK(apply_action_result(high_boot, 501, 10, 7, 1, "dispatched"));
+    state_lock();
+    CHECK(!state_get()->action_pending);
+    CHECK(state_get()->action_feedback == STATUS_ACTION_FEEDBACK_NONE);
+    state_unlock();
+
+    native_protocol_advance_time(500000);
+    CHECK(send_wire(
+        "{\"t\":\"card_action\",\"session\":501,\"id\":11,"
+        "\"open\":{\"rev\":4,\"state\":\"ready\"}}") == NULL);
+    CHECK(state_action_begin(high_boot, 11, 4, s_now_us, &action_session, &request));
+    CHECK(request == 2);
+    /* Same-session full sync preserves an in-flight tuple exactly. */
+    sync_grouped_actions(501,
+        "[{\"id\":11,\"app\":\"B\",\"summary\":\"ready again\",\"body\":\"b\",\"urgency\":1,"
+        "\"open\":{\"rev\":4,\"state\":\"ready\"}}]", true);
+    state_lock();
+    CHECK(state_get()->action_pending && state_get()->action_pending_request == 2);
+    state_unlock();
+    CHECK(send_wire(
+        "{\"t\":\"card_action\",\"session\":501,\"id\":11,"
+        "\"open\":{\"rev\":5,\"state\":\"unavailable\"}}") == NULL);
+    state_lock();
+    state_get()->grouped_manual = true;
+    state_get()->grouped_generation++;
+    state_unlock();
+    CHECK(apply_action_result(high_boot, 501, 11, 4, 2, "dispatched"));
+    state_lock();
+    CHECK(state_get()->action_feedback == STATUS_ACTION_FEEDBACK_NONE);
+    CHECK(!state_get()->action_pending);
+    CHECK(state_get()->action_cooldown_until_us == s_now_us + 500000);
+    CHECK(!state_get()->action_blocked);
+    state_unlock();
+    CHECK(!state_action_begin(high_boot, 11, 5, s_now_us, &action_session, &request));
+    native_protocol_advance_time(500000);
+    CHECK(send_wire(
+        "{\"t\":\"card_action\",\"session\":501,\"id\":11,"
+        "\"open\":{\"rev\":6,\"state\":\"ready\"}}") == NULL);
+    CHECK(state_action_begin(high_boot, 11, 6, s_now_us, &action_session, &request));
+    CHECK(request == 3);
+    CHECK(apply_action_result(high_boot, 501, 11, 6, 3, "failed"));
+    state_lock();
+    CHECK(state_get()->action_feedback == STATUS_ACTION_FEEDBACK_TRY_AGAIN);
+    CHECK(state_get()->action_blocked && state_get()->action_blocked_open_rev == 6);
+    state_unlock();
+    CHECK(!state_action_begin(high_boot, 11, 6, s_now_us, &action_session, &request));
+
+    CHECK(send_wire(
+        "{\"t\":\"card_action\",\"session\":501,\"id\":11,"
+        "\"open\":{\"rev\":7,\"state\":\"ready\"}}") == NULL);
+    native_protocol_advance_time(500000);
+    CHECK(state_action_begin(high_boot, 11, 7, s_now_us, &action_session, &request));
+    CHECK(request == 4);
+    native_protocol_advance_time(3000000);
+    state_action_tick(s_now_us);
+    state_lock();
+    CHECK(!state_get()->action_pending);
+    CHECK(state_get()->action_feedback == STATUS_ACTION_FEEDBACK_NO_CONFIRMATION);
+    CHECK(state_get()->action_blocked && state_get()->action_blocked_open_rev == 7);
+    state_unlock();
+    CHECK(!state_action_begin(high_boot, 11, 7, s_now_us, &action_session, &request));
+
+    CHECK(send_wire(
+        "{\"t\":\"card_action\",\"session\":501,\"id\":11,"
+        "\"open\":{\"rev\":8,\"state\":\"ready\"}}") == NULL);
+    native_protocol_advance_time(500000);
+    CHECK(state_action_begin(high_boot, 11, 8, s_now_us, &action_session, &request));
+    CHECK(request == 5);
+    state_action_disconnect();
+    state_lock();
+    CHECK(!state_get()->action_pending && state_get()->action_blocked_open_rev == 8);
+    state_unlock();
+    CHECK(!apply_action_result(high_boot, 501, 11, 6, 5, "dispatched"));
+
+    /* Host-session change and action negotiation removal ignore old replies. */
+    CHECK(send_wire(
+        "{\"t\":\"card_action\",\"session\":501,\"id\":11,"
+        "\"open\":{\"rev\":9,\"state\":\"ready\"}}") == NULL);
+    CHECK(state_action_begin(high_boot, 11, 9, s_now_us, &action_session, &request));
+    CHECK(request == 6);
+    sync_grouped_actions(502,
+        "[{\"id\":11,\"app\":\"B\",\"summary\":\"new host\",\"body\":\"b\",\"urgency\":1,"
+        "\"open\":{\"rev\":1,\"state\":\"ready\"}}]", true);
+    state_lock();
+    CHECK(!state_get()->action_pending && state_get()->grouped_session == 502);
+    state_unlock();
+    CHECK(!apply_action_result(high_boot, 501, 11, 9, 6, "dispatched"));
+    CHECK(state_action_begin(high_boot, 11, 1, s_now_us, &action_session, &request));
+    CHECK(request == 7); /* The boot-scoped counter survives host sessions. */
+    CHECK(apply_action_result(high_boot, 502, 11, 1, 7, "unknown"));
+    state_lock();
+    CHECK(state_get()->action_feedback == STATUS_ACTION_FEEDBACK_NO_CONFIRMATION);
+    CHECK(state_get()->action_blocked && state_get()->action_blocked_open_rev == 1);
+    state_unlock();
+    CHECK(!state_action_begin(high_boot, 11, 1, s_now_us, &action_session, &request));
+    native_protocol_advance_time(2000000);
+    state_action_tick(s_now_us);
+    state_lock();
+    CHECK(state_get()->action_feedback == STATUS_ACTION_FEEDBACK_NONE);
+    CHECK(state_get()->action_blocked && state_get()->action_blocked_open_rev == 1);
+    state_unlock();
+    CHECK(!state_action_begin(high_boot, 11, 1, s_now_us, &action_session, &request));
+    native_protocol_advance_time(500000);
+    CHECK(send_wire(
+        "{\"t\":\"card_action\",\"session\":502,\"id\":11,"
+        "\"open\":{\"rev\":2,\"state\":\"ready\"}}") == NULL);
+    CHECK(state_action_begin(high_boot, 11, 2, s_now_us, &action_session, &request));
+    CHECK(request == 8);
+    sync_grouped_actions(502,
+        "[{\"id\":11,\"app\":\"B\",\"summary\":\"legacy action off\",\"body\":\"b\",\"urgency\":1}]",
+        false);
+    state_lock();
+    CHECK(!state_get()->action_pending && !state_get()->actions_enabled);
+    CHECK(state_get()->notifs[0].open_revision == 0 && !state_get()->notifs[0].open_ready);
+    state_unlock();
+    CHECK(!apply_action_result(high_boot, 502, 11, 2, 8, "dispatched"));
+    state_lock();
+    state_get()->action_next_request = INT32_MAX;
+    state_unlock();
+    sync_grouped_actions(503,
+        "[{\"id\":11,\"app\":\"B\",\"summary\":\"ready\",\"body\":\"b\",\"urgency\":1,"
+        "\"open\":{\"rev\":1,\"state\":\"ready\"}}]", true);
+    native_protocol_advance_time(500000);
+    CHECK(!state_action_begin(high_boot, 11, 1, s_now_us, &action_session, &request));
+    state_lock();
+    CHECK(state_get()->action_request_exhausted);
+    state_unlock();
+}
+
 static void test_status_and_outbound_actions(void)
 {
+    state_init();
+    sync_grouped_actions(78,
+        "[{\"id\":10,\"app\":\"A\",\"summary\":\"ready\",\"body\":\"a\",\"urgency\":1,"
+        "\"open\":{\"rev\":12,\"state\":\"ready\"}}]", true);
+    clear_outbound();
+    proto_handle_line("{\"t\":\"hello\"}");
+    CHECK(s_outbound_count == 1);
+    cJSON *hello = parse_json(s_outbound[0]);
+    const uint32_t boot_id = (uint32_t)number(hello, "boot_id");
+    bool found_actions = false;
+    const cJSON *hello_cap = field(hello, "cap");
+    const cJSON *hello_item = NULL;
+    cJSON_ArrayForEach(hello_item, hello_cap) {
+        found_actions |= cJSON_IsString(hello_item) &&
+            strcmp(hello_item->valuestring, "notification-actions-v1") == 0;
+    }
+    CHECK(boot_id != 0 && found_actions);
+    cJSON_Delete(hello);
+
+    clear_outbound();
+    CHECK(proto_send_input_activate(10, 12));
+    CHECK(s_outbound_count == 1);
+    cJSON *activate = parse_json(s_outbound[0]);
+    CHECK(strcmp(string(activate, "action"), "activate") == 0);
+    CHECK(number(activate, "session") == 78 && number(activate, "id") == 10);
+    CHECK(number(activate, "open_rev") == 12 && number(activate, "request") == 1);
+    CHECK((uint32_t)number(activate, "boot_id") == boot_id);
+    cJSON_Delete(activate);
+    CHECK(!proto_send_input_activate(10, 12)); /* Only one global request is pending. */
+
+    char reply[256];
+    snprintf(reply, sizeof(reply),
+        "{\"t\":\"action_result\",\"session\":78,\"boot_id\":%u,"
+        "\"id\":10,\"open_rev\":12,\"request\":1,\"status\":\"dispatched\"}", boot_id);
+    CHECK(send_wire(reply) == NULL);
+
     state_lock();
     status_state_t *st = state_get();
     st->grouped_home = false;
@@ -497,6 +826,7 @@ int main(int argc, char **argv)
     if (argc == 2 && strcmp(argv[1], "--self-test") == 0) {
         test_staged_validation_and_deltas();
         test_presentation_and_session_reset();
+        test_notification_actions_lifecycle();
         test_status_and_outbound_actions();
         test_cards_status_pending_until_ui_publication();
         test_legacy_compatibility();

@@ -13,3 +13,4 @@ void proto_handle_overflow(void);
 /* Device-initiated actions (touch). */
 void proto_send_input_dismiss(int id);
 void proto_send_input_browse(bool home, int generation);
+bool proto_send_input_activate(int id, int open_revision);

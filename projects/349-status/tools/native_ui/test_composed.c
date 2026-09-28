@@ -59,6 +59,21 @@ static cJSON *composed_readback(void)
     const int position = st->deck_position;
     const int reachable_count = st->deck_reachable;
     const bool stale = st->deck_stale;
+    const bool actions_enabled = st->actions_enabled;
+    const bool action_pending = st->action_pending;
+    const int pending_id = st->action_pending_id;
+    const int pending_revision = st->action_pending_open_rev;
+    const int pending_request = st->action_pending_request;
+    struct { int id, revision; bool ready; } opens[STATUS_MAX_NOTIFS];
+    int open_count = 0;
+    if (actions_enabled) {
+        for (int i = 0; i < count && i < STATUS_MAX_NOTIFS; i++) {
+            opens[open_count].id = st->notifs[i].id;
+            opens[open_count].revision = st->notifs[i].open_revision;
+            opens[open_count].ready = st->notifs[i].open_ready;
+            open_count++;
+        }
+    }
     state_unlock();
 
     cJSON *out = cJSON_CreateObject();
@@ -82,6 +97,24 @@ static cJSON *composed_readback(void)
     cJSON_AddNumberToObject(out, "position", position);
     cJSON_AddNumberToObject(out, "reachable", reachable_count);
     cJSON_AddBoolToObject(out, "stale", stale);
+    cJSON *actions = cJSON_AddObjectToObject(out, "actions");
+    cJSON_AddBoolToObject(actions, "enabled", actions_enabled);
+    cJSON *open = cJSON_AddArrayToObject(actions, "open");
+    for (int i = 0; i < open_count; i++) {
+        cJSON *item = cJSON_CreateObject();
+        cJSON_AddNumberToObject(item, "id", opens[i].id);
+        cJSON_AddNumberToObject(item, "rev", opens[i].revision);
+        cJSON_AddStringToObject(item, "state", opens[i].ready ? "ready" : "unavailable");
+        cJSON_AddItemToArray(open, item);
+    }
+    if (action_pending) {
+        cJSON *pending = cJSON_AddObjectToObject(actions, "pending");
+        cJSON_AddNumberToObject(pending, "id", pending_id);
+        cJSON_AddNumberToObject(pending, "open_rev", pending_revision);
+        cJSON_AddNumberToObject(pending, "request", pending_request);
+    } else {
+        cJSON_AddNullToObject(actions, "pending");
+    }
     cJSON_AddStringToObject(out, "input_state", enabled
         ? input_state_name_for_grouped() : input_state_name());
     cJSON_AddNumberToObject(out, "frame_width", DISPLAY_WIDTH);
@@ -98,6 +131,7 @@ static const char *input_state_name_for_grouped(void)
     case DECK_INPUT_DRAGGING: return "dragging";
     case DECK_INPUT_SETTLING: return "settling";
     case DECK_INPUT_BUTTON_DISMISS: return "dismiss";
+    case DECK_INPUT_BUTTON_OPEN: return "open";
     case DECK_INPUT_BUTTON_PEEK: return "peek";
     case DECK_INPUT_IGNORED: return "ignored";
     }

@@ -26,6 +26,33 @@ void group_input_init(group_input_t *g)
     deck_input_init(&g->motion);
 }
 
+static bool control_contains(const group_input_t *g, int x, int y)
+{
+    return x >= g->control_x && y >= g->control_y &&
+           x < g->control_x + g->control_width &&
+           y < g->control_y + g->control_height;
+}
+
+static bool control_exceeded_slop(const group_input_t *g, int x, int y)
+{
+    const int64_t dx = (int64_t)x - g->motion.start_x;
+    const int64_t dy = (int64_t)y - g->motion.start_y;
+    const int64_t ax = dx < 0 ? -dx : dx;
+    const int64_t ay = dy < 0 ? -dy : dy;
+    return ax >= DECK_INPUT_SLOP_PX || ay >= DECK_INPUT_SLOP_PX ||
+           ax * ax + ay * ay >= DECK_INPUT_SLOP_PX * DECK_INPUT_SLOP_PX;
+}
+
+static void clear_control(group_input_t *g)
+{
+    g->control = GROUP_CONTROL_NONE;
+    g->control_x = g->control_y = 0;
+    g->control_width = g->control_height = 0;
+    g->control_id = g->control_open_revision = 0;
+    g->control_enabled = false;
+    g->control_cancelled = false;
+}
+
 bool group_input_press(group_input_t *g, int x, int y, int64_t now,
                        bool home, int selected, bool has_cards,
                        int newer, bool has_newer, int older, bool has_older,
@@ -33,6 +60,7 @@ bool group_input_press(group_input_t *g, int x, int y, int64_t now,
 {
     if (deck_input_busy(&g->motion)) return false;
     g->axis = GROUP_AXIS_NONE;
+    clear_control(g);
     g->x = x; g->y = y; g->home = home; g->source = home ? 0 : selected;
     g->press_us = now;
     g->selected = selected; g->has_cards = has_cards;
@@ -42,10 +70,46 @@ bool group_input_press(group_input_t *g, int x, int y, int64_t now,
                             dismiss, false);
 }
 
+void group_input_capture_control(group_input_t *g, group_control_t control,
+                                 int x, int y, int width, int height,
+                                 int id, int open_revision, bool enabled)
+{
+    if (g == NULL || !g->motion.pointer_down ||
+        (control != GROUP_CONTROL_OPEN && control != GROUP_CONTROL_DISMISS) ||
+        width <= 0 || height <= 0 || g->axis != GROUP_AXIS_NONE) {
+        return;
+    }
+    g->control = control;
+    g->control_x = x;
+    g->control_y = y;
+    g->control_width = width;
+    g->control_height = height;
+    if (!control_contains(g, g->motion.start_x, g->motion.start_y)) {
+        clear_control(g);
+        return;
+    }
+    g->control_id = id;
+    g->control_open_revision = open_revision;
+    g->control_enabled = enabled;
+    g->control_cancelled = false;
+    g->motion.state = control == GROUP_CONTROL_OPEN
+        ? DECK_INPUT_BUTTON_OPEN : DECK_INPUT_BUTTON_DISMISS;
+}
+
 int group_input_move(group_input_t *g, int x, int y, int64_t now)
 {
     if (!g->motion.pointer_down) return 0;
+    if (g->control != GROUP_CONTROL_NONE) {
+        if (!g->control_cancelled &&
+            (!control_contains(g, x, y) || control_exceeded_slop(g, x, y))) {
+            g->control_cancelled = true;
+            deck_input_cancel(&g->motion);
+        }
+        if (g->control_cancelled) return 0;
+        return deck_input_move(&g->motion, x, y, now);
+    }
     if (g->motion.state == DECK_INPUT_BUTTON_DISMISS ||
+        g->motion.state == DECK_INPUT_BUTTON_OPEN ||
         g->motion.state == DECK_INPUT_IGNORED) {
         return deck_input_move(&g->motion, x, y, now);
     }
@@ -68,6 +132,39 @@ int group_input_move(group_input_t *g, int x, int y, int64_t now)
 
 deck_input_action_t group_input_release(group_input_t *g, int64_t now)
 {
+    return group_input_release_at(g, g->motion.last_x, g->motion.last_y, now);
+}
+
+deck_input_action_t group_input_release_at(group_input_t *g, int x, int y,
+                                           int64_t now)
+{
+    if (g->control != GROUP_CONTROL_NONE) {
+        const group_control_t control = g->control;
+        const int id = g->control_id;
+        const int revision = g->control_open_revision;
+        const bool enabled = g->control_enabled;
+        const bool inside = !g->control_cancelled && control_contains(g, x, y) &&
+                            !control_exceeded_slop(g, x, y);
+        if (!inside) {
+            g->control_cancelled = true;
+            deck_input_cancel(&g->motion);
+        }
+        deck_input_action_t action = deck_input_release(&g->motion, now);
+        clear_control(g);
+        if (!inside || (control == GROUP_CONTROL_OPEN && !enabled)) {
+            return (deck_input_action_t){0};
+        }
+        if (control == GROUP_CONTROL_OPEN && action.kind == DECK_INPUT_ACTION_OPEN) {
+            action.target_id = id;
+            action.open_revision = revision;
+            return action;
+        }
+        if (control == GROUP_CONTROL_DISMISS && action.kind == DECK_INPUT_ACTION_DISMISS) {
+            action.target_id = id;
+            return action;
+        }
+        return (deck_input_action_t){0};
+    }
     if (g->axis == GROUP_AXIS_NONE && g->peek &&
         g->motion.state == DECK_INPUT_PRESSED && g->has_older) {
         choose_axis(g, GROUP_AXIS_VERTICAL);
@@ -95,6 +192,29 @@ deck_input_action_t group_input_validate(group_input_t *g, bool source,
     return deck_input_validate(&g->motion, g->home || source, previous, next);
 }
 
+deck_input_action_t group_input_validate_action(group_input_t *g,
+                                                bool source, bool newer,
+                                                bool older, bool selected,
+                                                bool actions_enabled, int id,
+                                                int open_revision,
+                                                bool open_enabled)
+{
+    deck_input_action_t action = group_input_validate(g, source, newer, older, selected);
+    if (action.kind != DECK_INPUT_ACTION_NONE ||
+        g->control == GROUP_CONTROL_NONE || g->control_cancelled) {
+        return action;
+    }
+    const bool identity_changed = !source || id != g->control_id;
+    const bool open_changed = g->control == GROUP_CONTROL_OPEN &&
+        (!actions_enabled || open_revision != g->control_open_revision ||
+         (g->control_enabled && !open_enabled));
+    if (identity_changed || open_changed) {
+        g->control_cancelled = true;
+        deck_input_cancel(&g->motion);
+    }
+    return action;
+}
+
 deck_input_action_t group_input_complete(group_input_t *g, uint32_t generation,
                                          bool source, bool newer, bool older,
                                          bool selected)
@@ -104,4 +224,8 @@ deck_input_action_t group_input_complete(group_input_t *g, uint32_t generation,
     return deck_input_complete(&g->motion, generation, g->home || source, previous, next);
 }
 
-void group_input_cancel(group_input_t *g) { deck_input_cancel(&g->motion); }
+void group_input_cancel(group_input_t *g)
+{
+    if (g->control != GROUP_CONTROL_NONE) g->control_cancelled = true;
+    deck_input_cancel(&g->motion);
+}

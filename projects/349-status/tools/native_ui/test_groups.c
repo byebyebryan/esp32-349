@@ -10,6 +10,16 @@ static void groups_reset(const int *ids, int count)
     grouped_cancel();
     step(200);
     s_state.grouped_enabled = true;
+    s_state.actions_enabled = false;
+    s_state.action_pending = false;
+    s_state.action_pending_id = 0;
+    s_state.action_pending_open_rev = 0;
+    s_state.action_pending_request = 0;
+    s_state.action_cooldown_until_us = 0;
+    s_state.action_request_exhausted = false;
+    s_state.action_blocked = false;
+    s_state.action_feedback = STATUS_ACTION_FEEDBACK_NONE;
+    s_state.action_feedback_until_us = 0;
     s_session_counter += 10;
     s_state.grouped_session = s_session_counter;
     s_state.presentation = (status_presentation_t){0};
@@ -45,6 +55,20 @@ static void present(int generation, int id, int urgency, int duration_ms)
         .urgency = urgency, .active = true, .persistent = duration_ms < 0,
         .deadline_us = s_now_us + (int64_t)duration_ms * 1000};
     ui_deck_tick(STATE_DIRTY_NOTIF);
+}
+
+static void set_open(int id, int revision, bool ready)
+{
+    for (int i = 0; i < s_state.notif_count; i++) {
+        if (s_state.notifs[i].id == id) {
+            s_state.notifs[i].open_revision = revision;
+            s_state.notifs[i].open_ready = ready;
+            ui_deck_tick(STATE_DIRTY_NOTIF);
+            repaint();
+            return;
+        }
+    }
+    assert(false);
 }
 
 static void navigation_and_geometry(void)
@@ -84,6 +108,7 @@ static void leases_and_manual(void)
     assert(!s_group_home && s_group_auto);
     step(1001);
     assert(s_group_home && s_state.notif_count == 3);
+    group_finish();
     group_swipe(450, 90, -130, 0);
     assert(!s_group_home && s_group_manual && !s_group_auto);
     present(2, 2, 1, 5000);
@@ -253,6 +278,142 @@ static void counts_controls_and_text(void)
     assert(lv_obj_has_flag(s_group_empty, LV_OBJ_FLAG_HIDDEN));
 }
 
+static void action_controls_and_capture(void)
+{
+    int two[] = {2, 1};
+    groups_reset(two, 2);
+    s_state.actions_enabled = true;
+    set_open(2, 5, true);
+    snprintf(s_notifs[1].summary, sizeof(s_notifs[1].summary),
+             "%s", "A very long English notification title with CJK 東京 → ✓");
+    present(1, 2, 1, -1);
+    assert(!s_group_home && s_group_auto);
+    assert(!lv_obj_has_flag(s_cards[1].open, LV_OBJ_FLAG_HIDDEN));
+    assert(lv_obj_get_x(s_cards[1].open) == 328);
+    assert(lv_obj_get_y(s_cards[1].open) == 0);
+    assert(lv_obj_get_width(s_cards[1].open) == 64);
+    assert(lv_obj_get_height(s_cards[1].open) == 48);
+    assert(lv_obj_get_x(s_cards[1].dismiss) == 400);
+    assert(lv_obj_get_width(s_cards[1].dismiss) == 64);
+    assert(lv_obj_get_height(s_cards[1].dismiss) == 48);
+    assert(lv_obj_get_width(s_cards[1].title) == 304);
+    assert(lv_obj_get_width(s_cards[1].body) == 440);
+    assert(lv_obj_get_height(s_cards[1].title) == 28);
+    assert(lv_label_get_long_mode(s_cards[1].title) == LV_LABEL_LONG_MODE_CLIP);
+    assert(strstr(label_storage(s_cards[1].title), "...") != NULL);
+    assert(strncmp(label_storage(s_cards[1].body), "body-", 5) == 0);
+    assert(strcmp(lv_label_get_text(s_cards[1].open_label), "Open") == 0);
+    assert(lv_obj_has_flag(s_cards[0].open, LV_OBJ_FLAG_HIDDEN));
+    assert(lv_obj_has_flag(s_cards[0].dismiss, LV_OBJ_FLAG_HIDDEN));
+    assert(lv_obj_get_width(s_cards[0].title) == 440);
+    assert(capture_frame("actions-ready-long-english-cjk"));
+    snprintf(s_notifs[1].summary, sizeof(s_notifs[1].summary), "%s",
+             "東京で通知を確認するための長い見出し → ✓");
+    ui_deck_tick(STATE_DIRTY_NOTIF);
+    repaint();
+    assert(capture_frame("actions-ready-cjk"));
+    snprintf(s_notifs[1].summary, sizeof(s_notifs[1].summary),
+             "%s", "A very long English notification title with CJK 東京 → ✓");
+    ui_deck_tick(STATE_DIRTY_NOTIF);
+    repaint();
+
+    const int activations = s_activate_count;
+    const int body_dismissals = s_dismiss_count;
+    pointer_press(350, 100); pointer_release(350, 100);
+    assert(s_activate_count == activations && current_id() == 2);
+    assert(s_group_auto && s_dismiss_count == body_dismissals);
+    pointer_press(528, 44); pointer_release(528, 44);
+    assert(s_activate_count == activations + 1);
+    assert(s_last_activate_id == 2 && s_last_activate_revision == 5);
+    assert(s_group_manual && !s_group_auto);
+    assert(s_state.action_pending && s_state.action_pending_id == 2);
+    assert(strcmp(lv_label_get_text(s_cards[1].open_label), "…") == 0);
+    assert(capture_frame("actions-pending"));
+    const int pending_id = current_id();
+    pointer_press(528, 44); pointer_release(528, 44);
+    assert(s_activate_count == activations + 1 && current_id() == pending_id);
+    assert(s_state.action_pending);
+    s_state.action_pending = false;
+    s_state.action_pending_id = 0;
+    s_state.action_pending_open_rev = 0;
+    s_state.action_pending_request = 0;
+    s_group_manual = true;
+    set_open(2, 6, false);
+    assert(!lv_obj_has_flag(s_cards[1].open, LV_OBJ_FLAG_HIDDEN));
+    assert(lv_obj_get_width(s_cards[1].title) == 304);
+    assert(strcmp(lv_label_get_text(s_cards[1].open_label), "Open") == 0);
+    assert(capture_frame("actions-disabled"));
+    const int before_disabled = s_activate_count;
+    pointer_press(528, 44); pointer_release(528, 44);
+    assert(s_activate_count == before_disabled);
+    assert(s_group_manual);
+
+    set_open(2, 7, true);
+    const int before_edges = s_activate_count;
+    pointer_press(496, 20); pointer_release(496, 20);
+    assert(s_activate_count == before_edges + 1);
+    s_state.action_pending = false;
+    pointer_press(559, 67); pointer_release(559, 67);
+    assert(s_activate_count == before_edges + 2);
+    s_state.action_pending = false;
+
+    /* The 8 px control gap and neighboring preview never acquire actions. */
+    const int before_gap = s_activate_count;
+    const int current = current_id();
+    pointer_press(564, 44); pointer_release(564, 44);
+    assert(s_activate_count == before_gap && current_id() == current);
+    assert(!s_group_home);
+
+    /* A button drag cancels, even when it crosses into × or returns. */
+    pointer_press(528, 44); pointer_move(576, 44, 100);
+    pointer_move(528, 44, 100); pointer_release(528, 44);
+    assert(s_activate_count == before_gap);
+    const int dismisses = s_dismiss_count;
+    pointer_press(528, 44); pointer_move(510, 44, 100);
+    pointer_release(528, 44);
+    assert(s_activate_count == before_gap && s_dismiss_count == dismisses);
+    pointer_press(528, 44); pointer_move(528, 60, 100);
+    pointer_release(528, 60);
+    assert(s_activate_count == before_gap);
+    pointer_press(528, 44);
+    grouped_cancel(); /* The production INDEV_RESET and PRESS_LOST path. */
+    pointer_release(528, 44);
+    assert(s_activate_count == before_gap && s_dismiss_count == dismisses);
+
+    /* Revision change and removal while held cancel permanently. */
+    pointer_press(528, 44);
+    set_open(2, 8, true);
+    pointer_release(528, 44);
+    assert(s_activate_count == before_gap);
+    pointer_press(528, 44);
+    int only_one[] = {1};
+    set_raw_order(only_one, 1);
+    ui_deck_tick(STATE_DIRTY_NOTIF);
+    pointer_release(528, 44);
+    assert(s_activate_count == before_gap);
+
+    /* Body-start movement ending on Open remains ordinary swipe ownership. */
+    groups_reset(two, 2);
+    s_state.actions_enabled = true;
+    set_open(2, 1, true);
+    present(1, 2, 1, -1);
+    const int before_body_drag = s_activate_count;
+    pointer_press(350, 100);
+    pointer_move(528, 44, 100);
+    pointer_release(528, 44);
+    group_finish();
+    assert(s_activate_count == before_body_drag);
+
+    /* Older peers keep the accepted 376 px header and hide Open entirely. */
+    groups_reset(two, 2);
+    present(1, 2, 1, -1);
+    assert(lv_obj_has_flag(s_cards[1].open, LV_OBJ_FLAG_HIDDEN));
+    assert(lv_obj_get_width(s_cards[1].title) == 376);
+    assert(lv_obj_get_width(s_cards[1].body) == 440);
+    assert(lv_obj_get_x(s_cards[1].dismiss) == 400);
+    assert(capture_frame("actions-legacy-baseline"));
+}
+
 int main(int argc, char **argv)
 {
     s_artifact_dir = argc > 2 && strcmp(argv[1], "--artifacts") == 0
@@ -267,6 +428,7 @@ int main(int argc, char **argv)
     leases_and_manual();
     held_updates_and_removal();
     counts_controls_and_text();
+    action_controls_and_capture();
     fixture_shutdown();
     fclose(s_trace_file);
     puts("grouped production LVGL: passed");

@@ -1,0 +1,11 @@
+{
+  "id": "status349NotificationActions",
+  "name": "349 Notification Actions",
+  "description": "Bounded Quickshell bridge for a live notification's default action",
+  "version": "0.1.0",
+  "author": "349-status",
+  "type": "daemon",
+  "capabilities": ["notification-actions"],
+  "component": "./NotificationActionsDaemon.qml",
+  "requires_dms": ">=1.6.0"
+}

@@ -1,5 +1,6 @@
 #include "state.h"
 
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -25,7 +26,7 @@ static struct {
     int next_index;
     int overflow;
     int grouped_session;
-    bool grouped;
+    bool grouped, actions_enabled;
     int64_t started_us;
     bool active;
 } s_stage;
@@ -151,6 +152,44 @@ static bool parse_notif(const cJSON *obj, status_notif_t *notif)
     const cJSON *urgency = cJSON_GetObjectItemCaseSensitive(obj, "urgency");
     notif->urgency = cJSON_IsNumber(urgency) ? urgency->valueint : 1;
     return true;
+}
+
+static bool parse_action_open(const cJSON *obj, status_notif_t *notif)
+{
+    const cJSON *open = cJSON_GetObjectItemCaseSensitive(obj, "open");
+    if (!cJSON_IsObject(open) || cJSON_GetArraySize(open) != 2) return false;
+    const cJSON *revision = cJSON_GetObjectItemCaseSensitive(open, "rev");
+    const cJSON *state = cJSON_GetObjectItemCaseSensitive(open, "state");
+    if (
+        !cJSON_IsNumber(revision) || revision->valuedouble != (double)revision->valueint ||
+        revision->valueint < 1 || revision->valueint > INT32_MAX ||
+        !cJSON_IsString(state) ||
+        (strcmp(state->valuestring, "ready") != 0 &&
+         strcmp(state->valuestring, "unavailable") != 0)) {
+        return false;
+    }
+    notif->open_revision = revision->valueint;
+    notif->open_ready = strcmp(state->valuestring, "ready") == 0;
+    return true;
+}
+
+static void clear_action_runtime_locked(bool clear_cooldown)
+{
+    s_state.action_pending = false;
+    s_state.action_pending_session = 0;
+    s_state.action_pending_boot_id = 0;
+    s_state.action_pending_id = 0;
+    s_state.action_pending_open_rev = 0;
+    s_state.action_pending_request = 0;
+    s_state.action_pending_deadline_us = 0;
+    s_state.action_blocked = false;
+    s_state.action_blocked_id = 0;
+    s_state.action_blocked_open_rev = 0;
+    s_state.action_feedback = STATUS_ACTION_FEEDBACK_NONE;
+    s_state.action_feedback_id = 0;
+    s_state.action_feedback_open_rev = 0;
+    s_state.action_feedback_until_us = 0;
+    if (clear_cooldown) s_state.action_cooldown_until_us = 0;
 }
 
 static void clear_presentation_locked(void)
@@ -368,20 +407,31 @@ static void apply_notify(const cJSON *obj, bool unhide)
             state_unlock();
             return;
         }
+        if (s_state.actions_enabled && !parse_action_open(obj, &parsed)) {
+            state_unlock();
+            return;
+        }
 
+        int slot = -1;
+        for (int i = 0; i < s_state.notif_count; i++) {
+            if (s_state.notifs[i].id == nid) {
+                slot = i;
+                break;
+            }
+        }
+        if (s_state.actions_enabled && slot >= 0 &&
+            (parsed.open_revision < s_state.notifs[slot].open_revision ||
+             (parsed.open_revision == s_state.notifs[slot].open_revision &&
+              parsed.open_ready != s_state.notifs[slot].open_ready))) {
+            state_unlock();
+            return;
+        }
         /* A same-ID replacement becomes newest and clears a local hide. */
         for (int i = 0; i < s_state.hidden_count; i++) {
             if (s_state.hidden_ids[i] == nid) {
                 memmove(&s_state.hidden_ids[i], &s_state.hidden_ids[i + 1],
                         sizeof(s_state.hidden_ids[0]) * (size_t)(s_state.hidden_count - i - 1));
                 s_state.hidden_count--;
-                break;
-            }
-        }
-        int slot = -1;
-        for (int i = 0; i < s_state.notif_count; i++) {
-            if (s_state.notifs[i].id == nid) {
-                slot = i;
                 break;
             }
         }
@@ -393,12 +443,25 @@ static void apply_notify(const cJSON *obj, bool unhide)
                 s_state.presentation.deadline_us = esp_timer_get_time();
             }
             update_grouped_overflow_locked(has_total, total_value);
+            if (s_state.action_feedback_id == nid) {
+                s_state.action_feedback = STATUS_ACTION_FEEDBACK_NONE;
+                s_state.action_feedback_id = 0;
+                s_state.action_feedback_open_rev = 0;
+                s_state.action_feedback_until_us = 0;
+            }
             s_dirty |= STATE_DIRTY_NOTIF;
             state_unlock();
             return;
         }
 
         if (slot >= 0) {
+            if (s_state.action_feedback_id == nid &&
+                s_state.action_feedback_open_rev != parsed.open_revision) {
+                s_state.action_feedback = STATUS_ACTION_FEEDBACK_NONE;
+                s_state.action_feedback_id = 0;
+                s_state.action_feedback_open_rev = 0;
+                s_state.action_feedback_until_us = 0;
+            }
             remove_notif_locked(slot);
         }
         if (s_state.cache_limit > 0) {
@@ -406,6 +469,10 @@ static void apply_notify(const cJSON *obj, bool unhide)
                 remove_notif_locked(0);
             }
             s_state.notifs[s_state.notif_count++] = parsed;
+        }
+        if (s_state.action_blocked && s_state.action_blocked_id == nid &&
+            parsed.open_revision > s_state.action_blocked_open_rev) {
+            s_state.action_blocked = false;
         }
         if (!cached_visible_locked(s_state.presentation.id) && s_state.presentation.active) {
             s_state.presentation.active = false;
@@ -658,6 +725,8 @@ void state_apply_sync(const cJSON *obj)
     state_lock();
     s_state.grouped_enabled = false;
     s_state.grouped_session = 0;
+    s_state.actions_enabled = false;
+    clear_action_runtime_locked(false);
     clear_presentation_locked();
     s_state.cache_limit = STATUS_LEGACY_NOTIFS;
     s_state.notif_count = 0;
@@ -703,6 +772,228 @@ static bool int_field(const cJSON *obj, const char *name, int min, int max, int 
     return true;
 }
 
+static status_notif_t *find_notif_locked(int id)
+{
+    for (int i = 0; i < s_state.notif_count; i++) {
+        if (s_state.notifs[i].id == id) return &s_state.notifs[i];
+    }
+    return NULL;
+}
+
+static bool action_feedback_card_locked(int id, int open_revision)
+{
+    const status_notif_t *notif = find_notif_locked(id);
+    return notif != NULL && notif->open_revision == open_revision &&
+           cached_visible_locked(id);
+}
+
+static void action_terminal_locked(int id, int open_revision,
+                                   status_action_feedback_t feedback,
+                                   int64_t now_us)
+{
+    s_state.action_cooldown_until_us = now_us + 500000;
+    if (feedback != STATUS_ACTION_FEEDBACK_SENT) {
+        s_state.action_blocked = true;
+        s_state.action_blocked_id = id;
+        s_state.action_blocked_open_rev = open_revision;
+    }
+    if (action_feedback_card_locked(id, open_revision)) {
+        s_state.action_feedback = feedback;
+        s_state.action_feedback_id = id;
+        s_state.action_feedback_open_rev = open_revision;
+        s_state.action_feedback_until_us = now_us + 2000000;
+    } else {
+        s_state.action_feedback = STATUS_ACTION_FEEDBACK_NONE;
+        s_state.action_feedback_id = 0;
+        s_state.action_feedback_open_rev = 0;
+        s_state.action_feedback_until_us = 0;
+    }
+    s_dirty |= STATE_DIRTY_NOTIF;
+}
+
+bool state_action_open_enabled(const status_state_t *state,
+                               const status_notif_t *notif, int64_t now_us)
+{
+    return state != NULL && notif != NULL && state->actions_enabled &&
+           state->grouped_enabled && state->grouped_session > 0 &&
+           notif->valid && notif->id > 0 && notif->open_ready &&
+           notif->open_revision > 0 && !state->action_pending &&
+           !state->action_request_exhausted &&
+           now_us >= state->action_cooldown_until_us &&
+           !(state->action_blocked && state->action_blocked_id == notif->id &&
+             state->action_blocked_open_rev == notif->open_revision);
+}
+
+bool state_action_begin(uint32_t boot_id, int id, int open_revision,
+                        int64_t now_us, int *session, int *request)
+{
+    bool accepted = false;
+    if (boot_id == 0 || id < 1 || id > INT32_MAX ||
+        open_revision < 1 || open_revision > INT32_MAX ||
+        session == NULL || request == NULL) {
+        return false;
+    }
+    state_lock();
+    status_state_t *st = &s_state;
+    status_notif_t *notif = find_notif_locked(id);
+    if (notif != NULL && cached_visible_locked(id) &&
+        state_action_open_enabled(st, notif, now_us)) {
+        if (st->action_next_request >= INT32_MAX) {
+            st->action_request_exhausted = true;
+        } else if (notif->open_revision == open_revision) {
+            st->action_next_request++;
+            st->action_pending = true;
+            st->action_pending_session = st->grouped_session;
+            st->action_pending_boot_id = boot_id;
+            st->action_pending_id = id;
+            st->action_pending_open_rev = open_revision;
+            st->action_pending_request = st->action_next_request;
+            st->action_pending_deadline_us = now_us + 3000000;
+            st->action_feedback = STATUS_ACTION_FEEDBACK_NONE;
+            st->action_feedback_until_us = 0;
+            *session = st->action_pending_session;
+            *request = st->action_pending_request;
+            s_dirty |= STATE_DIRTY_NOTIF;
+            accepted = true;
+        }
+    }
+    state_unlock();
+    return accepted;
+}
+
+bool state_apply_card_action(const cJSON *obj)
+{
+    int session = 0, id = 0;
+    status_notif_t parsed = {0};
+    if (!cJSON_IsObject(obj) ||
+        !int_field(obj, "session", 1, INT32_MAX, &session) ||
+        !int_field(obj, "id", 1, INT32_MAX, &id) ||
+        !parse_action_open(obj, &parsed)) {
+        return false;
+    }
+
+    state_lock();
+    status_notif_t *notif = find_notif_locked(id);
+    if (!s_state.grouped_enabled || !s_state.actions_enabled ||
+        session != s_state.grouped_session || notif == NULL ||
+        parsed.open_revision < notif->open_revision ||
+        (parsed.open_revision == notif->open_revision &&
+         parsed.open_ready != notif->open_ready)) {
+        state_unlock();
+        return false;
+    }
+    if (parsed.open_revision != notif->open_revision ||
+        parsed.open_ready != notif->open_ready) {
+        notif->open_revision = parsed.open_revision;
+        notif->open_ready = parsed.open_ready;
+        if (s_state.action_blocked && s_state.action_blocked_id == id &&
+            parsed.open_revision > s_state.action_blocked_open_rev) {
+            s_state.action_blocked = false;
+        }
+        s_dirty |= STATE_DIRTY_NOTIF;
+    }
+    state_unlock();
+    return true;
+}
+
+bool state_apply_action_result(const cJSON *obj, uint32_t boot_id)
+{
+    int session = 0, id = 0, open_revision = 0, request = 0;
+    uint32_t result_boot = 0;
+    const cJSON *boot = cJSON_GetObjectItemCaseSensitive(obj, "boot_id");
+    const cJSON *status = cJSON_GetObjectItemCaseSensitive(obj, "status");
+    if (!cJSON_IsObject(obj) ||
+        !int_field(obj, "session", 1, INT32_MAX, &session) ||
+        !cJSON_IsNumber(boot) || !isfinite(boot->valuedouble) ||
+        boot->valuedouble < 1 ||
+        boot->valuedouble > UINT32_MAX ||
+        trunc(boot->valuedouble) != boot->valuedouble ||
+        !int_field(obj, "id", 1, INT32_MAX, &id) ||
+        !int_field(obj, "open_rev", 1, INT32_MAX, &open_revision) ||
+        !int_field(obj, "request", 1, INT32_MAX, &request) ||
+        !cJSON_IsString(status) ||
+        (strcmp(status->valuestring, "dispatched") != 0 &&
+         strcmp(status->valuestring, "unavailable") != 0 &&
+         strcmp(status->valuestring, "stale") != 0 &&
+         strcmp(status->valuestring, "failed") != 0 &&
+         strcmp(status->valuestring, "unknown") != 0)) {
+        return false;
+    }
+    result_boot = (uint32_t)boot->valuedouble;
+
+    state_lock();
+    status_state_t *st = &s_state;
+    const bool matches = boot_id != 0 && result_boot == boot_id &&
+        st->actions_enabled && st->grouped_enabled && st->action_pending &&
+        session == st->grouped_session && session == st->action_pending_session &&
+        result_boot == st->action_pending_boot_id &&
+        id == st->action_pending_id && open_revision == st->action_pending_open_rev &&
+        request == st->action_pending_request;
+    if (!matches) {
+        state_unlock();
+        return false;
+    }
+
+    status_action_feedback_t feedback = STATUS_ACTION_FEEDBACK_TRY_AGAIN;
+    if (strcmp(status->valuestring, "dispatched") == 0) {
+        feedback = STATUS_ACTION_FEEDBACK_SENT;
+    } else if (strcmp(status->valuestring, "unavailable") == 0) {
+        feedback = STATUS_ACTION_FEEDBACK_UNAVAILABLE;
+    } else if (strcmp(status->valuestring, "unknown") == 0) {
+        feedback = STATUS_ACTION_FEEDBACK_NO_CONFIRMATION;
+    }
+    st->action_pending = false;
+    st->action_pending_deadline_us = 0;
+    action_terminal_locked(id, open_revision, feedback, esp_timer_get_time());
+    state_unlock();
+    return true;
+}
+
+void state_action_tick(int64_t now_us)
+{
+    state_lock();
+    if (s_state.action_pending && now_us >= s_state.action_pending_deadline_us) {
+        const int id = s_state.action_pending_id;
+        const int open_revision = s_state.action_pending_open_rev;
+        s_state.action_pending = false;
+        s_state.action_pending_deadline_us = 0;
+        action_terminal_locked(id, open_revision,
+                               STATUS_ACTION_FEEDBACK_NO_CONFIRMATION, now_us);
+    }
+    if (s_state.action_feedback != STATUS_ACTION_FEEDBACK_NONE &&
+        now_us >= s_state.action_feedback_until_us) {
+        s_state.action_feedback = STATUS_ACTION_FEEDBACK_NONE;
+        s_state.action_feedback_id = 0;
+        s_state.action_feedback_open_rev = 0;
+        s_state.action_feedback_until_us = 0;
+        s_dirty |= STATE_DIRTY_NOTIF;
+    }
+    state_unlock();
+}
+
+void state_action_disconnect(void)
+{
+    state_lock();
+    if (s_state.action_pending) {
+        s_state.action_blocked = true;
+        s_state.action_blocked_id = s_state.action_pending_id;
+        s_state.action_blocked_open_rev = s_state.action_pending_open_rev;
+        s_state.action_pending = false;
+        s_state.action_pending_session = 0;
+        s_state.action_pending_boot_id = 0;
+        s_state.action_pending_id = 0;
+        s_state.action_pending_open_rev = 0;
+        s_state.action_pending_request = 0;
+        s_state.action_pending_deadline_us = 0;
+        s_state.action_feedback = STATUS_ACTION_FEEDBACK_NONE;
+        s_state.action_feedback_id = 0;
+        s_state.action_feedback_open_rev = 0;
+        s_state.action_feedback_until_us = 0;
+        s_dirty |= STATE_DIRTY_NOTIF;
+    }
+    state_unlock();
+}
+
 int state_card_sync_capacity(void)
 {
     return s_stage.cards != NULL ? STATUS_MAX_NOTIFS : 0;
@@ -733,7 +1024,9 @@ bool state_sync_begin(const cJSON *obj)
     const cJSON *bar = cJSON_GetObjectItemCaseSensitive(obj, "bar");
     const cJSON *grouped = cJSON_GetObjectItemCaseSensitive(obj, "grouped");
     const cJSON *dashboard = cJSON_GetObjectItemCaseSensitive(obj, "dashboard");
+    const cJSON *actions = cJSON_GetObjectItemCaseSensitive(obj, "actions");
     bool grouped_enabled = false;
+    bool actions_enabled = false;
     int grouped_session = 0;
     if (grouped != NULL) {
         if (!cJSON_IsObject(grouped) || cJSON_GetArraySize(grouped) != 1 ||
@@ -742,6 +1035,15 @@ bool state_sync_begin(const cJSON *obj)
             return false;
         }
         grouped_enabled = true;
+    }
+    if (actions != NULL) {
+        if (!grouped_enabled || !cJSON_IsObject(actions) ||
+            cJSON_GetArraySize(actions) != 1) {
+            return false;
+        }
+        const cJSON *enabled = cJSON_GetObjectItemCaseSensitive(actions, "enabled");
+        if (!cJSON_IsTrue(enabled)) return false;
+        actions_enabled = true;
     }
     if (s_stage.cards == NULL || s_stage.active
             || !int_field(obj, "tx", 0, INT32_MAX, &tx)
@@ -771,6 +1073,7 @@ bool state_sync_begin(const cJSON *obj)
     s_stage.overflow = overflow;
     s_stage.grouped = grouped_enabled;
     s_stage.grouped_session = grouped_session;
+    s_stage.actions_enabled = actions_enabled;
     s_stage.started_us = esp_timer_get_time();
     s_stage.active = true;
     return true;
@@ -793,6 +1096,9 @@ bool state_sync_cards(const cJSON *obj)
         const cJSON *item = cJSON_GetArrayItem(notifs, index);
         status_notif_t parsed;
         if (!parse_notif(item, &parsed)) {
+            return false;
+        }
+        if (s_stage.actions_enabled && !parse_action_open(item, &parsed)) {
             return false;
         }
         if (s_stage.grouped &&
@@ -824,6 +1130,21 @@ bool state_sync_commit(const cJSON *obj, int64_t *epoch, int *offset, bool *has_
     const bool new_group_session = s_stage.grouped &&
         (!s_state.grouped_enabled || s_state.grouped_session != s_stage.grouped_session);
     const bool leaving_grouped = !s_stage.grouped && s_state.grouped_enabled;
+    const bool same_action_session = !new_group_session && s_state.actions_enabled &&
+        s_stage.actions_enabled && s_state.grouped_enabled && s_stage.grouped &&
+        s_state.grouped_session == s_stage.grouped_session;
+    if (same_action_session) {
+        for (int i = 0; i < s_stage.count; i++) {
+            const status_notif_t *current = find_notif_locked(s_stage.cards[i].id);
+            if (current != NULL &&
+                (s_stage.cards[i].open_revision < current->open_revision ||
+                 (s_stage.cards[i].open_revision == current->open_revision &&
+                  s_stage.cards[i].open_ready != current->open_ready))) {
+                state_unlock();
+                return false;
+            }
+        }
+    }
     if (new_group_session) {
         s_state.hidden_count = 0;
         clear_presentation_locked();
@@ -833,8 +1154,12 @@ bool state_sync_commit(const cJSON *obj, int64_t *epoch, int *offset, bool *has_
     } else if (leaving_grouped) {
         clear_presentation_locked();
     }
+    if (new_group_session || !s_stage.actions_enabled) {
+        clear_action_runtime_locked(false);
+    }
     s_state.grouped_enabled = s_stage.grouped;
     s_state.grouped_session = s_stage.grouped ? s_stage.grouped_session : 0;
+    s_state.actions_enabled = s_stage.actions_enabled;
 
     if (!s_stage.grouped) {
         /* Legacy reconnects may introduce arrivals missed while the link was
@@ -889,6 +1214,20 @@ bool state_sync_commit(const cJSON *obj, int64_t *epoch, int *offset, bool *has_
             }
         }
         s_state.hidden_count = retained;
+    }
+    if (s_state.action_blocked) {
+        const status_notif_t *current = find_notif_locked(s_state.action_blocked_id);
+        if (current == NULL || current->open_revision > s_state.action_blocked_open_rev) {
+            s_state.action_blocked = false;
+        }
+    }
+    if (s_state.action_feedback != STATUS_ACTION_FEEDBACK_NONE &&
+        !action_feedback_card_locked(s_state.action_feedback_id,
+                                     s_state.action_feedback_open_rev)) {
+        s_state.action_feedback = STATUS_ACTION_FEEDBACK_NONE;
+        s_state.action_feedback_id = 0;
+        s_state.action_feedback_open_rev = 0;
+        s_state.action_feedback_until_us = 0;
     }
     if (s_state.grouped_enabled && s_state.presentation.active &&
         !cached_visible_locked(s_state.presentation.id)) {

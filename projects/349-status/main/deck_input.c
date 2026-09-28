@@ -258,13 +258,15 @@ int deck_input_move(deck_input_t *input, int x, int y, int64_t now_us)
     if (input->state == DECK_INPUT_PRESSED ||
         input->state == DECK_INPUT_DRAGGING ||
         input->state == DECK_INPUT_BUTTON_DISMISS ||
+        input->state == DECK_INPUT_BUTTON_OPEN ||
         input->state == DECK_INPUT_BUTTON_PEEK) {
         record_motion(input, x, y, now_us);
     }
     input->last_x = x;
     input->last_y = y;
 
-    if (input->state == DECK_INPUT_BUTTON_DISMISS) {
+    if (input->state == DECK_INPUT_BUTTON_DISMISS ||
+        input->state == DECK_INPUT_BUTTON_OPEN) {
         if (motion_reached(input, DECK_INPUT_SLOP_PX)) {
             input->state = DECK_INPUT_IGNORED;
         }
@@ -308,6 +310,15 @@ deck_input_action_t deck_input_release(deck_input_t *input, int64_t now_us)
     if (input->state == DECK_INPUT_BUTTON_DISMISS) {
         const deck_input_action_t action = input->has_source
             ? make_action(DECK_INPUT_ACTION_DISMISS, true, input->source_id,
+                          false, 0, input->generation)
+            : no_action();
+        input->state = DECK_INPUT_IDLE;
+        clear_capture(input);
+        return action;
+    }
+    if (input->state == DECK_INPUT_BUTTON_OPEN) {
+        const deck_input_action_t action = input->has_source
+            ? make_action(DECK_INPUT_ACTION_OPEN, true, input->source_id,
                           false, 0, input->generation)
             : no_action();
         input->state = DECK_INPUT_IDLE;

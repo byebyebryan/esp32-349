@@ -301,6 +301,36 @@ def test_grouped_dismiss_accepts_stale_generation_and_replacement_can_reintroduc
     asyncio.run(scenario())
 
 
+def test_manual_notifications_returns_home_when_last_card_is_removed():
+    async def scenario(removal):
+        daemon, writer = _grouped_daemon()
+        await daemon._device_notify(proto.notify(1, "app", "first", "body", 1, -1, 1))
+        await daemon._handle_input(
+            {"t": "input", "action": "browse", "session": 123, "generation": 0,
+             "group": "notifications"}
+        )
+        assert daemon._manual_notifications
+
+        if removal == "dismiss":
+            await daemon._handle_input(
+                {"t": "input", "action": "dismiss", "session": 123, "generation": 0, "id": 1}
+            )
+        else:
+            await daemon._device_close(1)
+        assert not daemon.model.retained_notifs
+        assert daemon._grouped_group == "home"
+        assert not daemon._manual_notifications
+
+        await daemon._device_notify(proto.notify(2, "app", "next", "body", 1, -1, 2))
+        assert daemon._pending_present_id == 2
+        async with daemon._state_lock:
+            await daemon._publish_pending_presentation_locked(time.monotonic() + 1)
+        assert next(frame for frame in reversed(writer.frames) if frame["t"] == "present")["id"] == 2
+
+    asyncio.run(scenario("dismiss"))
+    asyncio.run(scenario("desktop-close"))
+
+
 def test_ipc_status_exposes_grouped_presentation_metadata_without_card_text():
     daemon, _writer = _grouped_daemon()
     daemon.model.retain_notification(proto.notify(9, "private app", "private title", "private body", 1, -1, 1))
