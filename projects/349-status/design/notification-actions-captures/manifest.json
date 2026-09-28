@@ -1,0 +1,14 @@
+{
+  "kind": "native LVGL captures with production fonts and controlled data; not board photographs",
+  "size": [
+    640,
+    172
+  ],
+  "debug_release_pixels_equal": true,
+  "sha256": {
+    "actions-disabled.png": "342fa49defcde635ed445812a15a6a22468df5253f13aa29698930d9cd5cd5f9",
+    "actions-pending.png": "f0b5a10190a01697d71d1520bf9a03738dee20d9bd1791fe03157e31f673472c",
+    "actions-ready-cjk.png": "1630dc4d880b6f3cba74c84a89473051216bcfe8316ef69a7f084d5c09089c93",
+    "actions-ready-long-english-cjk.png": "7c13f235e09b865f7673320373afdc8c7a1b1c09883ece5e9df23ad5e1c3bf59"
+  }
+}

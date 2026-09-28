@@ -1,0 +1,11 @@
+{
+  "source": "Production LVGL, native fixture; not board photographs",
+  "transition_ms": 180,
+  "source_sample_interval_ms": 15,
+  "preview_sample_interval_ms": 60,
+  "files": {
+    "lifecycle-dismiss.gif": "49dcfe26edbe6e295a0a95ba9c10c145626e9f48e4ecac1f48ad0b2b825c39b9",
+    "lifecycle-last-dismiss.gif": "39eb0fb303641c0fa588c6aa03cfd19cc8fcd16ffa8a629f5f6af137977165ac",
+    "lifecycle-arrival.gif": "d5dc64b0573f1ea356c3a783ebb136467f97c036a92fa3bd568f310522a32823"
+  }
+}

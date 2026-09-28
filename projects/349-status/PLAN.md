@@ -45,9 +45,9 @@ that were exercised.
 | M4 media | Dropped from v1; protocol/rendering hooks remain dormant |
 | V1 acceptance | The first board passed static-bar, touch/notification, and replug checks. Snap's second board has a separate bring-up smoke check in `ACCEPTANCE.md`, not the full short-gate run. The user deferred the optional 24-hour soak after a 252 s attempt; no long-duration stability claim is made. The first installation assumes USB power is removed during host sleep; actual host suspend/wake is unverified. |
 | Active-card cache | Implemented with capability-gated chunked sync, up to 32 cached cards, overflow/refill, and legacy compatibility. Snap cache/recovery checks are recorded in `ACCEPTANCE.md`. |
-| UI redesign | The [UI implementation checkpoint](design/ui-deck-plan.md) adds a quarter-width telemetry rail, large idle clock/date, and a foreground notification with local side-peek navigation. Starship's short visual/touch/count gates passed; see `ACCEPTANCE.md`. The original accepted image predates the final touch-race fix; the following refinement includes it. Snap has not received this UI. |
-| UI refinement | The [drag-and-snap deck](design/swipe-deck-plan.md) implements horizontal finger-following navigation with one-card snaps, previous/next browsing, peek-tap fallback, and arrival/removal rules during touch. Native policy and actual LVGL pointer checks, firmware build, font audit, and 118 host tests pass. Starship's short physical gates passed at the measured 16–20 updates/s, which the user found responsive enough; the initial 25 updates/s target was not reached. Exact build/trial scope is in `ACCEPTANCE.md`. Vertical text scrolling remains a later step; Snap has not received this refinement. |
-| Grouped UI | Home/Notifications group navigation and retained notification history are implemented with capability-gated legacy fallback. Host, native LVGL, composed parser/state, serial and short physical Starship gates passed on `be39d5e49`; see [grouped acceptance](design/grouped-ui-acceptance.md). Snap has not received this UI. Whole cards navigate vertically; body text does not scroll. |
+| UI redesign | The [UI implementation checkpoint](design/ui-deck-plan.md) adds a quarter-width telemetry rail, large idle clock/date, and a foreground notification with local side-peek navigation. Starship's short visual/touch/count gates passed; see `ACCEPTANCE.md`. The original accepted image predates the final touch-race fix; the following refinement includes it. Snap now runs the combined grouped/Open/motion candidate below. |
+| UI refinement | The [drag-and-snap deck](design/swipe-deck-plan.md) implements horizontal finger-following navigation with one-card snaps, previous/next browsing, peek-tap fallback, and arrival/removal rules during touch. Native policy and actual LVGL pointer checks, firmware build, font audit, and 118 host tests pass. Starship's short physical gates passed at the measured 16–20 updates/s, which the user found responsive enough; the initial 25 updates/s target was not reached. Exact build/trial scope is in `ACCEPTANCE.md`. Vertical text scrolling remains a later step. Snap now runs the combined candidate below; the historical performance run was on Starship. |
+| Grouped UI | Home/Notifications group navigation and retained notification history are implemented with capability-gated legacy fallback. Host, native LVGL, composed parser/state, serial and short physical Starship gates passed on `be39d5e49`; see [grouped acceptance](design/grouped-ui-acceptance.md). Snap's combined candidate and short browsing/Open/motion observations are in [Open acceptance](design/notification-actions-acceptance.md). Whole cards navigate vertically; body text does not scroll. |
 
 The September 23 generic-zone decisions above describe the prototype. The
 September 25 UI goal introduces capability-gated typed telemetry for the fixed
@@ -85,6 +85,28 @@ The acceptance run must record which host process and device firmware build
 were used. The device `hello.build` and `hello.build_sha` report its app
 descriptor version and an ELF hash prefix; a running service or the
 `fw=0.2.0` label alone does not identify the revision.
+
+### Accepted implementation — notification Open button (2026-09-28)
+
+Add a dedicated 64 × 48 px Open button beside the accepted × control;
+body taps stay inert and swipes retain navigation ownership. Invoke only a
+live desktop notification's explicit default action through a small DMS
+daemon plugin. Retained history can remain readable after its action expires.
+The [design and execution plan](design/notification-actions-plan.md) defines
+geometry, action lifetime, identity/response rules and automated acceptance.
+Prove the desktop bridge first, then add host/protocol and firmware/native
+controls, ending with one short touch and desktop-action check. On 2026-09-28,
+the user resumed the loop and moved its remaining rollout/acceptance to Snap.
+Implementation, automated acceptance and Starship/Snap rollout are complete;
+see the [acceptance record](design/notification-actions-acceptance.md).
+Snap's short physical controls/motion and real Ghostty default-action/focus
+checks passed on 2026-09-28. Focus uses the authorized local Niri compatibility
+setting, committed in Snap's chezmoi source as `92bd5cd`. Other apps and fleet adoption
+of that desktop policy are not claimed; see the acceptance boundary above.
+
+The [card-motion follow-up](design/card-motion.md) adds 180 ms arrivals,
+foreground dismissal and return-to-Home transitions before that final check.
+Native automated gates and Snap's short physical motion observation pass.
 
 ### On-device v1 acceptance loop
 

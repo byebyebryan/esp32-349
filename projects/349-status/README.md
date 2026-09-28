@@ -84,6 +84,7 @@ sync_interval_s = 60.0
 [notifications]
 mode = "mirror"            # mirror | off (consume is not implemented)
 device_dismiss = "local"   # local | propagate
+device_open = "off"        # off | dms; opt in after installing the DMS action plugin
 max_visible = 3                 # legacy firmware snapshot cap
 cache_limit = 32                # newest retained cards; active cards on older firmware
 popup_timeout_ms = 10000          # fallback when an app requests server default (-1)
@@ -174,6 +175,15 @@ replay, Starship serial and short physical gates on firmware `be39d5e49`;
 the enlarged close control passed a focused follow-up on `604fd70da`;
 see [acceptance evidence](design/grouped-ui-acceptance.md) and
 [the execution plan](design/grouped-ui-execution.md).
+
+The dedicated **Open** button beside × invokes a live desktop notification's
+default action. It requires a DMS bridge
+and is disabled by default; body taps remain inert. See the
+[notification action design and plan](design/notification-actions-plan.md).
+Snap's short Open/× and [card-motion](design/card-motion.md) checks passed.
+Real Ghostty default dispatch/focus passed on Snap with a local Niri compatibility
+setting; see the [acceptance record](design/notification-actions-acceptance.md)
+for desktop configuration and application-compatibility limits.
 
 The daemon sends a ping every four seconds even when the bar does not change.
 While the board stays powered, it shows `host asleep` when USB activity stops

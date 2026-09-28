@@ -8,7 +8,7 @@ Python, uv and RTK (used by the check script). Load the IDF environment or suppl
 python tools/check_native_ui.py --cjson-include "$IDF_PATH/components/json/cJSON"
 ```
 
-This builds Debug and Release with assertions enabled and runs eight CTests
+This builds Debug and Release with assertions enabled and runs nine CTests
 per configuration. Override `--debug-build-dir` and `--release-build-dir` to choose
 build/artifact directories. The default directories are
 `/tmp/349-native-ui-build` and `/tmp/349-native-ui-release`.
@@ -22,17 +22,24 @@ build/artifact directories. The default directories are
 | `native_protocol` | `proto.c`, `state.c`, dashboard parser and IDF cJSON | Native allocation, locks, clock/RTC, USB output and descriptor identity |
 | `native_ui_composed` | Real parser/state plus the same LVGL fixture | Native platform services and pointer/time adapter |
 | `host_composed` CTest | Real Python daemon/protocol → production parser/state → LVGL → daemon input | Controlled host clock and transport to `native_ui_composed` |
+| `host_actions_composed` CTest | Notification source → daemon/provider action request → production parser/state/LVGL → correlated host result | Controlled source/provider adapter and native transport; no desktop IPC |
 | `smoke_recorder` CTest | Isolated production host policy → parser/state/LVGL, actual × round trip, timed retention and fresh process recovery | Native transport; fake IPC checks finish/error/pause ownership cleanup |
 
 CTest also runs serialized replay and an SDL dummy-driver smoke. If uv is
-unavailable, `host_composed` and `smoke_recorder` are explicitly skipped; such a run does not satisfy
+unavailable, `host_composed`, `host_actions_composed` and `smoke_recorder` are explicitly skipped; such a run does not satisfy
 the composed acceptance gate. These programs do not test ESP32 scheduling,
 capacitive touch, RTC peripherals, DMA or panel performance.
 
 Captures are full-size 640 × 172 RGB PPM files under `artifacts/`. Tests retain
 traces there. Debug and Release legacy captures were compared byte-for-byte
 with the pre-change at-rest and mid-drag baseline. The grouped captures show
-production fonts and virtual data; they are not board photos.
+production fonts and virtual data; they are not board photos. Notification
+action captures cover the fixed foreground Open slot in ready, pending and
+disabled states, a long English title, a CJK title, and the legacy geometry.
+The grouped fixture also captures arrival, dismissal and last-card return
+to Home in 15 ms samples. It checks immediate cache removal, frozen outgoing
+geometry, inert touch during transitions and concurrent-update cancellation;
+see [the motion evidence](../../design/card-motion.md).
 
 ## Inspect the shared UI
 
@@ -52,6 +59,9 @@ without `--grouped`.
 uv run --project host --frozen python tools/test_grouped_composed.py \
   --native /tmp/349-native-ui-build/native_ui_composed \
   --artifacts /tmp/349-host-composed
+uv run --project host --frozen python tools/test_notification_actions_composed.py \
+  --native /tmp/349-native-ui-build/native_ui_composed \
+  --artifacts /tmp/349-host-actions-composed
 ```
 
 The direct replay JSON has explicit pointer/time/state/capture commands; its
