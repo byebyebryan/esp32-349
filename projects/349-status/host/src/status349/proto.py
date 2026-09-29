@@ -17,9 +17,12 @@ CARD_SYNC_CAPABILITY = "card-sync-v1"
 DASHBOARD_CAPABILITY = "dashboard-v1"
 GROUPED_UI_CAPABILITY = "grouped-ui-v1"
 NOTIFICATION_ACTIONS_CAPABILITY = "notification-actions-v1"
+NOTIFICATION_HISTORY_CAPABILITY = "notification-history-v1"
 CARD_CHUNK_MAX = 2048
 IDENTITY_MAX = 0x7FFFFFFF
 DASHBOARD_RATE_MAX_BPS = 1_000_000_000_000
+NOTIFICATION_BODY_HISTORY_BYTES = 511
+NOTIFICATION_BODY_LEGACY_BYTES = 159
 
 
 def display_text(value: str) -> str:
@@ -39,6 +42,18 @@ def display_text(value: str) -> str:
 def clip_utf8(value: str, max_bytes: int) -> str:
     """Fit a device string buffer without splitting a UTF-8 code point."""
     return value.encode("utf-8")[:max_bytes].decode("utf-8", "ignore")
+
+
+def clip_utf8_ellipsis(value: str, max_bytes: int) -> str:
+    """Fit a device string buffer and mark clipped text with a Unicode ellipsis."""
+    encoded = value.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return value
+    ellipsis = "…"
+    ellipsis_bytes = len(ellipsis.encode("utf-8"))
+    if max_bytes < ellipsis_bytes:
+        return clip_utf8(value, max_bytes)
+    return encoded[: max_bytes - ellipsis_bytes].decode("utf-8", "ignore") + ellipsis
 
 
 def encode(obj: dict) -> bytes:
@@ -98,6 +113,18 @@ def grouped_ui_capable(message: dict) -> bool:
         and dashboard_capable(message)
         and isinstance(capabilities, list)
         and GROUPED_UI_CAPABILITY in capabilities
+    )
+
+
+def notification_history_capable(message: dict) -> bool:
+    """History requires the complete grouped cache/dashboard capability set."""
+    capabilities = message.get("cap", [])
+    if isinstance(capabilities, str):
+        capabilities = [capabilities]
+    return (
+        grouped_ui_capable(message)
+        and isinstance(capabilities, list)
+        and NOTIFICATION_HISTORY_CAPABILITY in capabilities
     )
 
 
@@ -289,6 +316,11 @@ def card_status(message: dict) -> dict | None:
             "present_id": present_id,
             "remaining_ms": remaining_ms,
         }
+        if "history" in grouped:
+            history = grouped["history"]
+            if not isinstance(history, bool) or (history and not enabled):
+                return None
+            result["grouped"]["history"] = history
 
     if "actions" in message:
         actions = message["actions"]
@@ -375,8 +407,13 @@ def card_sync_messages(
     include_dashboard: bool = False,
     grouped_session: int | None = None,
     include_actions: bool = False,
+    include_history: bool = False,
 ) -> list[dict]:
     """Build a bounded begin/cards/commit transfer for a card-cache snapshot."""
+    if include_history and grouped_session is None:
+        raise ValueError("notification history requires grouped sync")
+    if include_history and not include_dashboard:
+        raise ValueError("notification history requires dashboard sync")
     cards = snapshot["notifs"]
     begin = {
         "t": "sync_begin",
@@ -399,6 +436,8 @@ def card_sync_messages(
         if isinstance(grouped_session, bool) or not isinstance(grouped_session, int) or not 1 <= grouped_session <= IDENTITY_MAX:
             raise ValueError("grouped session must be a positive 31-bit integer")
         begin["grouped"] = {"session": grouped_session}
+        if include_history:
+            begin["grouped"]["history"] = True
     encode(begin)
 
     messages = [begin]
@@ -418,7 +457,25 @@ def card_sync_messages(
         start += len(batch)
         batch = []
 
-    for card in cards:
+    for source_card in cards:
+        card = dict(source_card)
+        if "body" in card and isinstance(card["body"], str):
+            body_limit = NOTIFICATION_BODY_HISTORY_BYTES if include_history else NOTIFICATION_BODY_LEGACY_BYTES
+            card["body"] = clip_utf8_ellipsis(display_text(card["body"]), body_limit)
+        if include_history:
+            history = card.get("history")
+            if not isinstance(history, dict) or set(history) != {"rev", "age_ms", "remaining_ms"}:
+                raise ValueError("history sync card requires a valid history object")
+            revision, age_ms, remaining_ms = (history.get(key) for key in ("rev", "age_ms", "remaining_ms"))
+            if (
+                isinstance(revision, bool) or not isinstance(revision, int) or not 1 <= revision <= IDENTITY_MAX
+                or isinstance(age_ms, bool) or not isinstance(age_ms, int) or not 0 <= age_ms <= IDENTITY_MAX
+                or isinstance(remaining_ms, bool) or not isinstance(remaining_ms, int)
+                or not 1 <= remaining_ms <= IDENTITY_MAX
+            ):
+                raise ValueError("history sync card requires a valid history object")
+        else:
+            card.pop("history", None)
         if include_actions:
             opened = card.get("open") if isinstance(card, dict) else None
             if (
@@ -529,13 +586,14 @@ def notify(
     total: int | None = None,
     cached: bool | None = None,
     session: int | None = None,
+    body_max_bytes: int = NOTIFICATION_BODY_HISTORY_BYTES,
 ) -> dict:
     message = {
         "t": "notify",
         "id": int(nid),
         "app": clip_utf8(display_text(app), 31),
         "summary": clip_utf8(display_text(summary), 63),
-        "body": clip_utf8(display_text(body), 159),
+        "body": clip_utf8_ellipsis(display_text(body), body_max_bytes),
         "urgency": int(urgency),
         "expire": int(expire),
         "ts": int(ts),

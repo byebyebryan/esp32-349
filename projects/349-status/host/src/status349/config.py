@@ -76,6 +76,7 @@ class NotificationsConfig:
     # Zero disables device card caching while preserving the host's active set
     # and its overflow count. max_visible remains the legacy-protocol limit.
     cache_limit: int = DEVICE_MAX_CACHE_CARDS
+    retention_s: int = 1800  # notification history retention, independent of popup timeout
     popup_timeout_ms: int = 10000  # normal fallback when Notify requests server default (-1)
     critical_popup_timeout_ms: int = 0  # 0 keeps critical cards until close
 
@@ -241,6 +242,7 @@ def _validate_sync_size(preset: list[dict]) -> None:
             "volume": {"level": 1.0, "mute": True},
             "bluetooth": 9223372036854775807,
         },
+        "grouped": {"session": proto.IDENTITY_MAX, "history": True},
     }
     try:
         proto.encode(sync_begin)
@@ -292,6 +294,12 @@ def validate_config(cfg: Config) -> None:
         or not 0 <= cfg.notifications.cache_limit <= DEVICE_MAX_CACHE_CARDS
     ):
         raise ValueError(f"notifications.cache_limit must be an integer from 0 to {DEVICE_MAX_CACHE_CARDS}")
+    if (
+        isinstance(cfg.notifications.retention_s, bool)
+        or not isinstance(cfg.notifications.retention_s, int)
+        or not 1 <= cfg.notifications.retention_s <= 86400
+    ):
+        raise ValueError("notifications.retention_s must be an integer from 1 to 86400")
     for field_name in ("popup_timeout_ms", "critical_popup_timeout_ms"):
         timeout = getattr(cfg.notifications, field_name)
         if isinstance(timeout, bool) or not isinstance(timeout, int) or not 0 <= timeout <= 86_400_000:

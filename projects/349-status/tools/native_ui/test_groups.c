@@ -10,6 +10,7 @@ static void groups_reset(const int *ids, int count)
     grouped_cancel();
     step(200);
     s_state.grouped_enabled = true;
+    s_state.history_enabled = false;
     s_state.actions_enabled = false;
     s_state.action_pending = false;
     s_state.action_pending_id = 0;
@@ -725,6 +726,107 @@ static void lifecycle_concurrent_updates(void)
     assert(!s_group_lifecycle.active); /* User swipe already animated once. */
 }
 
+static void history_layout_and_navigation(void)
+{
+    const int ids[] = {3, 2, 1};
+    groups_reset(ids, 3);
+    s_state.history_enabled = true;
+    s_state.actions_enabled = true;
+    for (int i = 0; i < s_state.notif_count; i++) {
+        status_notif_t *n = &s_state.notifs[i];
+        n->history_revision = i + 1;
+        n->history_updated_us = s_now_us - 480000000;
+        n->history_deadline_us = s_now_us + 1800000000;
+        n->open_revision = 1;
+        n->open_ready = n->id != 2;
+        snprintf(n->app, sizeof(n->app), "Claude Code");
+        snprintf(n->summary, sizeof(n->summary), "Review complete — 東京");
+        snprintf(n->body, sizeof(n->body),
+            "We've reviewed the notification history and its retention policy. "
+            "The smaller body font shows more of the original message, including "
+            "we’ve, 東京 が, arrows → and common symbols ✓. This is longer than "
+            "the former 159-byte body buffer, so the third line should carry useful content.");
+    }
+    ui_deck_tick(STATE_DIRTY_NOTIF);
+    group_finish();
+    assert(s_history_mode && !s_group_home);
+    assert(lv_obj_has_flag(s_idle, LV_OBJ_FLAG_HIDDEN));
+    assert(lv_obj_has_flag(s_group_cue, LV_OBJ_FLAG_HIDDEN));
+    assert(lv_obj_get_y(s_viewport) == 0 && lv_obj_get_height(s_viewport) == 172);
+    assert(lv_obj_get_height(s_cards[1].root) == 140);
+    assert(lv_obj_get_style_text_font(s_cards[1].body, 0) == &status_text_16);
+    assert(strcmp(label_storage(s_cards[1].app), "Claude Code · 8m ago") == 0);
+    assert(capture_frame("history-multiple-long"));
+
+    const int newest = current_id();
+    group_swipe(350, 90, -130, 0);
+    assert(current_id() == newest && !s_group_home);
+    group_swipe(350, 110, 0, -65);
+    assert(current_id() == 2 && s_group_manual);
+    assert(!s_view.open_enabled);
+    assert(capture_frame("history-unavailable-open"));
+    present(1, 3, 1, 10000);
+    assert(current_id() == 2); /* Browsing owns focus. */
+    present(2, 3, 2, 10000);
+    assert(current_id() == 2 && s_group_manual); /* Critical arrivals also wait. */
+    step(30001);
+    assert(!s_group_manual && !s_group_home);
+    present(3, 3, 1, 1000);
+    assert(current_id() == 3);
+    step(1001);
+    assert(!s_group_home && current_id() == 3); /* No return to a clock. */
+
+    present(4, 3, 2, -1);
+    for (int i = 0; i < s_state.notif_count; i++) {
+        if (s_state.notifs[i].id == 3) s_state.notifs[i].history_deadline_us = s_now_us + 1000;
+    }
+    step(2); group_finish();
+    assert(current_id() == 2 && !s_group_auto);
+    assert(!s_state.grouped_presenting); /* No expired presentation in readback. */
+
+    s_host_connected = false;
+    ui_deck_tick(STATE_DIRTY_NOTIF);
+    assert(s_view.stale && !s_group_home && !s_view.open_enabled);
+    assert(!lv_obj_has_flag(s_viewport, LV_OBJ_FLAG_HIDDEN));
+    assert(capture_frame("history-disconnected"));
+    for (int i = 0; i < s_state.notif_count; i++)
+        s_state.notifs[i].history_deadline_us = s_now_us + 1000;
+    step(2);
+    group_finish();
+    assert(s_state.notif_count == 0 && !s_group_home);
+    assert(strcmp(label_storage(s_group_empty), "No recent notifications") == 0);
+    assert(!lv_obj_has_flag(s_group_empty, LV_OBJ_FLAG_HIDDEN));
+    assert(capture_frame("history-empty"));
+    s_host_connected = true;
+
+    const int single[] = {4};
+    set_raw_order(single, 1);
+    s_state.notifs[0].history_revision = 4;
+    s_state.notifs[0].history_updated_us = s_now_us;
+    s_state.notifs[0].history_deadline_us = s_now_us + 1800000000;
+    s_state.notifs[0].open_revision = 1;
+    snprintf(s_state.notifs[0].app, sizeof(s_state.notifs[0].app), "Codex");
+    snprintf(s_state.notifs[0].summary, sizeof(s_state.notifs[0].summary), "One recent notification");
+    snprintf(s_state.notifs[0].body, sizeof(s_state.notifs[0].body),
+        "We've completed the review and kept the smaller font's full repertoire: "
+        "we’ve, 東京 が, arrows → and check marks ✓. A single card expands to four "
+        "body lines, showing more original content while preserving the clock "
+        "and telemetry on the left. Longer messages still end with a visible ellipsis.");
+    ui_deck_tick(STATE_DIRTY_NOTIF);
+    assert(s_group_lifecycle.active);
+    step(75); repaint();
+    assert(capture_frame("history-arrival-motion"));
+    group_finish();
+    assert(lv_obj_get_height(s_cards[1].root) == 164);
+    assert(capture_frame("history-single"));
+    pointer_press(590, 22); pointer_release(590, 22);
+    assert(s_group_lifecycle.active);
+    step(75); repaint();
+    assert(capture_frame("history-dismiss-motion"));
+    group_finish();
+    assert(s_deck.count == 0 && !s_group_home);
+}
+
 int main(int argc, char **argv)
 {
     s_artifact_dir = argc > 2 && strcmp(argv[1], "--artifacts") == 0
@@ -743,6 +845,7 @@ int main(int argc, char **argv)
     action_controls_and_capture();
     lifecycle_motion_and_removal();
     lifecycle_concurrent_updates();
+    history_layout_and_navigation();
     fixture_shutdown();
     fclose(s_trace_file);
     puts("grouped production LVGL: passed");

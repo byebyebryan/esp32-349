@@ -7,15 +7,18 @@ chunked sync.
 
 from __future__ import annotations
 
+import time
+
 from . import proto
 
 RETAINED_LIMIT = 32
 
 
 class StateModel:
-    def __init__(self, max_visible: int = 3, cache_limit: int = 32) -> None:
+    def __init__(self, max_visible: int = 3, cache_limit: int = 32, retention_s: int = 1800) -> None:
         self.max_visible = max(0, int(max_visible))
         self.cache_limit = max(0, min(32, int(cache_limit)))
+        self.retention_s = int(retention_s)
         self.rev = 0
         self.clock: dict | None = None
         self.media: dict | None = None
@@ -24,10 +27,21 @@ class StateModel:
         # firmware receives the separate bounded retained collection.
         self.notifs: dict[int, dict] = {}
         self.retained_notifs: dict[int, dict] = {}
+        self.retained_received_mono: dict[int, float] = {}
+        self.retained_history_rev: dict[int, int] = {}
+        self._history_revision = 0
         self.zones: list[dict] = []
 
     def snapshot(self) -> dict:
-        notifs = list(self.notifs.values())
+        notifs = []
+        for source in self.notifs.values():
+            message = dict(source)
+            message.pop("history", None)
+            if isinstance(message.get("body"), str):
+                message["body"] = proto.clip_utf8_ellipsis(
+                    proto.display_text(message["body"]), proto.NOTIFICATION_BODY_LEGACY_BYTES
+                )
+            notifs.append(message)
         overflow = max(0, len(notifs) - self.max_visible)
         if overflow and self.max_visible:
             notifs = notifs[-self.max_visible:]
@@ -135,26 +149,78 @@ class StateModel:
         self.rev += 1
         return True
 
-    def retain_notification(self, message: dict, *, bump_rev: bool = True) -> tuple[bool, list[int]]:
-        """Insert or move a record to newest order, evicting oldest past 32."""
+    def retain_notification(
+        self,
+        message: dict,
+        *,
+        receipt_mono: float | None = None,
+        bump_rev: bool = True,
+    ) -> tuple[bool, list[int]]:
+        """Record an accepted arrival/replacement and evict oldest past 32."""
         nid = int(message["id"])
-        was_newest = bool(self.retained_notifs) and next(reversed(self.retained_notifs)) == nid
-        old = self.retained_notifs.pop(nid, None)
-        moved = old is not None and (old != message or not was_newest)
-        if old == message and not moved:
-            # Restore the value so an unchanged newest record remains present.
-            self.retained_notifs[nid] = old
-            return False, []
-
+        history_revision = self._allocate_history_revision()
+        self.retained_notifs.pop(nid, None)
+        self.retained_received_mono.pop(nid, None)
+        self.retained_history_rev.pop(nid, None)
         self.retained_notifs[nid] = message
+        self.retained_received_mono[nid] = time.monotonic() if receipt_mono is None else float(receipt_mono)
+        self.retained_history_rev[nid] = history_revision
         evicted: list[int] = []
         while len(self.retained_notifs) > RETAINED_LIMIT:
             evicted_id = next(iter(self.retained_notifs))
             self.retained_notifs.pop(evicted_id)
+            self.retained_received_mono.pop(evicted_id, None)
+            self.retained_history_rev.pop(evicted_id, None)
             evicted.append(evicted_id)
         if bump_rev:
             self.rev += 1
         return True, evicted
+
+    def _allocate_history_revision(self) -> int:
+        if self._history_revision >= proto.IDENTITY_MAX:
+            raise OverflowError("notification history revision space exhausted")
+        self._history_revision += 1
+        return self._history_revision
+
+    def history_metadata(self, nid: int, now_mono: float | None = None) -> dict | None:
+        """Build fresh age metadata for a live retained record."""
+        nid = int(nid)
+        receipt = self.retained_received_mono.get(nid)
+        revision = self.retained_history_rev.get(nid)
+        if receipt is None or revision is None:
+            return None
+        now = time.monotonic() if now_mono is None else float(now_mono)
+        retention_ms = self.retention_s * 1000
+        age_ms = max(0, int((now - receipt) * 1000))
+        if age_ms >= retention_ms:
+            return None
+        return {
+            "rev": revision,
+            "age_ms": min(proto.IDENTITY_MAX, age_ms),
+            "remaining_ms": min(proto.IDENTITY_MAX, retention_ms - age_ms),
+        }
+
+    def expire_retained(
+        self,
+        now_mono: float | None = None,
+        *,
+        exclude_ids: set[int] | None = None,
+    ) -> list[int]:
+        """Remove records past their configured age, including action owners."""
+        now = time.monotonic() if now_mono is None else float(now_mono)
+        exclude_ids = exclude_ids or set()
+        expired = [
+            nid for nid, receipt in self.retained_received_mono.items()
+            if nid not in exclude_ids and (now - receipt) * 1000 >= self.retention_s * 1000
+        ]
+        for nid in expired:
+            self.retained_notifs.pop(nid, None)
+            self.retained_received_mono.pop(nid, None)
+            self.retained_history_rev.pop(nid, None)
+            self.notifs.pop(nid, None)
+        if expired:
+            self.rev += 1
+        return expired
 
     def close_active_notification(self, nid: int) -> bool:
         """Remove a record only from the legacy active projection."""
@@ -167,6 +233,8 @@ class StateModel:
         nid = int(nid)
         active = self.notifs.pop(nid, None) is not None
         retained = self.retained_notifs.pop(nid, None) is not None
+        self.retained_received_mono.pop(nid, None)
+        self.retained_history_rev.pop(nid, None)
         if not active and not retained:
             return False
         self.rev += 1

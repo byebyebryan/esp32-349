@@ -15,7 +15,8 @@ static void choose_axis(group_input_t *g, group_axis_t axis)
     } else {
         deck_input_press(&g->motion, 160 + g->y, g->x, g->press_us, g->source,
                          g->newer, g->older, 2, false, g->peek);
-        deck_input_geometry(&g->motion, GROUP_CARD_PITCH_PX, 48, 24);
+        deck_input_geometry(&g->motion,
+            g->card_pitch_px > 0 ? g->card_pitch_px : GROUP_CARD_PITCH_PX, 48, 24);
         deck_input_validate(&g->motion, true, g->has_newer, g->has_older);
     }
 }
@@ -117,6 +118,10 @@ int group_input_move(group_input_t *g, int x, int y, int64_t now)
         const int64_t dx = (int64_t)x - g->x, dy = (int64_t)y - g->y;
         const int64_t ax = dx < 0 ? -dx : dx, ay = dy < 0 ? -dy : dy;
         if (ax >= 12 && ax * 2 >= ay * 3) {
+            if (g->vertical_only) {
+                deck_input_cancel(&g->motion);
+                return 0;
+            }
             choose_axis(g, GROUP_AXIS_HORIZONTAL);
         } else if (ay >= 12 && ay * 2 >= ax * 3 && !g->home && g->has_cards) {
             choose_axis(g, GROUP_AXIS_VERTICAL);

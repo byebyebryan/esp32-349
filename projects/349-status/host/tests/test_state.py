@@ -198,12 +198,64 @@ def test_retained_collection_moves_replacements_and_caps_at_32_independent_of_ac
     assert snapshot["overflow"] == 28
 
 
-def test_unchanged_newest_retained_record_does_not_bump_revision_or_reorder():
-    model = StateModel()
+def test_identical_accepted_replacement_renews_history_revision_and_deadline():
+    model = StateModel(retention_s=5)
     message = {"t": "notify", "id": 7, "summary": "same"}
-    changed, evicted = model.retain_notification(message)
+    changed, evicted = model.retain_notification(message, receipt_mono=10.0)
     assert changed and evicted == []
-    revision = model.rev
-    changed, evicted = model.retain_notification(message)
-    assert not changed and evicted == []
-    assert model.rev == revision
+    first_rev = model.retained_history_rev[7]
+    first_deadline = model.retained_received_mono[7] + model.retention_s
+    model_rev = model.rev
+    changed, evicted = model.retain_notification(message, receipt_mono=12.0)
+    assert changed and evicted == []
+    assert model.rev == model_rev + 1
+    assert model.retained_history_rev[7] > first_rev
+    assert model.retained_received_mono[7] + model.retention_s > first_deadline
+    assert model.history_metadata(7, now_mono=12.25) == {
+        "rev": model.retained_history_rev[7], "age_ms": 250, "remaining_ms": 4750,
+    }
+
+
+def test_retention_expiry_is_exact_and_removes_active_text_and_history_metadata():
+    model = StateModel(retention_s=3)
+    message = {"t": "notify", "id": 7, "summary": "persistent"}
+    model.add_notification(message)
+    model.retain_notification(message, receipt_mono=10.0)
+
+    assert model.expire_retained(12.999) == []
+    assert model.history_metadata(7, now_mono=12.999)["remaining_ms"] == 1
+    assert model.expire_retained(13.0) == [7]
+    assert 7 not in model.notifs
+    assert 7 not in model.retained_notifs
+    assert 7 not in model.retained_received_mono
+    assert 7 not in model.retained_history_rev
+
+
+def test_history_sync_keeps_long_text_while_legacy_snapshot_projects_159_bytes():
+    model = StateModel(max_visible=1)
+    message = proto.notify(7, "app", "sum", "東京" * 150, 1, 0, 1)
+    model.add_notification(message)
+    model.retain_notification(message, receipt_mono=10.0)
+
+    legacy = model.snapshot()["notifs"][0]["body"]
+    history = model.card_snapshot(retained=True)["notifs"][0]["body"]
+    assert len(legacy.encode("utf-8")) <= proto.NOTIFICATION_BODY_LEGACY_BYTES
+    assert legacy.endswith("…")
+    assert len(history.encode("utf-8")) <= proto.NOTIFICATION_BODY_HISTORY_BYTES
+    assert history.endswith("…")
+
+
+def test_history_revision_exhaustion_fails_without_wrapping_or_replacing_live_record():
+    model = StateModel()
+    original = {"t": "notify", "id": 7, "summary": "kept"}
+    model.retain_notification(original, receipt_mono=10.0)
+    original_history_revision = model.retained_history_rev[7]
+    original_receipt = model.retained_received_mono[7]
+    model._history_revision = proto.IDENTITY_MAX
+
+    with pytest.raises(OverflowError, match="history revision space exhausted"):
+        model.retain_notification({**original, "summary": "replacement"}, receipt_mono=20.0)
+
+    assert model.retained_notifs[7] == original
+    assert model.retained_history_rev[7] == original_history_revision
+    assert model.retained_received_mono[7] == original_receipt

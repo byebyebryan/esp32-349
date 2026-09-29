@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 from dbus_next import Message, MessageType
 
-from test_grouped_composed import Native
+from test_grouped_composed import Native, legacy_grouped_hello
 from status349 import proto
 from status349.config import default_config
 from status349.daemon import Daemon
@@ -127,8 +127,10 @@ async def scenario(native: Native):
         native.wire({"t": "hello"})
         hello = next(m for m in native.outbound if m.get("t") == "hello")
         assert "notification-actions-v1" in hello["cap"], hello
+        assert proto.notification_history_capable(hello), hello
+        legacy_hello = legacy_grouped_hello(hello)
         native.outbound.clear()
-        await daemon._on_line(proto.encode(hello).decode().rstrip())
+        await daemon._on_line(proto.encode(legacy_hello).decode().rstrip())
         await advance(100)
         nid = await notify(1)
         status = native.status()

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import re
 import subprocess
@@ -34,7 +35,7 @@ DEJAVU_RANGES = "0x2190-0x23FF,0x25A0-0x27BF"
 CLOCK_RANGES = "0x2D,0x30-0x39,0x3A"
 ASCII = set(range(0x20, 0x80))
 PRIVATE_USE = range(0xE000, 0xF900)
-MAX_LINE_HEIGHT = {20: 27, 22: 30}
+MAX_LINE_HEIGHT = {16: 22, 20: 27, 22: 30}
 CLOCK_GLYPHS = {ord(char) for char in "0123456789:-"}
 
 
@@ -132,6 +133,19 @@ def maximum_clock_width(source: str) -> tuple[int, str]:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--text-sizes",
+        type=int,
+        nargs="+",
+        choices=(16, 20, 22),
+        help=(
+            "generate only these composite text fonts; without this option, "
+            "generate all composite text fonts and the status clock"
+        ),
+    )
+    args = parser.parse_args()
+
     verify_sources()
 
     cjk_reference = glyphs(PROJECT / SOURCE_CJK)
@@ -152,7 +166,8 @@ def main() -> int:
         f"legacy union {len(old_repertoire)} glyphs"
     )
 
-    for size in (20, 22):
+    text_sizes = args.text_sizes if args.text_sizes is not None else (16, 20, 22)
+    for size in text_sizes:
         name = f"status_text_{size}"
         output = PROJECT / f"main/fonts/{name}.c"
         command = [
@@ -203,6 +218,9 @@ def main() -> int:
             f"base_line={base_line}, bitmap={bitmap_bytes(source):,} B, "
             f"source={output.stat().st_size:,} B"
         )
+
+    if args.text_sizes is not None:
+        return 0
 
     clock_name = "status_clock_80"
     clock_output = PROJECT / f"main/fonts/{clock_name}.c"

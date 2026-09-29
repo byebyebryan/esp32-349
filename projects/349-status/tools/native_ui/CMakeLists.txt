@@ -44,6 +44,7 @@ set(NATIVE_FIXTURE_SOURCES
     "${STATUS_MAIN}/ui_fonts.c"
     "${STATUS_MAIN}/fonts/status_symbol_14.c"
     "${STATUS_MAIN}/fonts/status_symbol_16.c"
+    "${STATUS_MAIN}/fonts/status_text_16.c"
     "${STATUS_MAIN}/fonts/status_text_20.c"
     "${STATUS_MAIN}/fonts/status_text_22.c"
     "${STATUS_MAIN}/fonts/status_clock_80.c")
@@ -131,6 +132,12 @@ if(UV_EXECUTABLE)
                 "${CMAKE_CURRENT_SOURCE_DIR}/../test_notification_actions_composed.py"
                 --native $<TARGET_FILE:native_ui_composed>
                 --artifacts "${CMAKE_CURRENT_BINARY_DIR}/artifacts/actions-composed")
+    add_test(NAME host_history_composed
+        COMMAND "${UV_EXECUTABLE}" run --project
+                "${CMAKE_CURRENT_SOURCE_DIR}/../../host" --frozen python
+                "${CMAKE_CURRENT_SOURCE_DIR}/../test_notification_history_composed.py"
+                --native $<TARGET_FILE:native_ui_composed>
+                --artifacts "${CMAKE_CURRENT_BINARY_DIR}/artifacts/history-composed")
 else()
     add_test(NAME host_composed
         COMMAND "${CMAKE_COMMAND}" -E echo "SKIP: uv is unavailable")
@@ -142,4 +149,7 @@ else()
     add_test(NAME host_actions_composed
         COMMAND "${CMAKE_COMMAND}" -E echo "SKIP: uv is unavailable")
     set_tests_properties(host_actions_composed PROPERTIES SKIP_REGULAR_EXPRESSION "SKIP:")
+    add_test(NAME host_history_composed
+        COMMAND "${CMAKE_COMMAND}" -E echo "SKIP: uv is unavailable")
+    set_tests_properties(host_history_composed PROPERTIES SKIP_REGULAR_EXPRESSION "SKIP:")
 endif()

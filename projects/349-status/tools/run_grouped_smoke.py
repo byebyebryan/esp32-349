@@ -42,14 +42,19 @@ async def ipc(command: str) -> dict:
 
 class SmokeHost:
     """Production host policy with caller-provided serial/native transport."""
-    def __init__(self, send):
+    def __init__(self, send, history: bool = False):
         self.send = send
+        self.history = history
         self.hello: dict | None = None
         self.daemon = self.make_daemon()
         for name in ("A", "B", "C"):
             nid = self.daemon._allocate_local_notification_id()
             self.daemon.model.retain_notification(proto.notify(nid, "SMOKE", f"CARD {name}",
-                "We've / we’ve 東京 → ✓. Swipe horizontally for groups; vertically for cards.",
+                "We've / we’ve 東京 が → ✓. " + (
+                    "The smaller body shows more content. Swipe vertically between recent notifications; "
+                    "horizontal movement and body taps do nothing. Close with the large ×; "
+                    "popup timeout keeps this card, with a thirty-minute retention limit."
+                    if history else "Swipe horizontally for groups; vertically for cards."),
                 1, 0, int(time.time())))
 
     def make_daemon(self) -> Daemon:
@@ -67,6 +72,12 @@ class SmokeHost:
 
     async def connected(self, hello: dict) -> None:
         self.hello = hello
+        if not self.history:
+            # Default mode exercises the previous Home/grouped compatibility UI.
+            hello = {**hello, "cap": [cap for cap in hello.get("cap", [])
+                                     if cap != proto.NOTIFICATION_HISTORY_CAPABILITY]}
+        elif not proto.notification_history_capable(hello):
+            raise RuntimeError("Recorder requires notification-history-v1")
         self.daemon._writer = object()
         await self.daemon._on_line(proto.encode(hello).decode().rstrip())
 
@@ -75,6 +86,7 @@ class SmokeHost:
         async with daemon._state_lock:
             daemon._writer = None
             daemon._grouped_enabled = False
+            daemon._history_enabled = False
             daemon._card_sync_capacity = None
             daemon._dashboard_capable = False
             daemon._device_boot_id = None
@@ -82,7 +94,7 @@ class SmokeHost:
             daemon._pending_present_id = None
             daemon._pending_present_due = None
             await daemon._end_presentation_locked(send_end=False)
-            daemon._grouped_group = "home"
+            daemon._grouped_group = "notifications" if self.history else "home"
             daemon._manual_notifications = False
 
     async def reset_session(self) -> None:
@@ -114,14 +126,14 @@ class SmokeHost:
 
 
 class Recorder:
-    def __init__(self, port: str, expected: str, artifacts: Path):
+    def __init__(self, port: str, expected: str, artifacts: Path, history: bool = False):
         artifacts.mkdir(parents=True, exist_ok=True)
         self.artifacts = artifacts
         self.trace = (artifacts / "trace.jsonl").open("w")
         self.console = (artifacts / "console.log").open("w")
         self.port, self.expected = port, expected
         self.link: Link | None = None
-        self.host = SmokeHost(self.send)
+        self.host = SmokeHost(self.send, history)
         self.jobs: list[asyncio.Task] = []
         self.latest: dict | None = None
         self.replug_armed = False
@@ -229,7 +241,8 @@ class Recorder:
                     self.latest = status
                     if self.returned_at is not None:
                         group = status.get("grouped", {})
-                        valid = (status["ids"] == self.host.ids() and group.get("group") == "home"
+                        target_group = "notifications" if self.host.history else "home"
+                        valid = (status["ids"] == self.host.ids() and group.get("group") == target_group
                                  and group.get("generation") == 0 and group.get("present_id") is None
                                  and status.get("deck", {}).get("enabled")
                                  and not status["deck"].get("stale"))
@@ -239,7 +252,7 @@ class Recorder:
                             result = {"elapsed_s": round(time.monotonic() - self.lost_at, 3),
                                       "hello": self.host.hello, "status": status}
                             self.replug_results.append(result); self.event("replug_passed", **result)
-                            print(f"REPLUG PASS: Home, {status['count']} retained cards, {result['elapsed_s']}s", flush=True)
+                            print(f"REPLUG PASS: {target_group}, {status['count']} retained cards, {result['elapsed_s']}s", flush=True)
                             self.replug_armed = False; self.returned_at = self.lost_at = None
                         elif time.monotonic() - self.returned_at > 5:
                             raise RuntimeError(f"Replug state did not reconcile: {status}")
@@ -249,6 +262,8 @@ class Recorder:
         if command == "cards":
             await self.host.present_cards()
         elif command == "timeout":
+            if self.host.history:
+                raise RuntimeError("The Home timeout scenario is for legacy grouped mode")
             await self.stop_jobs()
             try:
                 nid = await self.host.timeout_card()
@@ -261,7 +276,7 @@ class Recorder:
             self.previous_boot = self.host.hello["boot_id"]
             self.replug_armed = True
             self.event("replug_armed", ids=self.host.ids(), boot_id=self.previous_boot)
-            print("REPLUG READY: unplug for two seconds, reconnect; sync will restore retained cards at Home", flush=True)
+            print("REPLUG READY: unplug for two seconds, reconnect; sync will restore surviving cards", flush=True)
         elif command == "status":
             print(json.dumps(self.latest), flush=True)
         elif command == "finish":
@@ -293,7 +308,7 @@ async def run(args) -> None:
     normal_session = baseline.get("device_cards", {}).get("grouped", {}).get("session")
     if not baseline.get("ok") or normal_session is None:
         raise RuntimeError("Wait for a stable normal grouped readback before starting")
-    recorder = Recorder(args.port, args.expected_build_sha, args.artifacts)
+    recorder = Recorder(args.port, args.expected_build_sha, args.artifacts, getattr(args, "history", False))
     recorder.host.daemon.grouped_session = normal_session % proto.IDENTITY_MAX + 1
     commands: asyncio.Queue[str] = asyncio.Queue()
     loop = asyncio.get_running_loop()
@@ -323,7 +338,8 @@ async def run(args) -> None:
         await recorder.start_jobs()
         loop.add_reader(sys.stdin.fileno(), stdin_ready)
         deadline = time.monotonic() + 1200
-        print("READY: three persistent cards cached at Home. Look, then use 'cards' for touch. Commands: cards | timeout | replug | status | finish", flush=True)
+        print("READY: three long-lived cards in Notifications. Commands: cards | status | finish" if recorder.host.history else
+              "READY: three persistent cards cached at Home. Look, then use 'cards' for touch. Commands: cards | timeout | replug | status | finish", flush=True)
         while time.monotonic() < deadline:
             for job in [receiver, *recorder.jobs]:
                 if job.done():
@@ -495,6 +511,47 @@ async def self_test(native_path: Path, artifacts: Path) -> None:
     finally:
         native.close()
     await cleanup_self_test(native_path, artifacts / "cleanup")
+    await history_self_test(native_path, artifacts / "history")
+
+
+async def history_self_test(native_path: Path, artifacts: Path) -> None:
+    """Check the physical history fixture through real parser/UI round trips."""
+    from unittest.mock import patch
+    from test_grouped_composed import Native
+    now = [1000.0]
+    native = Native(native_path, artifacts)
+    native.clock_hook = lambda ms: now.__setitem__(0, now[0] + ms / 1000)
+    async def send(message):
+        native.wire(message); return True
+    try:
+        with patch("status349.daemon.time.monotonic", lambda: now[0]):
+            host = SmokeHost(send, history=True)
+            native.wire(proto.hello())
+            hello = next(m for m in native.outbound if m.get("t") == "hello")
+            await host.connected(hello)
+            native.command("advance", ms=200)
+            status = native.status()
+            assert status["count"] == 3 and status["grouped"]["history"]
+            assert status["grouped"]["group"] == "notifications"
+            body = next(m for m in native.sent if m.get("t") == "sync_cards")["notifs"][0]["body"]
+            assert 159 < len(body.encode()) <= 511
+            removed = status["deck"]["focus_id"]
+            native.command("press", x=600, y=22, ms=1)
+            native.command("release", x=600, y=22, ms=1)
+            messages, native.outbound = native.outbound, []
+            for message in messages:
+                if message.get("t") == "input":
+                    await host.daemon._handle_input(message)
+            native.command("advance", ms=200)
+            assert removed not in host.ids() and native.status()["count"] == 2
+            for nid in tuple(host.ids()):
+                await host.daemon._device_close(nid)
+            native.command("advance", ms=200)
+            status = native.status()
+            assert status["count"] == 0 and status["grouped"]["group"] == "notifications"
+            print("history smoke recorder: long-lived seed, × round trip and empty pane passed")
+    finally:
+        native.close()
 
 
 if __name__ == "__main__":
@@ -504,6 +561,8 @@ if __name__ == "__main__":
     parser.add_argument("--artifacts", type=Path, required=True)
     parser.add_argument("--self-test", action="store_true")
     parser.add_argument("--native", type=Path)
+    parser.add_argument("--history", action="store_true",
+                        help="physical check of the notification-only pane with long-lived cards")
     args = parser.parse_args()
     if args.self_test:
         if args.native is None: parser.error("--self-test requires --native")

@@ -74,6 +74,19 @@ class Native:
         self.errors.close(); self.trace.close()
 
 
+def legacy_grouped_hello(hello: dict) -> dict:
+    """Keep this scenario on the Home/presentation contract with real peers."""
+    assert proto.grouped_ui_capable(hello), hello
+    capabilities = hello.get("cap")
+    assert isinstance(capabilities, list), hello
+    assert proto.notification_history_capable(hello), hello
+    legacy = dict(hello)
+    legacy["cap"] = [cap for cap in capabilities if cap != proto.NOTIFICATION_HISTORY_CAPABILITY]
+    assert len(legacy["cap"]) == len(capabilities) - 1
+    assert not proto.notification_history_capable(legacy), legacy
+    return legacy
+
+
 async def scenario(native: Native) -> None:
     now = [1000.0]
     def advance_clock(ms):
@@ -127,9 +140,10 @@ async def scenario(native: Native) -> None:
         # Use the real firmware capability announcement, not an invented peer.
         native.wire({"t": "hello"})
         hello = next(m for m in native.outbound if m.get("t") == "hello")
-        assert proto.grouped_ui_capable(hello), hello
+        assert proto.notification_history_capable(hello), hello
+        legacy_hello = legacy_grouped_hello(hello)
         native.outbound.clear()
-        await daemon._on_line(proto.encode(hello).decode().rstrip())
+        await daemon._on_line(proto.encode(legacy_hello).decode().rstrip())
         await advance(100)
         assert native.status()["grouped"]["group"] == "home"
         await swipe(dx=-120)

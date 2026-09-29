@@ -819,6 +819,116 @@ static void emit_line_json_result(void)
     cJSON_Delete(root);
 }
 
+static void sync_history_card(int revision, int age_ms, int remaining_ms)
+{
+    cJSON *begin = parse_json(
+        "{\"tx\":50,\"count\":1,\"limit\":32,\"overflow\":0,"
+        "\"bar\":{\"zones\":[]},\"dashboard\":{},"
+        "\"grouped\":{\"session\":901,\"history\":true}}");
+    CHECK(state_sync_begin(begin));
+    cJSON_Delete(begin);
+    cJSON *chunk = parse_json("{\"tx\":50,\"start\":0,\"notifs\":[{\"id\":1,\"urgency\":1}]}");
+    cJSON *card = cJSON_GetArrayItem(field(chunk, "notifs"), 0);
+    char body[401];
+    memset(body, 'a', sizeof(body) - 1); body[sizeof(body) - 1] = '\0';
+    cJSON_AddStringToObject(card, "body", body);
+    cJSON *history = cJSON_AddObjectToObject(card, "history");
+    cJSON_AddNumberToObject(history, "rev", revision);
+    cJSON_AddNumberToObject(history, "age_ms", age_ms);
+    cJSON_AddNumberToObject(history, "remaining_ms", remaining_ms);
+    CHECK(state_sync_cards(chunk));
+    cJSON_Delete(chunk);
+    cJSON *commit = parse_json("{\"tx\":50}");
+    CHECK(state_sync_commit(commit, NULL, NULL, NULL));
+    cJSON_Delete(commit);
+}
+
+static void test_history_deadlines_and_projection(void)
+{
+    state_init();
+    const int64_t started = s_now_us;
+    sync_history_card(1, 120000, 5000);
+    state_lock();
+    CHECK(state_get()->history_enabled);
+    CHECK(state_get()->notifs[0].history_updated_us == started - 120000000);
+    CHECK(state_get()->notifs[0].history_deadline_us == started + 5000000);
+    CHECK(strlen(state_get()->notifs[0].body) == 400);
+    state_get()->deck_enabled = true;
+    state_get()->grouped_home = true; /* Prior UI publication during mode switch. */
+    state_unlock();
+    cJSON *pending = send_wire("{\"t\":\"cards_query\"}");
+    CHECK(pending != NULL && cJSON_IsTrue(field(pending, "view_pending")));
+    CHECK(field(pending, "grouped") == NULL);
+    cJSON_Delete(pending);
+    state_lock();
+    state_get()->grouped_home = false;
+    state_get()->deck_reachable = 1;
+    state_get()->deck_position = 1;
+    state_get()->deck_focus_id = 1;
+    state_unlock();
+    cJSON *settled = send_wire("{\"t\":\"cards_query\"}");
+    CHECK(settled != NULL && !cJSON_IsTrue(field(settled, "view_pending")));
+    CHECK(strcmp(string(field(settled, "grouped"), "group"), "notifications") == 0);
+    cJSON_Delete(settled);
+
+    s_now_us += 2000000;
+    sync_history_card(1, 0, 5000); /* Snapshot cannot restart age/lifetime. */
+    state_lock();
+    CHECK(state_get()->notifs[0].history_updated_us == started - 120000000);
+    CHECK(state_get()->notifs[0].history_deadline_us == started + 5000000);
+    state_unlock();
+    s_connected = false;
+    s_now_us = started + 5000001;
+    state_lock();
+    status_state_t *st = state_get();
+    st->actions_enabled = true;
+    st->notifs[0].open_revision = 1;
+    st->notifs[0].open_ready = true;
+    CHECK(!state_action_open_enabled(st, &st->notifs[0], s_now_us));
+    st->actions_enabled = false;
+    state_unlock();
+    state_history_tick(s_now_us);
+    state_lock(); CHECK(state_get()->notif_count == 0); state_unlock();
+    sync_history_card(1, 0, 5000); /* Repeated stale sync cannot resurrect it. */
+    state_lock(); CHECK(state_get()->notif_count == 0); state_unlock();
+    CHECK(send_wire("{\"t\":\"notify\",\"id\":1,\"session\":901,\"urgency\":1,"
+        "\"history\":{\"rev\":1,\"age_ms\":0,\"remaining_ms\":5000}}") == NULL);
+    state_lock(); CHECK(state_get()->notif_count == 0); state_unlock();
+    CHECK(send_wire("{\"t\":\"notify\",\"id\":1,\"session\":901,\"urgency\":1,"
+        "\"history\":{\"rev\":2,\"age_ms\":0,\"remaining_ms\":5000}}") == NULL);
+    state_lock();
+    CHECK(state_get()->notif_count == 1 && state_get()->notifs[0].history_revision == 2);
+    state_unlock();
+    CHECK(send_wire("{\"t\":\"notify\",\"id\":2,\"session\":901,\"urgency\":1,"
+        "\"history\":{\"rev\":true,\"age_ms\":0,\"remaining_ms\":5000}}") == NULL);
+    CHECK(send_wire("{\"t\":\"notify\",\"id\":2,\"session\":901,\"urgency\":1}") == NULL);
+    state_lock(); CHECK(state_get()->notif_count == 1); state_unlock();
+    s_now_us += 5000000;
+    state_history_tick(s_now_us);
+    sync_history_card(1, 0, 5000); /* Older replay cannot lower the tombstone. */
+    sync_history_card(2, 0, 5000);
+    state_lock(); CHECK(state_get()->notif_count == 0); state_unlock();
+    sync_history_card(3, 0, 5000); /* Only a genuinely newer revision returns. */
+    state_lock(); CHECK(state_get()->notif_count == 1); state_unlock();
+    clear_outbound();
+    proto_send_input_history_idle(0);
+    CHECK(s_outbound_count == 1);
+    cJSON *idle = parse_json(s_outbound[0]);
+    CHECK(cJSON_IsFalse(field(idle, "manual")));
+    CHECK(strcmp(string(idle, "group"), "notifications") == 0);
+    cJSON_Delete(idle);
+
+    /* Switching to an old peer's grouped contract keeps its short body. */
+    char records[550], body[401];
+    memset(body, 'b', sizeof(body) - 1); body[sizeof(body) - 1] = '\0';
+    snprintf(records, sizeof(records), "[{\"id\":1,\"body\":\"%s\",\"urgency\":1}]", body);
+    sync_grouped(902, records);
+    state_lock();
+    CHECK(!state_get()->history_enabled && strlen(state_get()->notifs[0].body) == 159);
+    state_unlock();
+    s_connected = true;
+}
+
 static int run_line_json(void)
 {
     state_init();
@@ -849,6 +959,7 @@ int main(int argc, char **argv)
         test_status_and_outbound_actions();
         test_cards_status_pending_until_ui_publication();
         test_legacy_compatibility();
+        test_history_deadlines_and_projection();
         printf("native protocol: %d checks passed\n", s_checks);
         return 0;
     }

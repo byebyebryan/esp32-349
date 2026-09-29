@@ -31,6 +31,21 @@ Automated acceptance and Starship's short physical check passed on firmware
 The larger close-control follow-up passed its focused Starship check on
 `604fd70da`. Subsequent Snap rollout checkpoints are recorded below.
 
+### Current direction — notification-only right pane (2026-09-28)
+
+Horizontal Home/app navigation is parked for `notification-history-v1` peers.
+Keep the fixed HH:MM/CPU/MEM/DN/UP rail and dedicate the right side to recent
+notifications, with `No recent notifications` when empty. Keep vertical whole-card
+swiping, explicit Open/× controls and card motion. The body becomes 16 px with
+the existing glyph repertoire, relative age metadata and a 511-byte UTF-8 bound.
+Retain cards for 30 minutes from genuine arrival/replacement, capped at 32;
+popup timeout, viewing and sync do not renew them. Older peers retain their
+existing grouped/active-card behavior. See the
+[implementation plan](design/notification-history-plan.md) and
+[acceptance record](design/notification-history-acceptance.md) for current
+validation and deployment evidence. Additional apps, disk history, clear-all
+and body-text scrolling remain deferred.
+
 ## Current validation boundary (2026-09-26)
 
 The hardware findings below describe the 2026-09-23 builds. The fresh
@@ -212,7 +227,8 @@ Rules:
 - `notify.urgency` comes from the `hints` dict, not a `Notify` argument;
   `expire` comes from `expire_timeout`. An absent zone `value`/`text` renders
   as unknown (`--`).
-- Truncation: app ≤ 31 bytes, summary ≤ 63 bytes, body ≤ 159 bytes,
+- Truncation: app ≤ 31 bytes, summary ≤ 63 bytes, body ≤ 159 bytes
+  (511 with `notification-history-v1`),
   UTF-8-safe cuts (matching device string buffers); zone text is ellipsized.
   The host trims cards from a `sync` until its encoded line fits 8 KB.
 - Layout limits: max 8 zones; host config reserves 16 px outer padding and

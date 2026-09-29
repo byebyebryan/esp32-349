@@ -15,6 +15,7 @@
 #include "rtc.h"
 #include "state.h"
 
+LV_FONT_DECLARE(status_text_16);
 LV_FONT_DECLARE(status_text_20);
 LV_FONT_DECLARE(status_text_22);
 LV_FONT_DECLARE(status_clock_80);
@@ -63,6 +64,8 @@ static bool s_visible;
 static int64_t s_last_clock_second = -1;
 static group_input_t s_group_input;
 static bool s_group_mode, s_group_home = true, s_group_manual, s_group_auto;
+static bool s_history_mode;
+static int64_t s_history_last_input_us;
 static int s_group_session, s_group_generation, s_group_present_id;
 static int s_group_offset;
 static bool s_group_persistent;
@@ -727,7 +730,8 @@ static void grouped_position(int offset)
     lv_obj_set_x(s_viewport, (s_group_home ? 480 : 0) + dx);
     for (int i = 0; i < 3; i++) {
         lv_obj_set_x(s_cards[i].root, 8);
-        lv_obj_set_y(s_cards[i].root, (i - 1) * GROUP_CARD_PITCH_PX + (horizontal ? 0 : offset));
+        const int pitch = s_history_mode ? HISTORY_CARD_PITCH_PX : GROUP_CARD_PITCH_PX;
+        lv_obj_set_y(s_cards[i].root, (i - 1) * pitch + (horizontal ? 0 : offset));
     }
 }
 
@@ -775,7 +779,7 @@ static void grouped_snapshot(snapshot_t *out, bool allow_attention)
     int ids[DECK_CAPACITY], count = 0;
     state_lock();
     status_state_t *st = state_get();
-    if (st->grouped_session != s_group_session) {
+    if (st->grouped_session != s_group_session || st->history_enabled != s_history_mode) {
         state_unlock();
         grouped_cancel();
         memset(&s_deck, 0, sizeof(s_deck));
@@ -784,6 +788,9 @@ static void grouped_snapshot(snapshot_t *out, bool allow_attention)
         state_lock();
         st = state_get();
         s_group_session = st->grouped_session;
+        s_history_mode = st->history_enabled;
+        if (s_history_mode) s_group_home = false;
+        s_history_last_input_us = esp_timer_get_time();
     }
     for (int i = st->notif_count - 1; i >= 0; i--) {
         if (!locally_hidden(st, st->notifs[i].id)) ids[count++] = st->notifs[i].id;
@@ -791,13 +798,19 @@ static void grouped_snapshot(snapshot_t *out, bool allow_attention)
     const int previous_count = s_deck.count;
     deck_reconcile(&s_deck, ids, count);
     const int64_t now = esp_timer_get_time();
+    bool became_idle = false;
+    if (s_history_mode && allow_attention && s_group_manual && !group_busy() &&
+        now - s_history_last_input_us >= 30000000) {
+        s_group_manual = false;
+        became_idle = true;
+    }
     const status_presentation_t *p = &st->presentation;
     const bool lease_valid = p->active && (p->persistent || p->deadline_us > now);
     if (allow_attention && p->generation > s_group_generation &&
-        (!group_busy() || (s_group_manual && p->urgency < 2))) {
+        (!group_busy() || (s_group_manual && (s_history_mode || p->urgency < 2)))) {
         s_group_generation = p->generation;
         if (!group_busy() && lease_valid && reachable(p->id) &&
-            (!s_group_manual || p->urgency >= 2)) {
+            (!s_group_manual || (!s_history_mode && p->urgency >= 2))) {
             deck_select_id(&s_deck, p->id);
             s_group_home = false; s_group_manual = false; s_group_auto = true;
             s_group_present_id = p->id;
@@ -811,13 +824,17 @@ static void grouped_snapshot(snapshot_t *out, bool allow_attention)
         }
         if (allow_attention && !group_busy() && (!p->active || !reachable(s_group_present_id) ||
             (!s_group_persistent && now >= s_group_deadline))) {
-            s_group_auto = false; s_group_home = true;
+            s_group_auto = false; s_group_home = !s_history_mode;
         }
     }
     if (count == 0) {
-        if (previous_count > 0 || s_group_auto) s_group_home = true;
+        if (previous_count > 0 || s_group_auto) s_group_home = !s_history_mode;
         s_group_auto = false;
         if (s_group_home) s_group_manual = false;
+    }
+    if (s_history_mode) {
+        s_group_home = false;
+        if (count == 0) s_group_manual = false;
     }
     const int position = deck_position(&s_deck);
     int neighbors[3] = {0, s_deck.has_focus ? s_deck.focus_id : 0, 0};
@@ -854,6 +871,7 @@ static void grouped_snapshot(snapshot_t *out, bool allow_attention)
     st->grouped_deadline_us = s_group_deadline;
     st->grouped_persistent = s_group_persistent;
     state_unlock();
+    if (became_idle) proto_send_input_history_idle(s_group_generation);
 }
 
 static void grouped_bind_except(const snapshot_t *view, int frozen_slot)
@@ -867,16 +885,22 @@ static void grouped_bind_except(const snapshot_t *view, int frozen_slot)
         hide(slot->root, !slot->valid);
         hide(slot->dismiss, i != 1);
         hide(slot->open, i != 1 || !view->actions_enabled);
-        lv_obj_set_size(slot->root, 464, multiple ? 120 : 144);
-        lv_obj_set_size(slot->accent, 3, multiple ? 100 : 124);
+        const int height = s_history_mode ? (multiple ? 140 : 164) : (multiple ? 120 : 144);
+        lv_obj_set_size(slot->root, 464, height);
+        lv_obj_set_size(slot->accent, 3, height - 20);
         const int header_width = i == 1
             ? (view->actions_enabled ? OPEN_X - 24 : 464 - DISMISS_WIDTH - 24)
             : 440;
         lv_obj_set_pos(slot->app, 12, 4); lv_obj_set_width(slot->app, header_width);
         lv_obj_set_pos(slot->title, 12, 24); lv_obj_set_width(slot->title, header_width);
-        lv_obj_set_pos(slot->body, 12, 52);
-        lv_obj_set_size(slot->body, 440, multiple ? 52 : view->overflow ? 72 : 84);
-        lv_obj_set_pos(slot->position, 12, multiple ? 104 : 128);
+        lv_obj_set_style_text_font(slot->body,
+            s_history_mode ? &status_text_16 : &status_text_20, 0);
+        lv_obj_set_pos(slot->body, 12, s_history_mode ? 56 : 52);
+        lv_obj_set_size(slot->body, 440, s_history_mode
+            ? (multiple ? 66 : view->overflow ? 82 : 90)
+            : (multiple ? 52 : view->overflow ? 72 : 84));
+        lv_obj_set_pos(slot->position, 12,
+            s_history_mode ? (multiple ? 124 : 148) : (multiple ? 104 : 128));
         lv_obj_set_width(slot->position, 440);
         lv_obj_set_x(slot->dismiss, OPEN_X + DISMISS_WIDTH + CONTROL_GAP);
         lv_obj_set_pos(slot->open, OPEN_X, 0);
@@ -885,7 +909,17 @@ static void grouped_bind_except(const snapshot_t *view, int frozen_slot)
         if (!lv_color_eq(lv_obj_get_style_bg_color(slot->accent, 0), accent)) {
             lv_obj_set_style_bg_color(slot->accent, accent, 0);
         }
-        text(slot->app, i == 1 ? n->app : n->summary);
+        char metadata[80];
+        if (s_history_mode && i == 1) {
+            int64_t age_s = (esp_timer_get_time() - n->history_updated_us) / 1000000;
+            if (age_s < 0) age_s = 0;
+            if (age_s < 60) snprintf(metadata, sizeof(metadata), "%s · now", n->app);
+            else if (age_s < 3600) snprintf(metadata, sizeof(metadata), "%s · %lldm ago",
+                n->app, (long long)(age_s / 60));
+            else snprintf(metadata, sizeof(metadata), "%s · %lldh ago",
+                n->app, (long long)(age_s / 3600));
+            text(slot->app, metadata);
+        } else text(slot->app, i == 1 ? n->app : n->summary);
         grouped_title(slot, n->summary[0] ? n->summary : "Notification",
                       i == 1 && view->actions_enabled, header_width);
         text(slot->body, n->body);
@@ -962,13 +996,13 @@ static void grouped_lifecycle_change(bool previous_home, int previous_id)
         /* Keep the outgoing Notifications widgets for the return to Home. */
         grouped_lifecycle_start(GROUP_LIFECYCLE_GROUP,
             s_group_home ? -480 : 480, s_group_home ? 0 : current_id);
-    } else if (!s_group_home && current_id > 0 && previous_id != current_id) {
+    } else if (!s_group_home && (current_id > 0 || s_history_mode) && previous_id != current_id) {
         int previous_position = -1;
         for (int i = 0; i < s_deck.count; i++) {
             if (s_deck.ids[i] == previous_id) previous_position = i;
         }
-        const bool from_above = previous_position >= 0 &&
-                                 deck_position(&s_deck) < previous_position;
+        const bool from_above = s_history_mode && previous_id == 0
+            ? true : previous_position >= 0 && deck_position(&s_deck) < previous_position;
         const int outgoing_slot = from_above ? 2 : 0;
         /* Reuse the offscreen neighbor as the outgoing full card, retaining
          * its text and geometry. This adds no widgets or rendering buffers. */
@@ -976,9 +1010,8 @@ static void grouped_lifecycle_change(bool previous_home, int previous_id)
         s_cards[1] = s_cards[outgoing_slot];
         s_cards[outgoing_slot] = outgoing;
         grouped_bind_except(&s_view, outgoing_slot);
-        grouped_lifecycle_start(GROUP_LIFECYCLE_CARD,
-            from_above ? -GROUP_CARD_PITCH_PX : GROUP_CARD_PITCH_PX,
-            current_id);
+        const int pitch = s_history_mode ? HISTORY_CARD_PITCH_PX : GROUP_CARD_PITCH_PX;
+        grouped_lifecycle_start(GROUP_LIFECYCLE_CARD, from_above ? -pitch : pitch, current_id);
     }
 }
 
@@ -1027,6 +1060,7 @@ static void grouped_start_snap(deck_input_action_t action)
 
 static void grouped_takeover(void)
 {
+    s_history_last_input_us = esp_timer_get_time();
     s_group_auto = false; s_group_manual = !s_group_home;
     /* Normal attention may have been sent during a button hold or before
      * axis acquisition. Consume its generation without changing selection;
@@ -1064,7 +1098,10 @@ static void grouped_input_cb(lv_event_t *event)
         }
         s_input_indev = indev;
         grouped_snapshot(&s_view, true);
-        if (s_view.stale) { lv_indev_wait_release(indev); return; }
+        if (s_view.stale && !s_history_mode) { lv_indev_wait_release(indev); return; }
+        s_history_last_input_us = esp_timer_get_time();
+        s_group_input.vertical_only = s_history_mode;
+        s_group_input.card_pitch_px = s_history_mode ? HISTORY_CARD_PITCH_PX : GROUP_CARD_PITCH_PX;
         const bool has_foreground = !s_group_home && s_cards[1].valid;
         lv_area_t open_bounds = {0}, dismiss_bounds = {0};
         const bool hit_open = has_foreground && s_view.actions_enabled &&
@@ -1093,7 +1130,8 @@ static void grouped_input_cb(lv_event_t *event)
         }
     } else if (indev == s_input_indev && deck_input_busy(&s_group_input.motion)) {
         grouped_snapshot(&s_view, true);
-        if (s_view.stale) { grouped_cancel(); grouped_tick(STATE_DIRTY_NOTIF); return; }
+        if (s_view.stale && !s_history_mode) { grouped_cancel(); grouped_tick(STATE_DIRTY_NOTIF); return; }
+        s_history_last_input_us = esp_timer_get_time();
         const uint32_t generation = s_group_input.motion.generation;
         deck_input_action_t invalid = grouped_validate();
         if (invalid.kind == DECK_INPUT_ACTION_SNAP) grouped_start_snap(invalid);
@@ -1128,6 +1166,7 @@ static void grouped_input_cb(lv_event_t *event)
 
 static void grouped_tick(uint32_t dirty)
 {
+    state_history_tick(esp_timer_get_time());
     state_action_tick(esp_timer_get_time());
     if (!link_host_connected()) state_action_disconnect();
     if (s_group_input.motion.state == DECK_INPUT_IGNORED && s_input_indev &&
@@ -1142,13 +1181,13 @@ static void grouped_tick(uint32_t dirty)
     bool skip_lifecycle = s_group_skip_lifecycle;
     s_group_skip_lifecycle = false;
     grouped_snapshot(&s_view, true);
-    if (s_group_lifecycle.active && (s_view.stale ||
+    if (s_group_lifecycle.active && ((s_view.stale && !s_history_mode) ||
         (s_group_lifecycle.to_id > 0 && !reachable(s_group_lifecycle.to_id)))) {
         grouped_lifecycle_cancel();
         skip_lifecycle = true;
     }
     if (deck_input_busy(&s_group_input.motion)) {
-        if (s_view.stale) grouped_cancel();
+        if (s_view.stale && !s_history_mode) grouped_cancel();
         else {
             uint32_t generation = s_group_input.motion.generation;
             deck_input_action_t action = grouped_validate();
@@ -1159,21 +1198,24 @@ static void grouped_tick(uint32_t dirty)
             }
         }
     }
-    if (s_view.stale) { s_group_home = true; s_group_auto = false; }
-    if (!skip_lifecycle && !s_group_lifecycle.active && !gesture_busy && !s_view.stale &&
-        !previous_stale && previous_session == s_group_session) {
+    if (s_view.stale && !s_history_mode) { s_group_home = true; s_group_auto = false; }
+    if (!skip_lifecycle && !s_group_lifecycle.active && !gesture_busy &&
+        (!s_view.stale || s_history_mode) && (!previous_stale || s_history_mode) &&
+        previous_session == s_group_session) {
         grouped_lifecycle_change(previous_home, previous_id);
     }
-    lv_obj_set_y(s_viewport, 20); lv_obj_set_height(s_viewport, 152);
+    lv_obj_set_y(s_viewport, s_history_mode ? 0 : 20);
+    lv_obj_set_height(s_viewport, s_history_mode ? 172 : 152);
     lv_obj_set_width(s_viewport, 480);
-    hide(s_idle, false); hide(s_viewport, s_view.stale);
-    if (!group_busy() || s_view.stale) {
-        hide(s_group_empty, s_deck.count > 0 || s_view.stale);
-        char empty[64] = "No notifications";
+    hide(s_idle, s_history_mode); hide(s_viewport, s_view.stale && !s_history_mode);
+    if (!group_busy() || (s_view.stale && !s_history_mode)) {
+        hide(s_group_empty, s_deck.count > 0 || (s_view.stale && !s_history_mode));
+        char empty[64];
+        strlcpy(empty, s_history_mode ? "No recent notifications" : "No notifications", sizeof(empty));
         if (s_view.overflow > 0) snprintf(empty, sizeof(empty), "%d uncached notifications", s_view.overflow);
         text(s_group_empty, empty);
     }
-    hide(s_group_cue, false);
+    hide(s_group_cue, s_history_mode);
     if (!group_busy()) grouped_bind(&s_view);
     char cue[80];
     snprintf(cue, sizeof(cue), s_group_home ? "HOME   /   NOTIFICATIONS %d >" : "< HOME   /   NOTIFICATIONS %d",

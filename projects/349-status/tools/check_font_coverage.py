@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Audit legacy font coverage and the generated 20 px/22 px composites."""
+"""Audit legacy font coverage and the generated 16 px/20 px/22 px composites."""
 
 from __future__ import annotations
 
@@ -64,7 +64,7 @@ def main() -> int:
         failed |= report_required(f"{size} px", legacy[size])
     print(f"14/16 px legacy repertoire union: {len(old_union)} distinct glyphs")
 
-    for size in (20, 22):
+    for size in (16, 20, 22):
         path = PROJECT / f"main/fonts/status_text_{size}.c"
         available = glyphs(path)
         print(f"{size} px generated composite: {len(available)} distinct glyphs")

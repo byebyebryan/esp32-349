@@ -58,7 +58,11 @@ class Daemon:
         if port_override is not None:
             self.cfg.link.port = port_override
         self.stop = stop
-        self.model = StateModel(max_visible=cfg.notifications.max_visible, cache_limit=cfg.notifications.cache_limit)
+        self.model = StateModel(
+            max_visible=cfg.notifications.max_visible,
+            cache_limit=cfg.notifications.cache_limit,
+            retention_s=cfg.notifications.retention_s,
+        )
         self.clock = ClockSource()
         self.sysinfo = SysinfoSource()
         self.volume = VolumeSource()
@@ -107,6 +111,8 @@ class Daemon:
         self._dashboard_capable = False
         self._grouped_enabled = False
         self._grouped_mode = False
+        self._history_enabled = False
+        self._history_mode = False
         self.grouped_session = secrets.randbelow(SESSION_MAX) + 1
         self._grouped_generation = 0
         self._device_expected_generation = 0
@@ -138,6 +144,7 @@ class Daemon:
     async def _action_state_changed(self, local_id: int, opened: dict) -> None:
         """Publish only metadata for a retained card in the committed device cache."""
         async with self._state_lock:
+            await self._expire_history_locked(self._monotonic())
             if (
                 not self._actions_negotiated or not self._grouped_enabled
                 or local_id not in self.model.retained_notifs
@@ -191,13 +198,32 @@ class Daemon:
         async with self._state_lock:
             if self.notifications.is_locally_removed(local_id) or self.notifications.is_forgotten(local_id):
                 return
+            now = self._monotonic()
+            receipt_mono = message.get("_received_mono", now)
+            try:
+                parsed_receipt = float(receipt_mono)
+            except (OverflowError, TypeError, ValueError):
+                receipt_mono = now
+            else:
+                if isinstance(receipt_mono, bool) or not math.isfinite(parsed_receipt):
+                    receipt_mono = now
+                else:
+                    receipt_mono = parsed_receipt
+            clean_message = {key: value for key, value in message.items() if not key.startswith("_")}
+            clean_message.pop("history", None)
+            if self._history_mode and (now - receipt_mono) * 1000 >= self.cfg.notifications.retention_s * 1000:
+                self.notifications.forget(local_id)
+                return
+            await self._expire_history_locked(now, exclude_ids={local_id})
             was_grouped = self._grouped_enabled
             previous_cached = self.model.cached_notification_ids(
                 self._card_sync_capacity, retained=was_grouped
             )
             attention_expired = self._grouped_mode and self.notifications.attention_expired(local_id)
-            active_changed = False if attention_expired else self.model.add_notification(message)
-            retained_changed, evicted = self.model.retain_notification(message, bump_rev=False)
+            active_changed = False if attention_expired else self.model.add_notification(clean_message)
+            retained_changed, evicted = self.model.retain_notification(
+                clean_message, receipt_mono=receipt_mono, bump_rev=False
+            )
             if retained_changed and not active_changed:
                 self.model.rev += 1
             for evicted_id in evicted:
@@ -207,7 +233,11 @@ class Daemon:
                 if self._grouped_mode:
                     self.model.close_active_notification(evicted_id)
 
-            update = dict(message)
+            update = self._notification_projection(
+                clean_message, history=False, now_mono=now
+            )
+            if update is None:
+                return
             if was_grouped:
                 cached_ids = self.model.cached_notification_ids(
                     self._card_sync_capacity, retained=True
@@ -230,9 +260,76 @@ class Daemon:
                 if self._card_sync_capacity is not None:
                     update["cached"] = local_id in cached_ids
 
+            if self._history_enabled:
+                send_now = self._monotonic()
+                history = self.model.history_metadata(local_id, send_now)
+                if history is None:
+                    await self._expire_history_locked(send_now)
+                    return
+                update["body"] = proto.clip_utf8_ellipsis(
+                    proto.display_text(clean_message.get("body", "")),
+                    proto.NOTIFICATION_BODY_HISTORY_BYTES,
+                )
+                update["history"] = history
             sent = await self.send(update)
             if was_grouped and sent and not self.notifications.attention_expired(local_id):
-                await self._queue_presentation_locked(message, time.monotonic())
+                await self._queue_presentation_locked(clean_message, now)
+
+    def _notification_projection(self, message: dict, *, history: bool, now_mono: float) -> dict | None:
+        """Build one peer-specific notification projection without retained internals."""
+        projected = {key: value for key, value in message.items() if not key.startswith("_") and key != "history"}
+        if isinstance(projected.get("body"), str):
+            body_limit = (
+                proto.NOTIFICATION_BODY_HISTORY_BYTES if history else proto.NOTIFICATION_BODY_LEGACY_BYTES
+            )
+            projected["body"] = proto.clip_utf8_ellipsis(proto.display_text(projected["body"]), body_limit)
+        if history:
+            local_id = int(projected["id"])
+            metadata = self.model.history_metadata(local_id, now_mono)
+            if metadata is None:
+                return None
+            projected["history"] = metadata
+        return projected
+
+    async def _expire_history_locked(self, now_mono: float, *, exclude_ids: set[int] | None = None) -> list[int]:
+        """Expire retained history and release its source/action identities."""
+        if not self._history_mode:
+            return []
+        exclude_ids = exclude_ids or set()
+        expired = [
+            nid for nid, receipt in self.model.retained_received_mono.items()
+            if nid not in exclude_ids
+            and (now_mono - receipt) * 1000 >= self.cfg.notifications.retention_s * 1000
+        ]
+        if not expired:
+            return []
+
+        was_grouped = self._grouped_enabled
+        previous_cached = self.model.cached_notification_ids(self._card_sync_capacity, retained=was_grouped)
+        previous_overflow = len(self.model.retained_notifs) > len(previous_cached)
+        for local_id in expired:
+            self._cancel_unsent_action(local_id)
+            self._injected_expiry.pop(local_id, None)
+            self.notifications.forget(local_id)
+            if self._pending_present_id == local_id:
+                self._pending_present_id = None
+                self._pending_present_due = None
+            if self._presentation is not None and self._presentation["id"] == local_id:
+                await self._end_presentation_locked(send_end=self._history_enabled)
+        self.model.expire_retained(now_mono, exclude_ids=exclude_ids)
+        if not self.model.retained_notifs:
+            self._manual_notifications = False
+        if self._history_enabled:
+            total = len(self.model.retained_notifs)
+            for local_id in expired:
+                await self.send(proto.close(local_id, total=total, session=self.grouped_session))
+        if was_grouped and previous_cached.intersection(expired):
+            current_cached = self.model.cached_notification_ids(self._card_sync_capacity, retained=True)
+            current_overflow = len(self.model.retained_notifs) > len(current_cached)
+            if previous_overflow or current_overflow:
+                self._needs_sync = True
+                self._tick_wakeup.set()
+        return expired
 
     async def _device_close(self, local_id: int) -> None:
         async with self._state_lock:
@@ -249,7 +346,8 @@ class Daemon:
                 if self._presentation is not None and self._presentation["id"] == local_id:
                     await self._end_presentation_locked(send_end=False)
                 if grouped and not self.model.retained_notifs:
-                    self._grouped_group = "home"
+                    if not self._history_mode:
+                        self._grouped_group = "home"
                     self._manual_notifications = False
                 await self.send(
                     proto.close(
@@ -319,6 +417,10 @@ class Daemon:
 
     async def _queue_presentation_locked(self, message: dict, now: float) -> None:
         """Apply critical attention immediately and coalesce normal arrivals."""
+        if self._history_enabled and self._manual_notifications:
+            self._pending_present_id = None
+            self._pending_present_due = None
+            return
         urgency = int(message.get("urgency", 1))
         if urgency >= 2:
             self._pending_present_id = None
@@ -510,6 +612,7 @@ class Daemon:
             await self._send_sync_locked()
 
     async def _send_sync_locked(self) -> None:
+        await self._expire_history_locked(self._monotonic())
         epoch, offset = self.clock.read()
         self.model.set_clock(epoch, offset)
         if self._latest_sample is None:
@@ -523,7 +626,14 @@ class Daemon:
         else:
             self._sync_tx += 1
             grouped = self._grouped_enabled
+            history_now = self._monotonic()
+            await self._expire_history_locked(history_now)
             snapshot = self.model.card_snapshot(self._card_sync_capacity, retained=grouped)
+            snapshot["notifs"] = [
+                self._notification_projection(card, history=self._history_enabled, now_mono=history_now)
+                for card in snapshot["notifs"]
+            ]
+            snapshot["notifs"] = [card for card in snapshot["notifs"] if card is not None]
             if grouped and self._actions_negotiated:
                 snapshot["notifs"] = [
                     {**card, "open": self.action_manager.open_for(int(card["id"]))}
@@ -535,6 +645,7 @@ class Daemon:
                 include_dashboard=self._dashboard_capable,
                 grouped_session=self.grouped_session if grouped else None,
                 include_actions=bool(grouped and self._actions_negotiated),
+                include_history=self._history_enabled,
             )
 
         # Hold the wire lock across the full transaction, including begin and
@@ -581,6 +692,7 @@ class Daemon:
             backoff = min_backoff
             async with self._state_lock:
                 self._grouped_enabled = False
+                self._history_enabled = False
                 self._actions_capable = False
                 self._actions_negotiated = False
                 self._device_expected_generation = 0
@@ -613,6 +725,7 @@ class Daemon:
                 async with self._state_lock:
                     self._writer = None
                     self._grouped_enabled = False
+                    self._history_enabled = False
                     self._actions_capable = False
                     self._actions_negotiated = False
                     self.action_manager.invalidate_for_link_reset()
@@ -675,22 +788,27 @@ class Daemon:
                 new_capacity = proto.card_sync_capacity(message)
                 new_dashboard = new_capacity is not None and proto.dashboard_capable(message)
                 new_grouped = new_capacity is not None and proto.grouped_ui_capable(message)
+                new_history = new_capacity is not None and proto.notification_history_capable(message)
                 new_actions_capable = proto.notification_actions_capable(message)
                 new_actions_negotiated = (
                     self.cfg.notifications.device_open == "dms" and new_actions_capable
                 )
                 first_grouped = new_grouped and not self._grouped_enabled
+                first_history = new_history and not self._history_enabled
                 changed_boot = boot_id is not None and boot_id != self._device_boot_id
                 capabilities_changed = (
                     new_capacity != self._card_sync_capacity
                     or new_dashboard != self._dashboard_capable
                     or new_grouped != self._grouped_enabled
+                    or new_history != self._history_enabled
                     or new_actions_negotiated != self._actions_negotiated
                 )
                 self._card_sync_capacity = new_capacity
                 self._dashboard_capable = new_dashboard
                 self._grouped_enabled = new_grouped
                 self._grouped_mode = new_grouped
+                self._history_enabled = new_history
+                self._history_mode = new_history
                 self._actions_capable = new_actions_capable
                 self._actions_negotiated = new_actions_negotiated
                 if boot_id is not None and boot_id != self._action_ledger_boot_id:
@@ -705,7 +823,10 @@ class Daemon:
                     self._pending_present_id = None
                     self._pending_present_due = None
                     await self._end_presentation_locked(send_end=False)
-                    self._grouped_group = "home"
+                    self._grouped_group = "notifications" if new_history else "home"
+                    self._manual_notifications = False
+                elif first_history:
+                    self._grouped_group = "notifications"
                     self._manual_notifications = False
                 if new_grouped:
                     unassociated = self.notifications.enforce_grouped_bounds()
@@ -720,6 +841,8 @@ class Daemon:
                     await self._end_presentation_locked(send_end=False)
                     self._grouped_group = "home"
                     self._manual_notifications = False
+                elif not new_history and not first_grouped:
+                    self._history_mode = False
                 if boot_id is not None and boot_id == self._device_boot_id and not capabilities_changed:
                     log.debug("ignoring repeated hello for device boot_id=%s", boot_id)
                 else:
@@ -756,6 +879,7 @@ class Daemon:
             session = message.get("session")
             generation = message.get("generation")
             group = message.get("group")
+            manual = message.get("manual")
             if (
                 isinstance(session, bool)
                 or not isinstance(session, int)
@@ -765,15 +889,25 @@ class Daemon:
                 or not 0 <= generation <= SESSION_MAX
                 or not isinstance(group, str)
                 or group not in {"home", "notifications"}
+                or ("manual" in message and not isinstance(manual, bool))
+                or ("manual" in message and manual is False and not self._history_enabled)
+                or ("manual" in message and manual is True and group != "notifications")
+                or ("manual" in message and manual is False and group != "notifications")
             ):
                 return
             async with self._state_lock:
-                if not self._grouped_enabled or generation != self._device_expected_generation:
+                if (
+                    not self._grouped_enabled
+                    or generation != self._device_expected_generation
+                    or ("manual" in message and manual is False and not self._history_enabled)
+                ):
                     return
                 self._pending_present_id = None
                 self._pending_present_due = None
                 self._grouped_group = group
-                self._manual_notifications = group == "notifications"
+                self._manual_notifications = (
+                    manual if "manual" in message else group == "notifications"
+                )
                 if self._presentation is not None:
                     await self._end_presentation_locked(send_end=True)
             return
@@ -796,6 +930,7 @@ class Daemon:
                 return
             propagate = False
             async with self._state_lock:
+                await self._expire_history_locked(self._monotonic())
                 if not self._grouped_enabled or local_id not in self.model.retained_notifs:
                     return
                 cached = self.model.cached_notification_ids(self._card_sync_capacity, retained=True)
@@ -813,7 +948,8 @@ class Daemon:
                 if self._presentation is not None and self._presentation["id"] == local_id:
                     self._presentation = None
                 if not self.model.retained_notifs:
-                    self._grouped_group = "home"
+                    if not self._history_mode:
+                        self._grouped_group = "home"
                     self._manual_notifications = False
                 await self.send(
                     proto.close(
@@ -884,6 +1020,7 @@ class Daemon:
         refresh_binding = False
         dispatch = False
         async with self._state_lock:
+            await self._expire_history_locked(self._monotonic())
             if (
                 not self._actions_negotiated or not self._grouped_enabled
                 or self._action_ledger_boot_id != boot_id or self._device_boot_id != boot_id
@@ -968,6 +1105,7 @@ class Daemon:
         session, boot_id, local_id, revision, request = identity
         immediate: str | None = None
         async with self._state_lock:
+            await self._expire_history_locked(self._monotonic())
             pending = self._action_pending
             if (
                 pending is None or pending["identity"] != identity
@@ -1044,6 +1182,8 @@ class Daemon:
                 self.cfg.link.port = self._port_override
             self.model.max_visible = self.cfg.notifications.max_visible
             self.model.cache_limit = self.cfg.notifications.cache_limit
+            self.model.retention_s = self.cfg.notifications.retention_s
+            await self._expire_history_locked(self._monotonic())
             self._actions_negotiated = (
                 self.cfg.notifications.device_open == "dms"
                 and self._actions_capable and self._action_ledger_boot_id is not None
@@ -1089,6 +1229,7 @@ class Daemon:
             "notifs": len(self.model.notifs),
             "retained_notifs": len(self.model.retained_notifs),
             "grouped": self._grouped_enabled,
+            "notification_history": self._history_enabled,
             "notification_actions": {
                 "configured": self.cfg.notifications.device_open == "dms",
                 "capable": self._actions_capable,
@@ -1165,6 +1306,11 @@ class Daemon:
             wait_s = max(0.0, min(self._next_sample_mono, next_sync) - now)
             if self._injected_expiry:
                 wait_s = min(wait_s, max(0.0, min(self._injected_expiry.values()) - now))
+            if self._history_mode and self.model.retained_received_mono:
+                retention_deadline = min(self.model.retained_received_mono.values()) + float(
+                    self.cfg.notifications.retention_s
+                )
+                wait_s = min(wait_s, max(0.0, retention_deadline - now))
             attention_deadlines = []
             if self._pending_present_due is not None:
                 attention_deadlines.append(self._pending_present_due)
@@ -1205,6 +1351,7 @@ class Daemon:
 
             async with self._state_lock:
                 attention_now = time.monotonic()
+                await self._expire_history_locked(self._monotonic())
                 await self._expire_presentation_locked(attention_now)
                 if self._pending_present_due is not None and self._pending_present_due <= attention_now:
                     await self._publish_pending_presentation_locked(attention_now)

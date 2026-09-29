@@ -87,6 +87,23 @@ def test_grouped_capability_requires_cache_dashboard_and_grouped_v1():
     )
 
 
+def test_notification_history_capability_requires_complete_grouped_dashboard_set():
+    capable = {
+        "cap": [
+            "card-sync-v1", "dashboard-v1", "grouped-ui-v1", "notification-history-v1",
+        ],
+        "cache_cards": 32,
+    }
+    assert proto.notification_history_capable(capable)
+    assert not proto.notification_history_capable({**capable, "cap": capable["cap"][:-1]})
+    assert not proto.notification_history_capable(
+        {**capable, "cap": ["card-sync-v1", "grouped-ui-v1", "notification-history-v1"]}
+    )
+    assert not proto.notification_history_capable(
+        {**capable, "cap": ["dashboard-v1", "grouped-ui-v1", "notification-history-v1"]}
+    )
+
+
 def test_notification_action_capability_requires_grouped_cache_and_valid_boot_id():
     capable = {
         "cap": [
@@ -181,6 +198,10 @@ def test_cards_status_preserves_and_validates_optional_grouped_readback():
         "remaining_ms": 0,
     }
     assert proto.card_status({**status, "grouped": grouped}) == {**status, "grouped": grouped}
+    history_grouped = {**grouped, "history": True}
+    assert proto.card_status({**status, "grouped": history_grouped}) == {
+        **status, "grouped": history_grouped,
+    }
 
     inactive = {
         "enabled": False,
@@ -204,6 +225,8 @@ def test_cards_status_preserves_and_validates_optional_grouped_readback():
         {**grouped, "present_id": 99},
         {**grouped, "manual": True, "present_id": 17},
         {**inactive, "generation": 1},
+        {**grouped, "history": 1},
+        {**inactive, "history": True},
     ):
         assert proto.card_status({**status, "grouped": invalid}) is None
 
@@ -218,6 +241,7 @@ def test_card_sync_chunks_measure_escaped_utf8_bytes():
             1,
             5000,
             42,
+            body_max_bytes=proto.NOTIFICATION_BODY_LEGACY_BYTES,
         )
         for nid in range(32)
     ]
@@ -350,6 +374,57 @@ def test_grouped_sync_begin_carries_session_only_when_requested():
     assert all(len(proto.encode(message)) <= proto.LINE_MAX for message in grouped)
 
 
+def test_history_sync_negotiates_exact_metadata_and_old_projection_strips_it():
+    card = {
+        **proto.notify(17, "app", "sum", "東京" * 200, 1, 1000, 1),
+        "history": {"rev": 4, "age_ms": 125, "remaining_ms": 1799875},
+    }
+    snapshot = {
+        "rev": 9,
+        "bar": {"t": "bar", "rev": 9, "zones": []},
+        "clock": None,
+        "media": None,
+        "dashboard": proto.dashboard_payload(None),
+        "notifs": [card],
+        "limit": 32,
+        "overflow": 0,
+    }
+    history_messages = proto.card_sync_messages(
+        snapshot, tx=1, include_dashboard=True, grouped_session=123, include_history=True
+    )
+    history_begin = history_messages[0]
+    assert history_begin["grouped"] == {"session": 123, "history": True}
+    history_cards = [item for frame in history_messages if frame["t"] == "sync_cards" for item in frame["notifs"]]
+    assert history_cards == [card]
+    assert len(history_cards[0]["body"].encode("utf-8")) <= proto.NOTIFICATION_BODY_HISTORY_BYTES
+    assert all(len(proto.encode(frame)) <= proto.LINE_MAX for frame in history_messages)
+
+    old_messages = proto.card_sync_messages(
+        snapshot, tx=2, include_dashboard=True, grouped_session=123
+    )
+    old_card = next(item for frame in old_messages if frame["t"] == "sync_cards" for item in frame["notifs"])
+    assert "history" not in old_card
+    assert len(old_card["body"].encode("utf-8")) == proto.NOTIFICATION_BODY_LEGACY_BYTES
+    assert old_card["body"].endswith("…")
+    assert all(len(proto.encode(frame)) <= proto.LINE_MAX for frame in old_messages)
+    for invalid in (
+        {"rev": 0, "age_ms": 0, "remaining_ms": 1},
+        {"rev": True, "age_ms": 0, "remaining_ms": 1},
+        {"rev": 1, "age_ms": -1, "remaining_ms": 1},
+        {"rev": 1, "age_ms": 0, "remaining_ms": 0},
+        {"rev": 1, "age_ms": 0, "remaining_ms": 1, "extra": 2},
+    ):
+        malformed = {**snapshot, "notifs": [{**card, "history": invalid}]}
+        with pytest.raises(ValueError, match="history sync card"):
+            proto.card_sync_messages(
+                malformed, tx=3, include_dashboard=True, grouped_session=123, include_history=True
+            )
+    with pytest.raises(ValueError, match="grouped sync"):
+        proto.card_sync_messages(snapshot, tx=4, include_history=True)
+    with pytest.raises(ValueError, match="dashboard sync"):
+        proto.card_sync_messages(snapshot, tx=5, grouped_session=123, include_history=True)
+
+
 def test_action_sync_is_opt_in_and_requires_valid_card_open_metadata():
     snapshot = {
         "rev": 9,
@@ -442,6 +517,20 @@ def test_notify_uses_supported_glyphs_and_fits_device_buffers():
     assert message["summary"] == "s" * 62 + "e"
     assert message["body"] == "b" * 158 + "e"
     assert len(proto.encode(message)) < proto.LINE_MAX
+
+
+def test_notification_body_limit_uses_utf8_bytes_and_marks_truncation():
+    text = "東京" * 200
+    message = proto.notify(1, "app", "sum", text, 1, -1, 1)
+    body = message["body"]
+    assert len(body.encode("utf-8")) <= proto.NOTIFICATION_BODY_HISTORY_BYTES
+    assert body.endswith("…")
+    legacy = proto.notify(
+        1, "app", "sum", text, 1, -1, 1,
+        body_max_bytes=proto.NOTIFICATION_BODY_LEGACY_BYTES,
+    )
+    assert len(legacy["body"].encode("utf-8")) <= proto.NOTIFICATION_BODY_LEGACY_BYTES
+    assert legacy["body"].endswith("…")
 
 
 def test_non_latin_text_reaches_device_font_fallback():

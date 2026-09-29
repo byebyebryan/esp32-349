@@ -15,7 +15,7 @@
 #define STATUS_MAX_NOTIFS       32
 #define STATUS_NOTIF_APP_MAX    32
 #define STATUS_NOTIF_SUMMARY_MAX 64
-#define STATUS_NOTIF_BODY_MAX   160
+#define STATUS_NOTIF_BODY_MAX   512
 #define STATUS_STALE_TIMEOUT_US (10 * 1000 * 1000)
 
 typedef struct {
@@ -57,6 +57,8 @@ typedef struct {
     int urgency;
     int open_revision;
     bool open_ready;
+    int history_revision;
+    int64_t history_updated_us, history_deadline_us;
 } status_notif_t;
 
 typedef enum {
@@ -97,6 +99,7 @@ typedef struct {
     bool deck_enabled, deck_stale;
     int deck_reachable, deck_position, deck_focus_id, deck_next_id;
     bool grouped_enabled;
+    bool history_enabled;
     int grouped_session;
     bool actions_enabled;
     bool action_pending;
@@ -150,6 +153,7 @@ bool state_grouped_session_matches(const cJSON *obj);
 bool state_apply_card_action(const cJSON *obj);
 bool state_apply_action_result(const cJSON *obj, uint32_t boot_id);
 void state_action_tick(int64_t now_us);
+void state_history_tick(int64_t now_us);
 void state_action_disconnect(void);
 bool state_action_open_enabled(const status_state_t *state,
                                const status_notif_t *notif, int64_t now_us);

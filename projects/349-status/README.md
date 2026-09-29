@@ -24,7 +24,7 @@ idf.py -p /dev/ttyACM0 flash
 Existing local `sdkconfig` files created before the CJK fallback need the
 Source Han Sans 14/16 px font options enabled; `sdkconfig.defaults` selects
 them for a fresh configuration. The new rail also requires Montserrat 40 px.
-The generated 20/22 px text and 80 px clock fonts are checked in.
+The generated 16/20/22 px text and 80 px clock fonts are checked in.
 
 ## Host setup
 
@@ -87,6 +87,7 @@ device_dismiss = "local"   # local | propagate
 device_open = "off"        # off | dms; opt in after installing the DMS action plugin
 max_visible = 3                 # legacy firmware snapshot cap
 cache_limit = 32                # newest retained cards; active cards on older firmware
+retention_s = 1800               # new history mode: age limit from arrival/replacement
 popup_timeout_ms = 10000          # fallback when an app requests server default (-1)
 critical_popup_timeout_ms = 0     # 0 keeps critical cards until closed
 ignore_apps = ["KeePassXC", "Bitwarden", "1Password"]
@@ -123,11 +124,33 @@ glyphs. Glyphs outside the font set show a visible placeholder. The
 [coverage audit](PLAN.md) describes remaining script gaps. Nerd Font Private
 Use icons and color emoji are not included.
 
+Firmware advertising `notification-history-v1` dedicates the right side to
+recent notifications. Empty means `No recent notifications`, with the clock
+remaining in the left rail. Swipe vertically between whole cards; horizontal
+drags and body taps are inert. The 22 px title and 16 px body provide three
+body lines with a next-card peek, or four for a singleton. App name and relative
+age identify each card. Open and the large × keep their explicit targets.
+
+In this mode, `retention_s` defaults to 1,800 seconds and accepts 1–86,400.
+Genuine arrivals and replacements start a new retention interval. Desktop
+popup timeout, viewing, sync and board reconnect do not extend it; the board
+also expires cached text while disconnected. Explicit desktop close/dismiss
+or × removes the record. The newest 32 records stay in daemon RAM; restarting
+the daemon starts empty. New arrivals focus while idle, while manual browsing
+keeps its selected ID. After 30 seconds without interaction, later arrivals
+may take focus again. An archived card's Open button is disabled when its
+desktop action is no longer valid. Bodies are bounded to 511 UTF-8 bytes with
+an ellipsis; older peers keep the 159-byte projection. See the
+[notification-only plan](design/notification-history-plan.md) and
+[acceptance record](design/notification-history-acceptance.md).
+
 `349ctl notify` uses a five-second test presentation by default. Mirrored
 notifications follow a positive app timeout; for the server-default timeout (`-1`),
 normal/low cards use `popup_timeout_ms` and
 critical cards use `critical_popup_timeout_ms`; an app timeout of `0` keeps
-automatic presentation until explicit close. With `grouped-ui-v1`, timeout
+automatic presentation until explicit close or the history age limit. With
+`notification-history-v1`, presentation timeout leaves the card selected.
+With only `grouped-ui-v1`, timeout
 returns to Home and retains the notification for browsing; desktop expiry
 also retains it. Explicit desktop close or × removes the record. Older peers
 keep the active-card behavior, where timeout removes the board card.
@@ -141,7 +164,7 @@ See the [cache implementation plan](design/card-cache-plan.md). Use
 `349ctl device-cards` to read the device's ordered cached IDs and overflow
 count without resetting the USB link.
 
-Firmware advertising `grouped-ui-v1` uses a persistent 160 px telemetry rail
+Older grouped firmware uses a persistent 160 px telemetry rail
 and a 480 px content area. Swipe horizontally between Home (large clock/date)
 and Notifications; swipe vertically within Notifications to snap one whole
 card. Both directions have bounds. Empty Notifications remains reachable and
@@ -185,7 +208,9 @@ The existing ten-second health log includes minimum-free LVGL and link-task
 stack space. The [board telemetry probe](tools/check_telemetry_board.py)
 compares real host samples with USB readback; `--stress-readback` additionally
 checks varied numeric responses with 32 cached cards and measured link-stack
-headroom. It requires a paused daemon and resets the board; the caller resumes
+headroom. `--history-stress` also checks the expanded text cache and controlled
+device expiry, same-revision replay, and replacement renewal. It requires a
+paused daemon and resets the board; the caller resumes
 the daemon afterward. Probe cadence and controlled stress values are separate
 from normal daemon timing and physical traffic measurements.
 
@@ -216,8 +241,10 @@ While the board stays powered, it shows `host asleep` when USB activity stops
 and `host disconnected` when USB is active but host messages stop for ten
 seconds. If the host cuts USB power during sleep, the board turns off instead;
 a full sync restores the display when it powers up and reconnects.
-The dashboard UI keeps the clock visible and marks the rail readings stale
-while showing its connection message in the right content area.
+The dashboard UI keeps the clock visible and marks the rail readings stale.
+History mode keeps the cached right-side cards browsable, disables Open, and
+shows the connection message in the rail footer; older grouped mode uses the
+right content area for that message.
 
 ## Flashing while the daemon runs
 

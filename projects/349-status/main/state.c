@@ -26,13 +26,16 @@ static struct {
     int next_index;
     int overflow;
     int grouped_session;
-    bool grouped, actions_enabled;
+    bool grouped, history, actions_enabled;
     int64_t started_us;
     bool active;
 } s_stage;
 static SemaphoreHandle_t s_mutex;
 static uint32_t s_dirty;
 static const char *TAG = "state";
+/* Expired revisions stay suppressed until a genuine newer update. */
+static struct { int id, revision; } s_history_expired[STATUS_MAX_NOTIFS];
+static int s_history_expired_count;
 
 #define SYNC_TIMEOUT_US (5 * 1000 * 1000)
 
@@ -148,7 +151,19 @@ static bool parse_notif(const cJSON *obj, status_notif_t *notif)
     notif->id = id->valueint;
     copy_str(notif->app, sizeof(notif->app), cJSON_GetObjectItemCaseSensitive(obj, "app"));
     copy_str(notif->summary, sizeof(notif->summary), cJSON_GetObjectItemCaseSensitive(obj, "summary"));
-    copy_str(notif->body, sizeof(notif->body), cJSON_GetObjectItemCaseSensitive(obj, "body"));
+    const cJSON *history = cJSON_GetObjectItemCaseSensitive(obj, "history");
+    if (history != NULL) {
+        int age_ms, remaining_ms;
+        if (!cJSON_IsObject(history) || cJSON_GetArraySize(history) != 3 ||
+            !int_field(history, "rev", 1, INT32_MAX, &notif->history_revision) ||
+            !int_field(history, "age_ms", 0, INT32_MAX, &age_ms) ||
+            !int_field(history, "remaining_ms", 1, INT32_MAX, &remaining_ms)) return false;
+        const int64_t now = esp_timer_get_time();
+        notif->history_updated_us = now - (int64_t)age_ms * 1000;
+        notif->history_deadline_us = now + (int64_t)remaining_ms * 1000;
+    }
+    copy_str(notif->body, history ? sizeof(notif->body) : 160,
+             cJSON_GetObjectItemCaseSensitive(obj, "body"));
     const cJSON *urgency = cJSON_GetObjectItemCaseSensitive(obj, "urgency");
     notif->urgency = cJSON_IsNumber(urgency) ? urgency->valueint : 1;
     return true;
@@ -214,6 +229,7 @@ static bool cached_visible_locked(int id)
 
 void state_init(void)
 {
+    s_history_expired_count = 0;
     memset(&s_state, 0, sizeof(s_state));
     memset(&s_stage, 0, sizeof(s_stage));
     s_state.notifs = heap_caps_calloc(STATUS_MAX_NOTIFS, sizeof(status_notif_t),
@@ -360,6 +376,71 @@ static void remove_notif_locked(int slot)
     s_state.notif_count--;
 }
 
+static bool history_suppressed(const status_notif_t *card)
+{
+    for (int i = 0; i < s_history_expired_count; i++) {
+        if (s_history_expired[i].id == card->id &&
+            card->history_revision <= s_history_expired[i].revision) return true;
+    }
+    return false;
+}
+
+static void history_remember_expired(const status_notif_t *card)
+{
+    int slot = -1;
+    for (int i = 0; i < s_history_expired_count; i++) {
+        if (s_history_expired[i].id == card->id) {
+            if (s_history_expired[i].revision >= card->history_revision) return;
+            slot = i;
+        }
+    }
+    if (slot < 0) {
+        if (s_history_expired_count == STATUS_MAX_NOTIFS) {
+            memmove(s_history_expired, s_history_expired + 1,
+                    sizeof(s_history_expired[0]) * (STATUS_MAX_NOTIFS - 1));
+            s_history_expired_count--;
+        }
+        slot = s_history_expired_count++;
+    }
+    s_history_expired[slot].id = card->id;
+    s_history_expired[slot].revision = card->history_revision;
+}
+
+static bool history_reconcile(status_notif_t *card, const status_notif_t *previous)
+{
+    if (previous == NULL) return true;
+    if (card->history_revision < previous->history_revision) return false;
+    if (card->history_revision == previous->history_revision) {
+        if (previous->history_deadline_us < card->history_deadline_us)
+            card->history_deadline_us = previous->history_deadline_us;
+        if (previous->history_updated_us < card->history_updated_us)
+            card->history_updated_us = previous->history_updated_us;
+    }
+    return true;
+}
+
+void state_history_tick(int64_t now_us)
+{
+    state_lock();
+    if (s_state.history_enabled) {
+        for (int i = s_state.notif_count - 1; i >= 0; i--) {
+            const status_notif_t *card = &s_state.notifs[i];
+            if (card->history_deadline_us > now_us) continue;
+            const int id = card->id;
+            history_remember_expired(card);
+            if (s_state.action_pending_id == id) clear_action_runtime_locked(false);
+            if (s_state.presentation.id == id) {
+                s_state.presentation.active = false;
+                s_state.presentation.persistent = false;
+                s_state.presentation.deadline_us = now_us;
+            }
+            remove_notif_locked(i);
+            s_dirty |= STATE_DIRTY_NOTIF;
+        }
+    }
+    state_unlock();
+}
+
 static void update_grouped_overflow_locked(bool has_total, int total)
 {
     if (has_total) {
@@ -411,6 +492,11 @@ static void apply_notify(const cJSON *obj, bool unhide)
             state_unlock();
             return;
         }
+        if (s_state.history_enabled &&
+            (parsed.history_revision == 0 || history_suppressed(&parsed))) {
+            state_unlock();
+            return;
+        }
 
         int slot = -1;
         for (int i = 0; i < s_state.notif_count; i++) {
@@ -423,6 +509,11 @@ static void apply_notify(const cJSON *obj, bool unhide)
             (parsed.open_revision < s_state.notifs[slot].open_revision ||
              (parsed.open_revision == s_state.notifs[slot].open_revision &&
               parsed.open_ready != s_state.notifs[slot].open_ready))) {
+            state_unlock();
+            return;
+        }
+        if (s_state.history_enabled && slot >= 0 &&
+            !history_reconcile(&parsed, &s_state.notifs[slot])) {
             state_unlock();
             return;
         }
@@ -724,6 +815,8 @@ void state_apply_sync(const cJSON *obj)
     const cJSON *notifs = cJSON_GetObjectItemCaseSensitive(obj, "notifs");
     state_lock();
     s_state.grouped_enabled = false;
+    s_state.history_enabled = false;
+    s_history_expired_count = 0;
     s_state.grouped_session = 0;
     s_state.actions_enabled = false;
     clear_action_runtime_locked(false);
@@ -818,6 +911,8 @@ bool state_action_open_enabled(const status_state_t *state,
            state->grouped_enabled && state->grouped_session > 0 &&
            notif->valid && notif->id > 0 && notif->open_ready &&
            notif->open_revision > 0 && !state->action_pending &&
+           (!state->history_enabled ||
+            (notif->history_revision > 0 && notif->history_deadline_us > now_us)) &&
            !state->action_request_exhausted &&
            now_us >= state->action_cooldown_until_us &&
            !(state->action_blocked && state->action_blocked_id == notif->id &&
@@ -1026,15 +1121,20 @@ bool state_sync_begin(const cJSON *obj)
     const cJSON *dashboard = cJSON_GetObjectItemCaseSensitive(obj, "dashboard");
     const cJSON *actions = cJSON_GetObjectItemCaseSensitive(obj, "actions");
     bool grouped_enabled = false;
+    bool history_enabled = false;
     bool actions_enabled = false;
     int grouped_session = 0;
     if (grouped != NULL) {
-        if (!cJSON_IsObject(grouped) || cJSON_GetArraySize(grouped) != 1 ||
+        const cJSON *history = cJSON_GetObjectItemCaseSensitive(grouped, "history");
+        if (!cJSON_IsObject(grouped) ||
+            cJSON_GetArraySize(grouped) != (history ? 2 : 1) ||
+            (history && !cJSON_IsTrue(history)) ||
             !int_field(grouped, "session", 1, INT32_MAX, &grouped_session) ||
             !cJSON_IsObject(dashboard)) {
             return false;
         }
         grouped_enabled = true;
+        history_enabled = history != NULL;
     }
     if (actions != NULL) {
         if (!grouped_enabled || !cJSON_IsObject(actions) ||
@@ -1072,6 +1172,7 @@ bool state_sync_begin(const cJSON *obj)
     s_stage.next_index = 0;
     s_stage.overflow = overflow;
     s_stage.grouped = grouped_enabled;
+    s_stage.history = history_enabled;
     s_stage.grouped_session = grouped_session;
     s_stage.actions_enabled = actions_enabled;
     s_stage.started_us = esp_timer_get_time();
@@ -1098,6 +1199,7 @@ bool state_sync_cards(const cJSON *obj)
         if (!parse_notif(item, &parsed)) {
             return false;
         }
+        if (s_stage.history && parsed.history_revision == 0) return false;
         if (s_stage.actions_enabled && !parse_action_open(item, &parsed)) {
             return false;
         }
@@ -1130,6 +1232,17 @@ bool state_sync_commit(const cJSON *obj, int64_t *epoch, int *offset, bool *has_
     const bool new_group_session = s_stage.grouped &&
         (!s_state.grouped_enabled || s_state.grouped_session != s_stage.grouped_session);
     const bool leaving_grouped = !s_stage.grouped && s_state.grouped_enabled;
+    const bool same_history_session = !new_group_session && s_stage.history &&
+                                      s_state.history_enabled;
+    if (same_history_session) {
+        for (int i = 0; i < s_stage.count; i++) {
+            const status_notif_t *current = find_notif_locked(s_stage.cards[i].id);
+            if (!history_reconcile(&s_stage.cards[i], current)) {
+                state_unlock();
+                return false;
+            }
+        }
+    }
     const bool same_action_session = !new_group_session && s_state.actions_enabled &&
         s_stage.actions_enabled && s_state.grouped_enabled && s_stage.grouped &&
         s_state.grouped_session == s_stage.grouped_session;
@@ -1147,6 +1260,7 @@ bool state_sync_commit(const cJSON *obj, int64_t *epoch, int *offset, bool *has_
     }
     if (new_group_session) {
         s_state.hidden_count = 0;
+        s_history_expired_count = 0;
         clear_presentation_locked();
         s_state.notif_focus_id = 0;
         s_state.notif_focus_urgency = 1;
@@ -1158,6 +1272,7 @@ bool state_sync_commit(const cJSON *obj, int64_t *epoch, int *offset, bool *has_
         clear_action_runtime_locked(false);
     }
     s_state.grouped_enabled = s_stage.grouped;
+    s_state.history_enabled = s_stage.history;
     s_state.grouped_session = s_stage.grouped ? s_stage.grouped_session : 0;
     s_state.actions_enabled = s_stage.actions_enabled;
 
@@ -1192,6 +1307,17 @@ bool state_sync_commit(const cJSON *obj, int64_t *epoch, int *offset, bool *has_
             }
         }
     }
+    int kept = 0;
+    for (int i = 0; i < s_stage.count; i++) {
+        status_notif_t *card = &s_stage.cards[i];
+        if (s_stage.history && (history_suppressed(card) ||
+            card->history_deadline_us <= esp_timer_get_time())) {
+            history_remember_expired(card);
+            continue;
+        }
+        s_stage.cards[kept++] = *card;
+    }
+    s_stage.count = kept;
     status_notif_t *old_cards = s_state.notifs;
     s_state.notifs = s_stage.cards;
     s_stage.cards = old_cards;

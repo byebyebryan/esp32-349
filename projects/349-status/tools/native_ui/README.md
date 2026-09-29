@@ -8,7 +8,7 @@ Python, uv and RTK (used by the check script). Load the IDF environment or suppl
 python tools/check_native_ui.py --cjson-include "$IDF_PATH/components/json/cJSON"
 ```
 
-This builds Debug and Release with assertions enabled and runs nine CTests
+This builds Debug and Release with assertions enabled and runs ten CTests
 per configuration. Override `--debug-build-dir` and `--release-build-dir` to choose
 build/artifact directories. The default directories are
 `/tmp/349-native-ui-build` and `/tmp/349-native-ui-release`.
@@ -23,10 +23,11 @@ build/artifact directories. The default directories are
 | `native_ui_composed` | Real parser/state plus the same LVGL fixture | Native platform services and pointer/time adapter |
 | `host_composed` CTest | Real Python daemon/protocol → production parser/state → LVGL → daemon input | Controlled host clock and transport to `native_ui_composed` |
 | `host_actions_composed` CTest | Notification source → daemon/provider action request → production parser/state/LVGL → correlated host result | Controlled source/provider adapter and native transport; no desktop IPC |
+| `host_history_composed` CTest | Negotiated 30-minute history → production parser/state/LVGL → host browse/idle/dismiss input | Virtual time and transport; popup/archive, body limits, no-renewal sync/reconnect and replacement renewal |
 | `smoke_recorder` CTest | Isolated production host policy → parser/state/LVGL, actual × round trip, timed retention and fresh process recovery | Native transport; fake IPC checks finish/error/pause ownership cleanup |
 
 CTest also runs serialized replay and an SDL dummy-driver smoke. If uv is
-unavailable, `host_composed`, `host_actions_composed` and `smoke_recorder` are explicitly skipped; such a run does not satisfy
+unavailable, `host_composed`, `host_actions_composed`, `host_history_composed` and `smoke_recorder` are explicitly skipped; such a run does not satisfy
 the composed acceptance gate. These programs do not test ESP32 scheduling,
 capacitive touch, RTC peripherals, DMA or panel performance.
 
@@ -40,6 +41,11 @@ The grouped fixture also captures arrival, dismissal and last-card return
 to Home in 15 ms samples. It checks immediate cache removal, frozen outgoing
 geometry, inert touch during transitions and concurrent-update cancellation;
 see [the motion evidence](../../design/card-motion.md).
+History captures cover the notification-only empty/single/multiple layouts,
+smaller text, age metadata, disconnected browsing, and arrival/removal motion.
+The historical grouped/action scenarios project only the new history capability
+out of the real firmware hello, keeping their old-peer compatibility assertions.
+The history scenario uses the complete hello.
 
 ## Inspect the shared UI
 
@@ -62,6 +68,9 @@ uv run --project host --frozen python tools/test_grouped_composed.py \
 uv run --project host --frozen python tools/test_notification_actions_composed.py \
   --native /tmp/349-native-ui-build/native_ui_composed \
   --artifacts /tmp/349-host-actions-composed
+uv run --project host --frozen python tools/test_notification_history_composed.py \
+  --native /tmp/349-native-ui-build/native_ui_composed \
+  --artifacts /tmp/349-host-history-composed
 ```
 
 The direct replay JSON has explicit pointer/time/state/capture commands; its
@@ -122,3 +131,11 @@ the tool never marks visual/touch acceptance passed by itself.
 The routine CTest executes **only** `--self-test --native ...`. It does not open
 the hardware or contact the real daemon. It validates the controller through
 the composed native target and uses fake IPC for cleanup/ownership checks.
+
+For the notification-only physical check, add `--history`. This negotiates the
+new mode and seeds three cards with expanded text and the default 30-minute
+retention. Browse vertically, check inert horizontal/body input, then use × to
+remove the cards and inspect `No recent notifications`. `status` records the
+current view, and `finish` restores the normal daemon. No timed Home phase or
+held-touch sequence is needed. The self-test also checks this history fixture's
+seed, actual × round trip and last-card empty state through the native runner.

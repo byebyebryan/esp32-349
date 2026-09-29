@@ -1,9 +1,10 @@
 # Status fonts
 
 `status_symbol_14.c` and `status_symbol_16.c` are the existing symbol fallback
-fonts. `status_text_20.c` and `status_text_22.c` are standalone composite fonts
-for the larger UI text. `status_clock_80.c` is a Montserrat Medium font for
-digits, colon, and hyphen. All five use 4 bpp without compression or kerning.
+fonts. `status_text_16.c`, `status_text_20.c` and `status_text_22.c` are standalone
+composite fonts for notification bodies/titles. `status_clock_80.c` is a
+Montserrat Medium font for digits, colon, and hyphen. All six use 4 bpp without
+compression or kerning.
 
 Each generated text font preserves the complete union of glyphs from the old
 14 px and 16 px Montserrat, Source Han, and symbol font chains. Montserrat
@@ -20,6 +21,7 @@ The generated text fonts have these measured metrics:
 
 | Font | Line height | Baseline | Bitmap data | C source |
 | --- | ---: | ---: | ---: | ---: |
+| `status_text_16` | 22 px | 5 px | 232,118 B | 1,732,525 B |
 | `status_text_20` | 26 px | 6 px | 355,688 B | 2,472,051 B |
 | `status_text_22` | 28 px | 6 px | 430,110 B | 2,913,398 B |
 | `status_clock_80` | 58 px | 1 px | 12,486 B | 78,566 B |
@@ -50,7 +52,7 @@ python tools/check_font_coverage.py
 ```
 
 The coverage audit checks the 14 px and 16 px chains, exact old-repertoire
-parity at 20 px and 22 px, and required ASCII, Latin, punctuation/symbol, and
+parity at 16 px, 20 px and 22 px, and required ASCII, Latin, punctuation/symbol, and
 `東京が日本語你好世界` samples. It also checks that the 80 px clock has only
 digits, colon, and hyphen. The audit checks glyph presence, not shaping or
 physical legibility.

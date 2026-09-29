@@ -51,6 +51,7 @@ void proto_send_hello(void)
         cJSON_AddItemToArray(cap, cJSON_CreateString("card-sync-v1"));
         cJSON_AddItemToArray(cap, cJSON_CreateString("dashboard-v1"));
         cJSON_AddItemToArray(cap, cJSON_CreateString("grouped-ui-v1"));
+        cJSON_AddItemToArray(cap, cJSON_CreateString("notification-history-v1"));
         cJSON_AddItemToArray(cap, cJSON_CreateString("notification-actions-v1"));
         cJSON_AddNumberToObject(obj, "cache_cards", state_card_sync_capacity());
     }
@@ -85,6 +86,7 @@ typedef struct {
     int focus_id;
     int next_id;
     bool grouped_enabled;
+    bool history_enabled;
     bool grouped_home;
     bool grouped_manual;
     bool grouped_presenting;
@@ -112,6 +114,8 @@ static bool contains_id(const int *ids, int count, int id)
 
 static bool cards_view_pending(const cards_view_t *view, const int *ids, int count)
 {
+    /* A committed history mode may precede the UI timer's publication. */
+    if (view->history_enabled && view->grouped_home) return true;
     if (view->reachable < 0 || view->reachable > count ||
         view->position < 0 || view->position > view->reachable ||
         (view->reachable == 0 && view->position != 0) ||
@@ -151,6 +155,7 @@ static void send_cards_status(void)
     view.focus_id = st->deck_focus_id;
     view.next_id = st->deck_next_id;
     view.grouped_enabled = st->grouped_enabled;
+    view.history_enabled = st->history_enabled;
     view.grouped_home = view.grouped_enabled ? st->grouped_home : true;
     view.grouped_manual = view.grouped_enabled && !view.grouped_home && st->grouped_manual;
     view.grouped_presenting = view.grouped_enabled && !view.grouped_manual && st->grouped_presenting;
@@ -244,6 +249,7 @@ static void send_cards_status(void)
     }
     const int64_t now_us = esp_timer_get_time();
     cJSON *grouped = cJSON_AddObjectToObject(obj, "grouped");
+    if (view.history_enabled) cJSON_AddBoolToObject(grouped, "history", true);
     cJSON_AddBoolToObject(grouped, "enabled", view.grouped_enabled);
     cJSON_AddNumberToObject(grouped, "session", view.grouped_session);
     cJSON_AddStringToObject(grouped, "group", view.grouped_home ? "home" : "notifications");
@@ -293,15 +299,16 @@ void proto_send_input_dismiss(int id)
     cJSON_Delete(obj);
 }
 
-void proto_send_input_browse(bool home, int generation)
+static void send_input_browse(bool home, int generation, bool idle)
 {
     int session = 0;
     state_lock();
     const status_state_t *st = state_get();
     const bool grouped = st->grouped_enabled;
+    const bool history = st->history_enabled;
     session = st->grouped_session;
     state_unlock();
-    if (!grouped || session < 1 || session > INT32_MAX ||
+    if (!grouped || (idle && !history) || session < 1 || session > INT32_MAX ||
         generation < 0 || generation > INT32_MAX) {
         return;
     }
@@ -312,8 +319,19 @@ void proto_send_input_browse(bool home, int generation)
     cJSON_AddNumberToObject(obj, "session", session);
     cJSON_AddNumberToObject(obj, "generation", generation);
     cJSON_AddStringToObject(obj, "group", home ? "home" : "notifications");
+    if (idle) cJSON_AddBoolToObject(obj, "manual", false);
     send_object(obj);
     cJSON_Delete(obj);
+}
+
+void proto_send_input_browse(bool home, int generation)
+{
+    send_input_browse(home, generation, false);
+}
+
+void proto_send_input_history_idle(int generation)
+{
+    send_input_browse(false, generation, true);
 }
 
 bool proto_send_input_activate(int id, int open_revision)

@@ -40,7 +40,8 @@ def compare_dashboard(expected: dict, actual: dict) -> None:
 
 
 def run(port: str, expected_build: str, samples: int, artifacts: Path,
-        *, stress_readback: bool = False) -> dict:
+        *, stress_readback: bool = False, history_stress: bool = False) -> dict:
+    stress_readback = stress_readback or history_stress
     if not pause_path().exists():
         raise RuntimeError("Pause 349d before opening this serial connection")
     if not 4 <= samples <= 30:
@@ -95,6 +96,9 @@ def run(port: str, expected_build: str, samples: int, artifacts: Path,
             if hello.get("build_sha") != expected_build:
                 raise AssertionError(f"Wrong firmware: {hello.get('build_sha')!r}")
             accepted_boot_id = hello["boot_id"]
+            if history_stress and not proto.notification_history_capable(hello):
+                raise AssertionError("No notification-history capability")
+            history_mode = False
 
             def query(expected: dict) -> dict:
                 deadline = time.monotonic() + 1.0
@@ -111,7 +115,9 @@ def run(port: str, expected_build: str, samples: int, artifacts: Path,
                         if not parsed["deck"]["enabled"]:
                             continue
                         compare_dashboard(expected, parsed["dashboard"])
-                        if parsed["grouped"]["group"] != "home" or parsed["deck"]["stale"]:
+                        expected_group = "notifications" if history_mode else "home"
+                        if (parsed["grouped"]["group"] != expected_group or parsed["deck"]["stale"]
+                            or (history_mode and not parsed["grouped"].get("history"))):
                             raise AssertionError(f"Unexpected view: {parsed}")
                         return parsed
                 raise AssertionError("No settled cards_status response")
@@ -154,14 +160,19 @@ def run(port: str, expected_build: str, samples: int, artifacts: Path,
                 # formatting path that overflowed Starship's 4 KiB link stack.
                 for index in range(32):
                     model.retain_notification(proto.notify(10000 + index, "349 PROBE",
-                        f"READBACK {index + 1:02}", "Controlled readback fixture", 1, 0,
+                        f"READBACK {index + 1:02}",
+                        "We've / we’ve 東京 が → ✓ " + "content " * 100
+                            if history_stress else "Controlled readback fixture", 1, 0,
                         int(time.time())))
                 model.set_dashboard(payload)
                 snapshot = model.card_snapshot(32, retained=True)
                 for card in snapshot["notifs"]:
                     card["open"] = {"rev": 1, "state": "unavailable"}
+                    if history_stress:
+                        card["history"] = model.history_metadata(int(card["id"]))
+                history_mode = history_stress
                 for message in proto.card_sync_messages(snapshot, 2, include_dashboard=True,
-                        grouped_session=280928, include_actions=True):
+                        grouped_session=280928, include_actions=True, include_history=history_mode):
                     send(message)
                 full = query(payload)
                 if full["count"] != 32 or len(full["actions"]["open"]) != 32:
@@ -195,9 +206,45 @@ def run(port: str, expected_build: str, samples: int, artifacts: Path,
                             link_stack_free_bytes = int(match.group(1))
                 if link_stack_free_bytes is None or link_stack_free_bytes < 1024:
                     raise AssertionError(f"Insufficient measured link stack headroom: {link_stack_free_bytes}")
-                # Leave Home empty; the caller resumes normal host-owned state.
+                if history_stress:
+                    # Firmware must expire without a host close, and an
+                    # ordinary same-revision sync must not restart its timer.
+                    fixture = {**snapshot["notifs"][-1],
+                               "history": {"rev": 100, "age_ms": 0, "remaining_ms": 3000}}
+                    one = {**snapshot, "dashboard": payload, "notifs": [fixture], "overflow": 0}
+                    started = time.monotonic()
+                    for message in proto.card_sync_messages(one, 3, include_dashboard=True,
+                            grouped_session=280928, include_actions=True, include_history=True):
+                        send(message)
+                    if query(payload)["count"] != 1:
+                        raise AssertionError("History expiry fixture missing")
+                    while time.monotonic() - started < 1.0:
+                        send({"t": "ping"})
+                        collect(.15)
+                    fixture["history"]["remaining_ms"] = 10000
+                    for message in proto.card_sync_messages(one, 4, include_dashboard=True,
+                            grouped_session=280928, include_actions=True, include_history=True):
+                        send(message)
+                    while time.monotonic() - started < 3.3:
+                        send({"t": "ping"})
+                        collect(.15)
+                    if query(payload)["count"] != 0:
+                        raise AssertionError("Same-revision sync renewed the firmware deadline")
+                    for message in proto.card_sync_messages(one, 5, include_dashboard=True,
+                            grouped_session=280928, include_actions=True, include_history=True):
+                        send(message)
+                    if query(payload)["count"] != 0:
+                        raise AssertionError("Expired revision resurrected after sync")
+                    fixture["history"]["rev"] = 101
+                    for message in proto.card_sync_messages(one, 6, include_dashboard=True,
+                            grouped_session=280928, include_actions=True, include_history=True):
+                        send(message)
+                    if query(payload)["count"] != 1:
+                        raise AssertionError("Genuine newer revision did not return")
+                # Leave the cache empty; caller restores its negotiated mode.
                 for message in proto.card_sync_messages(StateModel().card_snapshot(32, retained=True),
-                        3, include_dashboard=True, grouped_session=280928):
+                        7, include_dashboard=True, grouped_session=280928,
+                        include_history=history_mode):
                     send(message)
                 collect(.2)
             result = {"passed": True, "hello": hello, "samples": len(records),
@@ -208,6 +255,10 @@ def run(port: str, expected_build: str, samples: int, artifacts: Path,
             if stress_readback:
                 result.update(readback_stress_cases=len(stress_records), readback_cache_cards=32,
                               link_stack_free_bytes=link_stack_free_bytes)
+            if history_stress:
+                result.update(history_body_payload_bytes=511,
+                              history_expiry_and_same_revision_sync=True,
+                              history_expired_replay_and_newer_revision=True)
             (artifacts / "result.json").write_text(json.dumps(result, indent=2) + "\n")
             return result
     finally:
@@ -222,7 +273,9 @@ if __name__ == "__main__":
     parser.add_argument("--artifacts", type=Path, required=True)
     parser.add_argument("--stress-readback", action="store_true",
                         help="check full-cache numeric readback and link-stack headroom")
+    parser.add_argument("--history-stress", action="store_true",
+                        help="also check expanded history cache, expiry and stale sync replay")
     args = parser.parse_args()
     result = run(args.port, args.expected_build_sha, args.samples, args.artifacts,
-                 stress_readback=args.stress_readback)
+                 stress_readback=args.stress_readback, history_stress=args.history_stress)
     print(json.dumps({key: value for key, value in result.items() if key != "hello"}, indent=2))

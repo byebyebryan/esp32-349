@@ -1,6 +1,7 @@
 #pragma once
 #include "deck_input.h"
 #define GROUP_CARD_PITCH_PX 128
+#define HISTORY_CARD_PITCH_PX 148
 /* Local navigation target for an empty Notifications group; never a wire ID. */
 #define GROUP_EMPTY_NOTIFICATIONS_ID (-1)
 
@@ -20,6 +21,8 @@ typedef struct {
     int64_t press_us;
     bool home, has_cards, has_newer, has_older, peek;
     bool control_enabled, control_cancelled;
+    bool vertical_only;
+    int card_pitch_px;
 } group_input_t;
 
 void group_input_init(group_input_t *input);

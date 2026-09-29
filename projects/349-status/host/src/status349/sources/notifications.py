@@ -103,7 +103,9 @@ def parse_notify_body(body: list) -> dict | None:
         "app": str(app_name),
         "replaces": int(replaces_id),
         "summary": str(summary),
-        "body": str(body_text),
+        "body": proto.clip_utf8_ellipsis(
+            proto.display_text(str(body_text)), proto.NOTIFICATION_BODY_HISTORY_BYTES
+        ),
         "urgency": urgency,
         "expire": int(expire_timeout),
     }
@@ -598,6 +600,7 @@ class NotificationSource:
         if is_ignored(parsed["app"], self.cfg.ignore_apps):
             log.debug("ignoring notification from %r", parsed["app"])
             return
+        received_mono = time.monotonic()
 
         replaces = parsed.pop("replaces")
         local_id = self._daemon_to_local.get(replaces) if replaces else None
@@ -655,6 +658,7 @@ class NotificationSource:
             parsed["expire"],
             int(time.time()),
         )
+        self._outbox[local_id]["_received_mono"] = received_mono
         while len(self._outbox) > NOTIFY_OUTBOX_LIMIT:
             self._outbox.pop(next(iter(self._outbox)))
         for trimmed_id in self._trim_associations():

@@ -160,6 +160,11 @@ void proto_send_input_browse(bool home, int generation)
     (void)generation;
 }
 
+void proto_send_input_history_idle(int generation)
+{
+    (void)generation;
+}
+
 bool proto_send_input_activate(int id, int open_revision)
 {
     status_notif_t *notif = NULL;
@@ -190,6 +195,8 @@ bool state_action_open_enabled(const status_state_t *state,
 {
     return state && notif && state->actions_enabled && state->grouped_enabled &&
         notif->valid && notif->open_ready && !state->action_pending &&
+        (!state->history_enabled ||
+         (notif->history_revision > 0 && notif->history_deadline_us > now_us)) &&
         !state->action_request_exhausted && now_us >= state->action_cooldown_until_us &&
         !(state->action_blocked && state->action_blocked_id == notif->id &&
           state->action_blocked_open_rev == notif->open_revision);
@@ -210,6 +217,23 @@ void state_action_tick(int64_t now_us)
     if (s_state.action_feedback != STATUS_ACTION_FEEDBACK_NONE &&
         now_us >= s_state.action_feedback_until_us) {
         s_state.action_feedback = STATUS_ACTION_FEEDBACK_NONE;
+    }
+}
+
+void state_history_tick(int64_t now_us)
+{
+    if (!s_state.history_enabled) return;
+    for (int i = s_state.notif_count - 1; i >= 0; i--) {
+        if (s_state.notifs[i].history_deadline_us <= now_us) {
+            if (s_state.presentation.id == s_state.notifs[i].id) {
+                s_state.presentation.active = false;
+                s_state.presentation.persistent = false;
+                s_state.presentation.deadline_us = now_us;
+            }
+            memmove(&s_state.notifs[i], &s_state.notifs[i + 1],
+                sizeof(s_state.notifs[0]) * (size_t)(s_state.notif_count - i - 1));
+            s_state.notif_count--;
+        }
     }
 }
 
