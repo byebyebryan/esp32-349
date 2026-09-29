@@ -2,6 +2,8 @@
 
 import asyncio
 
+import pytest
+
 from status349 import proto
 from status349.config import default_config
 from status349.daemon import Daemon
@@ -24,7 +26,9 @@ def test_dashboard_payload_has_nullable_finite_identifier_free_fields():
 
     assert payload == {
         "cpu": None,
+        "cpu_freq_mhz": None,
         "mem": None,
+        "mem_used_bytes": None,
         "network": None,
         "rx_bytes_per_s": None,
         "tx_bytes_per_s": None,
@@ -53,6 +57,27 @@ def test_dashboard_cpu_uses_time_aware_three_second_ema(monkeypatch):
     assert 0.85 <= third["cpu"] <= 0.88
 
 
+@pytest.mark.parametrize("field,valid,invalid", [
+    ("cpu_freq_mhz", (0, 3600.5, proto.DASHBOARD_CPU_FREQ_MAX_MHZ),
+     (True, -1, 100001, "3600", float("nan"), float("inf"), 10**1000)),
+    ("mem_used_bytes", (0, 24 * 1024**3, proto.DASHBOARD_MEMORY_MAX_BYTES),
+     (True, -1, 1.5, "24G", float("nan"), float("inf"), 2**50 + 1, 10**1000)),
+])
+def test_dashboard_details_validate_payload_and_optional_device_readback(field, valid, invalid):
+    base = {"count": 0, "overflow": 0, "ids": [], "capacity": 32}
+    dashboard = {"cpu": None, "mem": None, "network": None,
+                 "rx_bytes_per_s": None, "tx_bytes_per_s": None}
+    # Previous firmware need not include the two new optional fields.
+    assert proto.card_status({**base, "dashboard": dashboard})["dashboard"] == dashboard
+    for value in (*valid, None):
+        assert proto.dashboard_payload({field: value})[field] == value
+        result = proto.card_status({**base, "dashboard": {**dashboard, field: value}})
+        assert result["dashboard"][field] == value
+    for value in invalid:
+        assert proto.dashboard_payload({field: value})[field] is None
+        assert proto.card_status({**base, "dashboard": {**dashboard, field: value}}) is None
+
+
 def test_dashboard_delta_is_emitted_only_when_quantized_payload_changes():
     async def scenario():
         daemon = Daemon(default_config(), asyncio.Event())
@@ -66,7 +91,9 @@ def test_dashboard_delta_is_emitted_only_when_quantized_payload_changes():
         daemon.send = capture
         first = {
             "cpu": 0.504,
+            "cpu_freq_mhz": 3600.5,
             "mem": 0.25,
+            "mem_used_bytes": 8 * 1024**3,
             "network": True,
             "rx_bytes_per_s": 2500.0,
             "tx_bytes_per_s": 0.0,
@@ -85,7 +112,9 @@ def test_dashboard_delta_is_emitted_only_when_quantized_payload_changes():
             {
                 "t": "dashboard",
                 "cpu": 0.5,
+                "cpu_freq_mhz": 3600.5,
                 "mem": 0.25,
+                "mem_used_bytes": 8 * 1024**3,
                 "network": True,
                 "rx_bytes_per_s": 2500.0,
                 "tx_bytes_per_s": 0.0,
@@ -96,7 +125,9 @@ def test_dashboard_delta_is_emitted_only_when_quantized_payload_changes():
             {
                 "t": "dashboard",
                 "cpu": 0.5,
+                "cpu_freq_mhz": 3600.5,
                 "mem": 0.25,
+                "mem_used_bytes": 8 * 1024**3,
                 "network": False,
                 "rx_bytes_per_s": 2500.0,
                 "tx_bytes_per_s": 0.0,
@@ -175,7 +206,9 @@ def test_status_includes_only_the_latest_sanitized_rail_dashboard():
     daemon = Daemon(default_config(), asyncio.Event())
     daemon.model.set_dashboard({
         "cpu": 0.5,
+        "cpu_freq_mhz": 3600.5,
         "mem": 0.25,
+        "mem_used_bytes": 8 * 1024**3,
         "network": True,
         "rx_bytes_per_s": 12_345.5,
         "tx_bytes_per_s": True,
@@ -184,7 +217,9 @@ def test_status_includes_only_the_latest_sanitized_rail_dashboard():
 
     assert daemon._status()["dashboard"] == {
         "cpu": 0.5,
+        "cpu_freq_mhz": 3600.5,
         "mem": 0.25,
+        "mem_used_bytes": 8 * 1024**3,
         "network": True,
         "rx_bytes_per_s": 12_345.5,
         "tx_bytes_per_s": None,
@@ -285,7 +320,11 @@ def test_queued_sync_cannot_mix_new_zones_with_old_dashboard(monkeypatch):
         sent = []
         queued = []
         monkeypatch.setattr(daemon, "_monotonic", lambda: now[0])
-        daemon._sample = lambda: {"cpu": 0.5, "mem": 0.25 if now[0] < 1 else 0.75}
+        daemon._sample = lambda: {
+            "cpu": 0.5, "cpu_freq_mhz": 800.0 if now[0] < 1 else 3600.0,
+            "mem": 0.25 if now[0] < 1 else 0.75,
+            "mem_used_bytes": (8 if now[0] < 1 else 24) * 1024**3,
+        }
 
         async def capture(message):
             sent.append(message)
@@ -311,6 +350,8 @@ def test_queued_sync_cannot_mix_new_zones_with_old_dashboard(monkeypatch):
             begin = [message for message in sent if message["t"] == "sync_begin"][-1]
             mem_zone = next(zone for zone in begin["bar"]["zones"] if zone["id"] == "mem")
             assert begin["dashboard"]["mem"] == mem_zone["value"] == 0.75
+            assert begin["dashboard"]["mem_used_bytes"] == 24 * 1024**3
+            assert begin["dashboard"]["cpu_freq_mhz"] == 3600.0
         finally:
             task.cancel()
             try:

@@ -24,7 +24,8 @@ from status349.sources.sysinfo import SysinfoSource
 from status349.state import StateModel
 
 
-FIELDS = ("cpu", "mem", "network", "rx_bytes_per_s", "tx_bytes_per_s")
+FIELDS = ("cpu", "cpu_freq_mhz", "mem", "mem_used_bytes", "network",
+          "rx_bytes_per_s", "tx_bytes_per_s")
 
 
 def compare_dashboard(expected: dict, actual: dict) -> None:
@@ -32,6 +33,9 @@ def compare_dashboard(expected: dict, actual: dict) -> None:
         want, got = expected.get(field), actual.get(field)
         if want is None or isinstance(want, bool):
             if got is not want:
+                raise AssertionError(f"{field}: expected {want!r}, got {got!r}")
+        elif field == "mem_used_bytes":
+            if isinstance(got, bool) or not isinstance(got, int) or got != want:
                 raise AssertionError(f"{field}: expected {want!r}, got {got!r}")
         elif (isinstance(got, bool) or not isinstance(got, (int, float))
               or not math.isfinite(got)

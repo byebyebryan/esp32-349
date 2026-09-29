@@ -582,7 +582,9 @@ class Daemon:
         volume_level = self._ratio(values.get("vol"))
         return {
             "cpu": smoothed_cpu,
+            "cpu_freq_mhz": values.get("cpu_freq_mhz"),
             "mem": values.get("mem"),
+            "mem_used_bytes": values.get("mem_used_bytes"),
             "network": values.get("network"),
             "rx_bytes_per_s": values.get("rx_bytes_per_s"),
             "tx_bytes_per_s": values.get("tx_bytes_per_s"),
@@ -1246,7 +1248,8 @@ class Daemon:
             "last_rx_s": age,
             "dashboard": {
                 key: self.model.dashboard.get(key)
-                for key in ("cpu", "mem", "network", "rx_bytes_per_s", "tx_bytes_per_s")
+                for key in ("cpu", "cpu_freq_mhz", "mem", "mem_used_bytes", "network",
+                            "rx_bytes_per_s", "tx_bytes_per_s")
             },
             "config": self.cfg_path,
         }

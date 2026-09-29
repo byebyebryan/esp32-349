@@ -235,9 +235,13 @@ def _validate_sync_size(preset: list[dict]) -> None:
         "count": DEVICE_MAX_CACHE_CARDS,
         "overflow": 9223372036854775807,
         "dashboard": {
+            "cpu_freq_mhz": float(proto.DASHBOARD_CPU_FREQ_MAX_MHZ),
+            "mem_used_bytes": proto.DASHBOARD_MEMORY_MAX_BYTES,
             "cpu": 1.0,
             "mem": 1.0,
             "network": True,
+            "rx_bytes_per_s": float(proto.DASHBOARD_RATE_MAX_BPS),
+            "tx_bytes_per_s": float(proto.DASHBOARD_RATE_MAX_BPS),
             "battery": {"level": 1.0, "charging": True},
             "volume": {"level": 1.0, "mute": True},
             "bluetooth": 9223372036854775807,

@@ -27,7 +27,12 @@ static void groups_reset(const int *ids, int count)
     s_state.hidden_count = 0;
     s_state.notif_overflow = 0;
     s_state.dashboard = (status_dashboard_t){.valid = true, .cpu_valid = true,
-        .cpu = .18f, .mem_valid = true, .mem = .43f, .network_valid = true, .network = true};
+        .cpu = .18f, .cpu_freq_mhz_valid = true, .cpu_freq_mhz = 3600,
+        .mem_valid = true, .mem = .43f,
+        .mem_used_bytes_valid = true, .mem_used_bytes = 9019431322.0,
+        .network_valid = true, .network = true,
+        .rx_bytes_per_s_valid = true, .rx_bytes_per_s = 2400000.0,
+        .tx_bytes_per_s_valid = true, .tx_bytes_per_s = 86000.0};
     set_raw_order(ids, count);
     ui_deck_tick(STATE_DIRTY_DASHBOARD | STATE_DIRTY_NOTIF);
     repaint();
@@ -123,17 +128,27 @@ static void assert_rail_geometry(void)
     assert(lv_obj_get_width(s_rail_clock) == 144);
     assert(!lv_obj_has_flag(s_rail_clock, LV_OBJ_FLAG_HIDDEN));
     assert(lv_obj_get_y(s_rail_footer) == 156);
-    const char *const names[] = {"CPU", "MEM", "DN", "UP"};
+    const char *const names[] = {"CPU", "MEM", "UP", "DN"};
     for (int i = 0; i < 4; i++) {
         assert(strcmp(label_storage(s_metric_names[i]), names[i]) == 0);
         assert(lv_obj_get_x(s_metric_names[i]) == 12);
         assert(lv_obj_get_y(s_metric_names[i]) == 61 + 24 * i);
         assert(lv_obj_get_width(s_metric_names[i]) == 36);
-        assert(lv_obj_get_x(s_metric_values[i]) == 52);
+        assert(lv_obj_get_x(s_metric_values[i]) == (i < 2 ? 106 : 52));
         assert(lv_obj_get_y(s_metric_values[i]) == 58 + 24 * i);
-        assert(lv_obj_get_width(s_metric_values[i]) == 96);
+        assert(lv_obj_get_width(s_metric_values[i]) == (i < 2 ? 42 : 96));
         assert(text_width(label_storage(s_metric_names[i]), s_meta) <= 36);
-        assert(text_width(label_storage(s_metric_values[i]), &status_text_20) <= 96);
+        assert(text_width(label_storage(s_metric_values[i]), &status_text_16) <=
+               lv_obj_get_width(s_metric_values[i]));
+        assert(lv_obj_get_style_text_font(s_metric_values[i], 0) == &status_text_16);
+    }
+    assert(text_width("100%", &status_text_16) == 42);
+    for (int i = 0; i < 2; i++) {
+        assert(lv_obj_get_x(s_metric_details[i]) == 52);
+        assert(lv_obj_get_y(s_metric_details[i]) == 58 + 24 * i);
+        assert(lv_obj_get_width(s_metric_details[i]) == 50);
+        assert(lv_obj_get_style_text_align(s_metric_details[i], 0) == LV_TEXT_ALIGN_RIGHT);
+        assert(text_width(label_storage(s_metric_details[i]), &status_text_16) <= 50);
     }
 }
 
@@ -146,7 +161,21 @@ static void rail_telemetry_captures(void)
     for (unsigned i = 0; i < sizeof(rate_boundaries) / sizeof(rate_boundaries[0]); i++) {
         char formatted[32];
         format_rate(formatted, sizeof(formatted), true, rate_boundaries[i]);
-        assert(text_width(formatted, &status_text_20) <= 96);
+        assert(text_width(formatted, &status_text_16) <= 96);
+    }
+    const double frequencies[] = {0, 800, 999.4, 999.5, 3600, 9949, 9950, 99999, 100000};
+    for (unsigned i = 0; i < sizeof(frequencies) / sizeof(frequencies[0]); i++) {
+        char formatted[32];
+        format_frequency(formatted, sizeof(formatted), true, frequencies[i]);
+        assert(text_width(formatted, &status_text_16) <= 50);
+    }
+    for (unsigned unit = 0; unit < 5; unit++) {
+        const double amounts[] = {0, 8.4, 99.94, 99.95, 100, 999.5, 1023.49, 1023.5};
+        for (unsigned i = 0; i < sizeof(amounts) / sizeof(amounts[0]); i++) {
+            char formatted[32];
+            format_memory(formatted, sizeof(formatted), true, amounts[i] * pow(1024.0, unit));
+            assert(text_width(formatted, &status_text_16) <= 50);
+        }
     }
     const int ids[] = {3};
     groups_reset(ids, 1);
@@ -154,7 +183,9 @@ static void rail_telemetry_captures(void)
     s_state.dashboard = (status_dashboard_t){
         .valid = true,
         .cpu_valid = true, .cpu = .18f,
+        .cpu_freq_mhz_valid = true, .cpu_freq_mhz = 3600,
         .mem_valid = true, .mem = .43f,
+        .mem_used_bytes_valid = true, .mem_used_bytes = 9019431322.0,
         .network_valid = true, .network = true,
         .rx_bytes_per_s_valid = true, .rx_bytes_per_s = 2400000.0,
         .tx_bytes_per_s_valid = true, .tx_bytes_per_s = 86000.0,
@@ -163,9 +194,22 @@ static void rail_telemetry_captures(void)
     repaint();
     assert_rail_geometry();
     assert(strcmp(label_storage(s_rail_clock), "14:35") == 0);
-    assert(strcmp(label_storage(s_metric_values[2]), "2.4 MB/s") == 0);
-    assert(strcmp(label_storage(s_metric_values[3]), "86 KB/s") == 0);
+    assert(strcmp(label_storage(s_metric_details[0]), "3.6G") == 0);
+    assert(strcmp(label_storage(s_metric_details[1]), "8.4G") == 0);
+    assert(strcmp(label_storage(s_metric_values[2]), "86 KB/s") == 0);
+    assert(strcmp(label_storage(s_metric_values[3]), "2.4 MB/s") == 0);
     assert(capture_frame("telemetry-rail-normal-home"));
+    const float percentages[] = {.01f, .99f, 1.0f};
+    for (unsigned i = 0; i < sizeof(percentages) / sizeof(percentages[0]); i++) {
+        s_state.dashboard.cpu = s_state.dashboard.mem = percentages[i];
+        ui_deck_tick(STATE_DIRTY_DASHBOARD);
+        repaint();
+        assert_rail_geometry();
+        assert(strcmp(label_storage(s_metric_details[0]), "3.6G") == 0);
+        assert(strcmp(label_storage(s_metric_details[1]), "8.4G") == 0);
+    }
+    assert(capture_frame("telemetry-rail-details-100-percent"));
+    s_state.dashboard.mem = .43f;
 
     const int rtc_reads = s_rtc_reads;
     s_state.dashboard.cpu = .88f;
@@ -193,8 +237,8 @@ static void rail_telemetry_captures(void)
     s_state.dashboard.tx_bytes_per_s = 999500.0;
     ui_deck_tick(STATE_DIRTY_DASHBOARD);
     repaint();
-    assert(strcmp(label_storage(s_metric_values[2]), ">999GB/s") == 0);
-    assert(strcmp(label_storage(s_metric_values[3]), "1.0 MB/s") == 0);
+    assert(strcmp(label_storage(s_metric_values[2]), "1.0 MB/s") == 0);
+    assert(strcmp(label_storage(s_metric_values[3]), ">999GB/s") == 0);
     assert_rail_geometry();
     assert(capture_frame("telemetry-rail-high"));
 
@@ -202,8 +246,8 @@ static void rail_telemetry_captures(void)
     s_state.dashboard.tx_bytes_per_s = 999500.0;
     ui_deck_tick(STATE_DIRTY_DASHBOARD);
     repaint();
-    assert(strcmp(label_storage(s_metric_values[2]), "10.0 KB/s") == 0);
-    assert(strcmp(label_storage(s_metric_values[3]), "1.0 MB/s") == 0);
+    assert(strcmp(label_storage(s_metric_values[2]), "1.0 MB/s") == 0);
+    assert(strcmp(label_storage(s_metric_values[3]), "10.0 KB/s") == 0);
     assert_rail_geometry();
     assert(capture_frame("telemetry-rail-rounding-boundary"));
 
@@ -214,6 +258,18 @@ static void rail_telemetry_captures(void)
     assert(strcmp(label_storage(s_metric_values[2]), "--") == 0);
     assert(strcmp(label_storage(s_metric_values[3]), "--") == 0);
     assert(capture_frame("telemetry-rail-unavailable"));
+    s_state.dashboard.cpu_freq_mhz_valid = false;
+    s_state.dashboard.mem_used_bytes_valid = false;
+    ui_deck_tick(STATE_DIRTY_DASHBOARD);
+    repaint();
+    assert(strcmp(label_storage(s_metric_details[0]), "--") == 0);
+    assert(strcmp(label_storage(s_metric_details[1]), "--") == 0);
+    assert(strcmp(label_storage(s_metric_values[0]), "18%") == 0);
+    assert(strcmp(label_storage(s_metric_values[1]), "43%") == 0);
+    assert_rail_geometry();
+    assert(capture_frame("telemetry-rail-details-unavailable"));
+    s_state.dashboard.cpu_freq_mhz_valid = true;
+    s_state.dashboard.mem_used_bytes_valid = true;
 
     s_state.dashboard.rx_bytes_per_s_valid = true;
     s_state.dashboard.tx_bytes_per_s_valid = true;
@@ -224,8 +280,8 @@ static void rail_telemetry_captures(void)
     group_swipe(450, 90, -130, 0);
     assert(!s_group_home);
     assert_rail_geometry();
-    assert(strcmp(label_storage(s_metric_values[2]), "2.4 MB/s") == 0);
-    assert(strcmp(label_storage(s_metric_values[3]), "86 KB/s") == 0);
+    assert(strcmp(label_storage(s_metric_values[2]), "86 KB/s") == 0);
+    assert(strcmp(label_storage(s_metric_values[3]), "2.4 MB/s") == 0);
     assert(capture_frame("telemetry-rail-normal-notifications"));
 
     s_state.dashboard.network = false;
@@ -840,6 +896,7 @@ static void history_layout_and_navigation(void)
     ui_deck_tick(STATE_DIRTY_NOTIF);
     group_finish();
     assert(s_history_mode && !s_group_home);
+    assert_rail_geometry();
     assert(lv_obj_has_flag(s_idle, LV_OBJ_FLAG_HIDDEN));
     assert(lv_obj_has_flag(s_group_cue, LV_OBJ_FLAG_HIDDEN));
     assert(lv_obj_get_y(s_viewport) == 0 && lv_obj_get_height(s_viewport) == 172);

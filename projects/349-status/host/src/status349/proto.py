@@ -21,6 +21,8 @@ NOTIFICATION_HISTORY_CAPABILITY = "notification-history-v1"
 CARD_CHUNK_MAX = 2048
 IDENTITY_MAX = 0x7FFFFFFF
 DASHBOARD_RATE_MAX_BPS = 1_000_000_000_000
+DASHBOARD_CPU_FREQ_MAX_MHZ = 100_000
+DASHBOARD_MEMORY_MAX_BYTES = 1 << 50
 NOTIFICATION_BODY_HISTORY_BYTES = 511
 NOTIFICATION_BODY_LEGACY_BYTES = 159
 
@@ -164,11 +166,24 @@ def _dashboard_ratio(value: object) -> float | None:
     return round(max(0.0, min(1.0, numeric)) * 100) / 100
 
 
-def _dashboard_rate(value: object) -> float | None:
+def _dashboard_quantity(value: object, maximum: int) -> float | None:
     numeric = _dashboard_number(value)
-    if numeric is None or not 0 <= numeric <= DASHBOARD_RATE_MAX_BPS:
+    if numeric is None or not 0 <= numeric <= maximum:
         return None
     return numeric
+
+
+def _dashboard_rate(value: object) -> float | None:
+    return _dashboard_quantity(value, DASHBOARD_RATE_MAX_BPS)
+
+
+def _dashboard_frequency(value: object) -> float | None:
+    return _dashboard_quantity(value, DASHBOARD_CPU_FREQ_MAX_MHZ)
+
+
+def _dashboard_memory(value: object) -> int | None:
+    numeric = _dashboard_quantity(value, DASHBOARD_MEMORY_MAX_BYTES)
+    return int(numeric) if numeric is not None and numeric.is_integer() else None
 
 
 def dashboard_payload(value: object) -> dict:
@@ -192,7 +207,9 @@ def dashboard_payload(value: object) -> dict:
 
     return {
         "cpu": _dashboard_ratio(source.get("cpu")),
+        "cpu_freq_mhz": _dashboard_frequency(source.get("cpu_freq_mhz")),
         "mem": _dashboard_ratio(source.get("mem")),
+        "mem_used_bytes": _dashboard_memory(source.get("mem_used_bytes")),
         "network": network if isinstance(network, bool) else None,
         "rx_bytes_per_s": _dashboard_rate(source.get("rx_bytes_per_s")),
         "tx_bytes_per_s": _dashboard_rate(source.get("tx_bytes_per_s")),
@@ -393,6 +410,16 @@ def _dashboard_status(value: object) -> dict | None:
         ("rx_bytes_per_s", _dashboard_rate),
         ("tx_bytes_per_s", _dashboard_rate),
     ):
+        parsed = parse(value[field])
+        if parsed is None and value[field] is not None:
+            return None
+        result[field] = parsed
+    for field, parse in (
+        ("cpu_freq_mhz", _dashboard_frequency),
+        ("mem_used_bytes", _dashboard_memory),
+    ):
+        if field not in value:
+            continue  # Older firmware readback omits the extra details.
         parsed = parse(value[field])
         if parsed is None and value[field] is not None:
             return None

@@ -663,7 +663,9 @@ static void test_cards_status_pending_until_ui_publication(void)
     st->dashboard = (status_dashboard_t){
         .valid = true,
         .cpu_valid = true, .cpu = .25f,
+        .cpu_freq_mhz_valid = true, .cpu_freq_mhz = 3600.5,
         .mem_valid = true, .mem = .75f,
+        .mem_used_bytes_valid = true, .mem_used_bytes = 25769803776.0,
         .network_valid = true, .network = true,
         .rx_bytes_per_s_valid = true, .rx_bytes_per_s = 0,
         .tx_bytes_per_s_valid = true, .tx_bytes_per_s = 125000.5,
@@ -682,6 +684,8 @@ static void test_cards_status_pending_until_ui_publication(void)
     CHECK(cJSON_IsTrue(field(dashboard, "network")));
     CHECK(number(dashboard, "rx_bytes_per_s") == 0);
     CHECK(field(dashboard, "tx_bytes_per_s")->valuedouble == 125000.5);
+    CHECK(field(dashboard, "cpu_freq_mhz")->valuedouble == 3600.5);
+    CHECK(field(dashboard, "mem_used_bytes")->valuedouble == 25769803776.0);
     const cJSON *ids = field(response, "ids");
     CHECK(cJSON_IsArray(ids) && cJSON_GetArraySize(ids) == 1);
     CHECK(cJSON_GetArrayItem(ids, 0)->valueint == 10);
@@ -741,6 +745,8 @@ static void test_legacy_compatibility(void)
     CHECK(cJSON_IsObject(dashboard));
     CHECK(cJSON_IsNull(field(dashboard, "rx_bytes_per_s")));
     CHECK(cJSON_IsNull(field(dashboard, "tx_bytes_per_s")));
+    CHECK(cJSON_IsNull(field(dashboard, "cpu_freq_mhz")));
+    CHECK(cJSON_IsNull(field(dashboard, "mem_used_bytes")));
     const cJSON *grouped = field(response, "grouped");
     CHECK(cJSON_IsFalse(field(grouped, "enabled")));
     CHECK(number(grouped, "session") == 0);

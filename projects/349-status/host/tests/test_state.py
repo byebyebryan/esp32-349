@@ -60,7 +60,9 @@ def test_dashboard_metadata_is_sanitized_and_kept_out_of_legacy_sync():
     assert model.rev == rev
     assert model.dashboard == {
         "cpu": 0.42,
+        "cpu_freq_mhz": None,
         "mem": None,
+        "mem_used_bytes": None,
         "network": True,
         "rx_bytes_per_s": None,
         "tx_bytes_per_s": None,

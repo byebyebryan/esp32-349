@@ -26,13 +26,68 @@ def test_parse_power_supply():
 def test_sysinfo_read():
     source = SysinfoSource()
     first = source.read()
-    assert set(first) == {"cpu", "mem"}
+    assert set(first) == {"cpu", "cpu_freq_mhz", "mem", "mem_used_bytes"}
     assert first["cpu"] is None  # no delta on the first sample
     assert first["mem"] is None or 0.0 <= first["mem"] <= 1.0
 
     time.sleep(0.02)
     second = source.read()
     assert second["cpu"] is None or 0.0 <= second["cpu"] <= 1.0
+
+
+def test_sysinfo_frequency_and_memory_details_share_one_sample(tmp_path):
+    (tmp_path / "stat").write_text("cpu 10 0 0 90 0\n")
+    (tmp_path / "cpuinfo").write_text(
+        "model name : CPU @ 9.9GHz\ncpu MHz : 800.0\ncpu MHz : 4000.0\n"
+    )
+    (tmp_path / "meminfo").write_text("MemTotal: 33554432 kB\nMemAvailable: 8388608 kB\n")
+    source = SysinfoSource(tmp_path)
+    assert source.read() == {
+        "cpu": None, "cpu_freq_mhz": 2400.0,
+        "mem": .75, "mem_used_bytes": 24 * 1024**3,
+    }
+    (tmp_path / "stat").write_text("cpu 15 0 0 95 0\n")
+    (tmp_path / "cpuinfo").write_text("cpu MHz : 3500.1\ncpu MHz : 3500.3\n")
+    (tmp_path / "meminfo").write_text("MemTotal: 33554432 kB\nMemAvailable: 16777216 kB\n")
+    assert source.read() == {
+        "cpu": .5, "cpu_freq_mhz": 3500.2,
+        "mem": .5, "mem_used_bytes": 16 * 1024**3,
+    }
+
+
+@pytest.mark.parametrize("cpuinfo", [
+    "", "model name : 3.5GHz\n", "cpu MHz : junk\n", "cpu MHz : nan\n",
+    "cpu MHz : inf\n", "cpu MHz : 0\n", "cpu MHz : -1\n",
+    "cpu MHz : 100001\n", "cpu MHz : 3500\ncpu MHz : junk\n",
+])
+def test_sysinfo_unavailable_frequency_does_not_hide_memory(tmp_path, cpuinfo):
+    (tmp_path / "cpuinfo").write_text(cpuinfo)
+    (tmp_path / "meminfo").write_text("MemTotal: 1024 kB\nMemAvailable: 1024 kB\n")
+    value = SysinfoSource(tmp_path).read()
+    assert value["cpu_freq_mhz"] is None
+    assert value["mem"] == 0 and value["mem_used_bytes"] == 0
+
+
+@pytest.mark.parametrize("meminfo", [
+    "", "MemTotal: 1024 kB\n", "MemTotal: 0 kB\nMemAvailable: 0 kB\n",
+    "MemTotal: 1024 kB\nMemAvailable: -1 kB\n",
+    "MemTotal: 1024 kB\nMemAvailable: 1025 kB\n",
+    "MemTotal: junk kB\nMemAvailable: 1 kB\n",
+    "MemTotal: 1024 bytes\nMemAvailable: 1 kB\n",
+    "MemTotal: 1024 kB extra\nMemAvailable: 1 kB\n",
+])
+def test_sysinfo_bad_memory_keeps_both_memory_fields_unavailable(tmp_path, meminfo):
+    (tmp_path / "cpuinfo").write_text("cpu MHz : 3600\n")
+    (tmp_path / "meminfo").write_text(meminfo)
+    value = SysinfoSource(tmp_path).read()
+    assert value["mem"] is None and value["mem_used_bytes"] is None
+    assert value["cpu_freq_mhz"] == 3600
+
+
+def test_sysinfo_missing_proc_files_are_unavailable(tmp_path):
+    assert SysinfoSource(tmp_path).read() == {
+        "cpu": None, "cpu_freq_mhz": None, "mem": None, "mem_used_bytes": None,
+    }
 
 
 def test_network_source_reads_active_ipv4_and_ipv6_defaults(tmp_path):

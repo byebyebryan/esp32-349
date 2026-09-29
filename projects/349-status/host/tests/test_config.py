@@ -34,9 +34,19 @@ def test_worst_case_chunked_sync_size_includes_dashboard_envelope(monkeypatch):
 
     without_dashboard = dict(captured[0])
     without_dashboard.pop("dashboard")
+    without_details = {**captured[0], "dashboard": {
+        key: value for key, value in captured[0]["dashboard"].items()
+        if key not in {"cpu_freq_mhz", "mem_used_bytes"}
+    }}
+    preceding_rail_budget = len(original_encode(without_details))
     # A budget that fits the legacy envelope must still reject the larger
     # dashboard snapshot before the daemon starts.
     monkeypatch.setattr(proto, "LINE_MAX", len(original_encode(without_dashboard)))
+    with pytest.raises(ValueError, match="sync_begin"):
+        _validate_sync_size([])
+
+    # A preset that just fits the preceding rail must budget for both details.
+    monkeypatch.setattr(proto, "LINE_MAX", preceding_rail_budget)
     with pytest.raises(ValueError, match="sync_begin"):
         _validate_sync_size([])
 

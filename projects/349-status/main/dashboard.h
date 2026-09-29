@@ -8,6 +8,8 @@ typedef struct {
     bool valid;
     bool cpu_valid, mem_valid, network_valid;
     float cpu, mem;
+    bool cpu_freq_mhz_valid, mem_used_bytes_valid;
+    double cpu_freq_mhz, mem_used_bytes;
     bool network;
     bool rx_bytes_per_s_valid, tx_bytes_per_s_valid;
     double rx_bytes_per_s, tx_bytes_per_s;

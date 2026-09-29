@@ -40,6 +40,7 @@ LV_FONT_DECLARE(status_clock_80);
 
 static lv_obj_t *s_root, *s_rail_clock, *s_rail_footer;
 static lv_obj_t *s_metric_names[4], *s_metric_values[4];
+static lv_obj_t *s_metric_details[2];
 static lv_obj_t *s_idle, *s_idle_clock, *s_date, *s_message, *s_idle_transient;
 typedef struct {
     lv_obj_t *root, *accent, *app, *title, *body, *position;
@@ -464,6 +465,50 @@ static void format_rate(char *out, size_t size, bool valid, double rate)
     }
 }
 
+static void format_frequency(char *out, size_t size, bool valid, double mhz)
+{
+    if (!valid || !isfinite(mhz) || mhz < 0 || mhz > 100000.0) {
+        strlcpy(out, "--", size);
+    } else if (mhz < 999.5) {
+        snprintf(out, size, "%.0fM", mhz);
+    } else if (mhz < 9950.0) {
+        snprintf(out, size, "%.1fG", floor(mhz / 100.0 + .5) / 10.0);
+    } else {
+        snprintf(out, size, "%.0fG", mhz / 1000.0);
+    }
+}
+
+static void format_memory(char *out, size_t size, bool valid, double bytes)
+{
+    static const char *const units[] = {"B", "K", "M", "G", "T", "P"};
+    if (!valid || !isfinite(bytes) || bytes < 0 || bytes > 1125899906842624.0) {
+        strlcpy(out, "--", size);
+        return;
+    }
+    unsigned unit = 0;
+    double shown = bytes;
+    while (shown >= 1024.0 && unit < 5) {
+        shown /= 1024.0;
+        unit++;
+    }
+    for (;;) {
+        const double rounded = shown < 100.0 && unit > 0
+            ? floor(shown * 10.0 + .5) / 10.0 : floor(shown + .5);
+        /* Avoid a four-digit amount crowding the fixed percentage column. */
+        if (rounded >= 1000.0 && unit < 5) {
+            shown /= 1024.0;
+            unit++;
+            continue;
+        }
+        if (rounded < 100.0 && unit > 0) {
+            snprintf(out, size, "%.1f%s", rounded, units[unit]);
+        } else {
+            snprintf(out, size, "%.0f%s", rounded, units[unit]);
+        }
+        return;
+    }
+}
+
 static void metrics(const snapshot_t *view, bool active)
 {
     const status_dashboard_t *d = &view->dashboard;
@@ -476,6 +521,13 @@ static void metrics(const snapshot_t *view, bool active)
         uint32_t color = view->stale ? SECONDARY : FOREGROUND;
         text_color(s_metric_values[i], color);
     }
+    for (int i = 0; i < 2; i++) {
+        text_color(s_metric_details[i], view->stale ? SECONDARY : FOREGROUND);
+    }
+    format_frequency(value, sizeof(value), d->cpu_freq_mhz_valid, d->cpu_freq_mhz);
+    text(s_metric_details[0], value);
+    format_memory(value, sizeof(value), d->mem_used_bytes_valid, d->mem_used_bytes);
+    text(s_metric_details[1], value);
     if (d->cpu_valid) {
         snprintf(value, sizeof(value), "%d%%", (int)(d->cpu * 100 + .5f));
     } else {
@@ -488,9 +540,9 @@ static void metrics(const snapshot_t *view, bool active)
         strlcpy(value, "--", sizeof(value));
     }
     text(s_metric_values[1], value);
-    format_rate(value, sizeof(value), d->rx_bytes_per_s_valid, d->rx_bytes_per_s);
-    text(s_metric_values[2], value);
     format_rate(value, sizeof(value), d->tx_bytes_per_s_valid, d->tx_bytes_per_s);
+    text(s_metric_values[2], value);
+    format_rate(value, sizeof(value), d->rx_bytes_per_s_valid, d->rx_bytes_per_s);
     text(s_metric_values[3], value);
     hide(s_rail_clock, false);
     const bool showing_transient = !view->stale && esp_timer_get_time() < s_transient_until;
@@ -1444,12 +1496,20 @@ void ui_deck_init(lv_obj_t *parent, const lv_font_t *small, const lv_font_t *met
     box(s_root, 159, 0, 1, 172, 0x2C3B49, 0);
     s_rail_clock = label(rail, 10, 7, 144, 48, &lv_font_montserrat_40, FOREGROUND, "--:--");
     s_rail_footer = label(rail, 12, 156, 136, 16, s_small, SECONDARY, "");
-    const char *names[] = {"CPU", "MEM", "DN", "UP"};
+    const char *names[] = {"CPU", "MEM", "UP", "DN"};
     for (int i = 0; i < 4; i++) {
         s_metric_names[i] = label(rail, 12, 61 + 24 * i, 36, 21, s_meta, SECONDARY, names[i]);
-        s_metric_values[i] = label(rail, 52, 58 + 24 * i, 96, 26,
-                                   &status_text_20, FOREGROUND, "--");
+        const int value_x = i < 2 ? 106 : 52;
+        /* 42 px is exactly the generated 16 px font's width for "100%". */
+        const int value_width = i < 2 ? 42 : 96;
+        s_metric_values[i] = label(rail, value_x, 58 + 24 * i, value_width, 26,
+                                   &status_text_16, FOREGROUND, "--");
         lv_obj_set_style_text_align(s_metric_values[i], LV_TEXT_ALIGN_RIGHT, 0);
+    }
+    for (int i = 0; i < 2; i++) {
+        s_metric_details[i] = label(rail, 52, 58 + 24 * i, 50, 26,
+                                   &status_text_16, FOREGROUND, "--");
+        lv_obj_set_style_text_align(s_metric_details[i], LV_TEXT_ALIGN_RIGHT, 0);
     }
     s_content = box(s_root, 160, 0, 480, 172, BACKGROUND, 0);
     s_idle = box(s_content, 0, 0, 480, 172, BACKGROUND, 0);

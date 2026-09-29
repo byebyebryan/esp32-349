@@ -178,9 +178,15 @@ normal arrivals do not interrupt manual browsing, while critical attention
 waits for the gesture to settle. Tap × to dismiss
 locally; tapping the body does nothing. The position count includes only locally visible,
 cached cards; `+N uncached` is a separate count, not a navigation target.
-The rail keeps local HH:MM and fixed CPU, MEM, DN, and UP rows in both groups.
-DN/UP show physical-uplink receive/transmit traffic in decimal B/s, KB/s,
-MB/s, or GB/s. The rail has no battery row. Volume and Bluetooth changes
+
+All dashboard layouts keep local HH:MM and fixed CPU, MEM, UP, and DN rows.
+CPU shows average current host frequency and usage; MEM shows used memory
+and usage. Details and percentages occupy separate fixed columns, both right
+aligned to keep unit letters fixed, with exactly enough room for `100%`.
+`3.6G` on CPU means GHz; `8.4G` on MEM means GiB. Memory usage is
+`MemTotal - MemAvailable`, with the amount and percentage from the same read.
+All four value rows use 16 px text. UP/DN show physical-uplink transmit/receive
+traffic in decimal B/s, KB/s, MB/s, or GB/s. The rail has no battery row. Volume and Bluetooth changes
 appear briefly. Bluetooth probing is optional
 and failure leaves that reading unavailable. Details and acceptance scope are
 in the [grouped direction](design/grouped-ui-plan.md) and
@@ -201,11 +207,14 @@ interfaces are not added again. This measures interface traffic, including
 local-network traffic, rather than Internet reachability or a speed test.
 New/unreadable/reset counters show `--` until a valid baseline is available;
 `0 B/s` means a measured zero. Link loss and stale host readings have separate
-footer messages. See the [rail refinement plan](design/telemetry-rail-plan.md)
+footer messages. The [rail details refinement](design/telemetry-rail-details.md)
+records current geometry, units and validation. See the earlier
+[rail refinement plan](design/telemetry-rail-plan.md)
 and [rail acceptance record](design/telemetry-rail-acceptance.md).
 `349ctl status` and the optional dashboard in `349ctl device-cards` expose
 bounded host/firmware telemetry for diagnosis. Older peers remain supported
-and may lack these rate/readback fields.
+and may lack the optional frequency, used-memory or rate/readback fields;
+unavailable readings show `--` independently of the percentages.
 The existing ten-second health log includes minimum-free LVGL and link-task
 stack space. The [board telemetry probe](tools/check_telemetry_board.py)
 compares real host samples with USB readback; `--stress-readback` additionally

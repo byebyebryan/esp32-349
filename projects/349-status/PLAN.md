@@ -34,7 +34,7 @@ The larger close-control follow-up passed its focused Starship check on
 ### Current direction — notification-only right pane (2026-09-28)
 
 Horizontal Home/app navigation is parked for `notification-history-v1` peers.
-Keep the fixed HH:MM/CPU/MEM/DN/UP rail and dedicate the right side to recent
+Keep the fixed HH:MM/CPU/MEM/UP/DN rail and dedicate the right side to recent
 notifications, with `No recent notifications` when empty. Keep vertical whole-card
 swiping, explicit Open/× controls and card motion. The body becomes 16 px with
 the existing glyph repertoire, relative age metadata and a 511-byte UTF-8 bound.
@@ -45,6 +45,10 @@ existing grouped/active-card behavior. See the
 [acceptance record](design/notification-history-acceptance.md) for current
 validation and deployment evidence. Additional apps, disk history, clear-all
 and body-text scrolling remain deferred.
+
+The September 29 [rail details refinement](design/telemetry-rail-details.md)
+adds current CPU frequency and used memory beside fixed-width percentages,
+places UP before DN, and gives all four value rows the same text size.
 
 ## Current validation boundary (2026-09-26)
 

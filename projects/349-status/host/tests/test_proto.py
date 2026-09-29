@@ -310,7 +310,9 @@ def test_dashboard_is_added_only_to_opted_in_sync_begin():
 def test_dashboard_rates_are_optional_bounded_and_reject_bool_values():
     expected = {
         "cpu": None,
+        "cpu_freq_mhz": None,
         "mem": None,
+        "mem_used_bytes": None,
         "network": None,
         "rx_bytes_per_s": 1_000_000_000_000.0,
         "tx_bytes_per_s": 0.0,

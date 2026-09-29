@@ -193,8 +193,14 @@ static void send_cards_status(void)
     cJSON *dashboard = cJSON_AddObjectToObject(obj, "dashboard");
     if (view.dashboard.cpu_valid) cJSON_AddNumberToObject(dashboard, "cpu", view.dashboard.cpu);
     else cJSON_AddNullToObject(dashboard, "cpu");
+    if (view.dashboard.cpu_freq_mhz_valid)
+        cJSON_AddNumberToObject(dashboard, "cpu_freq_mhz", view.dashboard.cpu_freq_mhz);
+    else cJSON_AddNullToObject(dashboard, "cpu_freq_mhz");
     if (view.dashboard.mem_valid) cJSON_AddNumberToObject(dashboard, "mem", view.dashboard.mem);
     else cJSON_AddNullToObject(dashboard, "mem");
+    if (view.dashboard.mem_used_bytes_valid)
+        cJSON_AddNumberToObject(dashboard, "mem_used_bytes", view.dashboard.mem_used_bytes);
+    else cJSON_AddNullToObject(dashboard, "mem_used_bytes");
     if (view.dashboard.network_valid) cJSON_AddBoolToObject(dashboard, "network", view.dashboard.network);
     else cJSON_AddNullToObject(dashboard, "network");
     if (view.dashboard.rx_bytes_per_s_valid) {

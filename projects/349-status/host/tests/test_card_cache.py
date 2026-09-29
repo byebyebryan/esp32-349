@@ -47,7 +47,9 @@ def test_hello_capability_selects_chunked_transfer_and_old_hello_keeps_legacy_sy
         assert sent[0]["t"] == "sync_begin"
         assert sent[0]["dashboard"] == {
             "cpu": None,
+            "cpu_freq_mhz": None,
             "mem": None,
+            "mem_used_bytes": None,
             "network": None,
             "rx_bytes_per_s": None,
             "tx_bytes_per_s": None,
@@ -199,7 +201,9 @@ def test_state_changes_wait_for_snapshot_commit_and_keep_arrival_close_order():
             {
                 "t": "dashboard",
                 "cpu": 0.5,
+                "cpu_freq_mhz": None,
                 "mem": 0.25,
+                "mem_used_bytes": None,
                 "network": False,
                 "rx_bytes_per_s": None,
                 "tx_bytes_per_s": None,
