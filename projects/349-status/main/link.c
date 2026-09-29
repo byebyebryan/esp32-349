@@ -13,6 +13,9 @@
 
 static const char *TAG = "link";
 static const size_t PREFIX_LEN = sizeof(LINK_PREFIX) - 1;
+/* Dashboard readback adds nested cJSON and floating-point formatting to the
+ * receive path. Its libc call chain exceeded the previous 4 KiB budget. */
+#define LINK_TASK_STACK_BYTES (6 * 1024)
 
 static link_line_cb_t s_on_line;
 static link_overflow_cb_t s_on_overflow;
@@ -80,7 +83,7 @@ esp_err_t link_start(link_line_cb_t on_line)
     if (s_tx_mux == NULL) {
         return ESP_ERR_NO_MEM;
     }
-    if (xTaskCreate(link_task, "link", 4096, NULL, 5, NULL) != pdPASS) {
+    if (xTaskCreate(link_task, "link", LINK_TASK_STACK_BYTES, NULL, 5, NULL) != pdPASS) {
         return ESP_ERR_NO_MEM;
     }
     return ESP_OK;

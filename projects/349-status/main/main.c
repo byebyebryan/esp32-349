@@ -98,14 +98,17 @@ void app_main(void)
         const TaskHandle_t lvgl_task = xTaskGetHandle("LVGL");
         const int lvgl_stack_free_bytes = lvgl_task
             ? (int)(uxTaskGetStackHighWaterMark(lvgl_task) * sizeof(StackType_t)) : -1;
+        const TaskHandle_t link_task = xTaskGetHandle("link");
+        const int link_stack_free_bytes = link_task
+            ? (int)(uxTaskGetStackHighWaterMark(link_task) * sizeof(StackType_t)) : -1;
         if (sample_cpu_idle(&core0_idle_percent, &core1_idle_percent)) {
             ESP_LOGI(TAG,
-                     "alive, host=%s, cpu_idle_core0_pct=%u, cpu_idle_core1_pct=%u, min_internal=%zu, min_psram=%zu, lvgl_stack_free_bytes=%d",
-                     host, core0_idle_percent, core1_idle_percent, min_internal, min_psram, lvgl_stack_free_bytes);
+                     "alive, host=%s, cpu_idle_core0_pct=%u, cpu_idle_core1_pct=%u, min_internal=%zu, min_psram=%zu, lvgl_stack_free_bytes=%d, link_stack_free_bytes=%d",
+                     host, core0_idle_percent, core1_idle_percent, min_internal, min_psram, lvgl_stack_free_bytes, link_stack_free_bytes);
         } else {
             ESP_LOGI(TAG,
-                     "alive, host=%s, cpu_idle_core0_pct=na, cpu_idle_core1_pct=na, min_internal=%zu, min_psram=%zu, lvgl_stack_free_bytes=%d",
-                     host, min_internal, min_psram, lvgl_stack_free_bytes);
+                     "alive, host=%s, cpu_idle_core0_pct=na, cpu_idle_core1_pct=na, min_internal=%zu, min_psram=%zu, lvgl_stack_free_bytes=%d, link_stack_free_bytes=%d",
+                     host, min_internal, min_psram, lvgl_stack_free_bytes, link_stack_free_bytes);
         }
     }
 }
