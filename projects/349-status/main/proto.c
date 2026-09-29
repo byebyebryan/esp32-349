@@ -79,6 +79,7 @@ void proto_handle_overflow(void)
 typedef struct {
     bool enabled;
     bool stale;
+    status_dashboard_t dashboard;
     int reachable;
     int position;
     int focus_id;
@@ -144,6 +145,7 @@ static void send_cards_status(void)
     }
     view.enabled = st->deck_enabled;
     view.stale = st->deck_stale;
+    view.dashboard = st->dashboard;
     view.reachable = st->deck_reachable;
     view.position = st->deck_position;
     view.focus_id = st->deck_focus_id;
@@ -182,6 +184,23 @@ static void send_cards_status(void)
     cJSON *array = cJSON_AddArrayToObject(obj, "ids");
     for (int i = 0; i < count; i++) {
         cJSON_AddItemToArray(array, cJSON_CreateNumber(ids[i]));
+    }
+    cJSON *dashboard = cJSON_AddObjectToObject(obj, "dashboard");
+    if (view.dashboard.cpu_valid) cJSON_AddNumberToObject(dashboard, "cpu", view.dashboard.cpu);
+    else cJSON_AddNullToObject(dashboard, "cpu");
+    if (view.dashboard.mem_valid) cJSON_AddNumberToObject(dashboard, "mem", view.dashboard.mem);
+    else cJSON_AddNullToObject(dashboard, "mem");
+    if (view.dashboard.network_valid) cJSON_AddBoolToObject(dashboard, "network", view.dashboard.network);
+    else cJSON_AddNullToObject(dashboard, "network");
+    if (view.dashboard.rx_bytes_per_s_valid) {
+        cJSON_AddNumberToObject(dashboard, "rx_bytes_per_s", view.dashboard.rx_bytes_per_s);
+    } else {
+        cJSON_AddNullToObject(dashboard, "rx_bytes_per_s");
+    }
+    if (view.dashboard.tx_bytes_per_s_valid) {
+        cJSON_AddNumberToObject(dashboard, "tx_bytes_per_s", view.dashboard.tx_bytes_per_s);
+    } else {
+        cJSON_AddNullToObject(dashboard, "tx_bytes_per_s");
     }
     cJSON *actions = cJSON_AddObjectToObject(obj, "actions");
     cJSON_AddBoolToObject(actions, "enabled", view.actions_enabled);

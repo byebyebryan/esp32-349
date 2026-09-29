@@ -67,6 +67,8 @@ class Daemon:
         self.bluetooth = BluetoothSource()
         self._cpu_ema: float | None = None
         self._cpu_ema_mono: float | None = None
+        self._latest_sample: dict | None = None
+        self._next_sample_mono: float | None = None
         self.notifications = NotificationSource(
             cfg.notifications,
             self._device_notify,
@@ -430,6 +432,20 @@ class Daemon:
         values.update(self.bluetooth.read())
         return values
 
+    def _monotonic(self) -> float:
+        return time.monotonic()
+
+    def _sample_locked(self) -> dict:
+        """Collect and cache telemetry while holding ``_state_lock``.
+
+        Schedule from completion so a slow source cannot trigger catch-up
+        samples. Callers publish dashboard and zones before releasing the lock.
+        """
+        values = self._sample()
+        self._latest_sample = values
+        self._next_sample_mono = self._monotonic() + float(self.cfg.daemon.tick_s)
+        return values
+
     @staticmethod
     def _ratio(value: object) -> float | None:
         if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -466,6 +482,8 @@ class Daemon:
             "cpu": smoothed_cpu,
             "mem": values.get("mem"),
             "network": values.get("network"),
+            "rx_bytes_per_s": values.get("rx_bytes_per_s"),
+            "tx_bytes_per_s": values.get("tx_bytes_per_s"),
             "battery": (
                 {"level": battery_level, "charging": values.get("charging")}
                 if battery_level is not None
@@ -494,9 +512,12 @@ class Daemon:
     async def _send_sync_locked(self) -> None:
         epoch, offset = self.clock.read()
         self.model.set_clock(epoch, offset)
-        values = self._sample()
+        if self._latest_sample is None:
+            values = self._sample_locked()
+            await self._update_dashboard_locked(values, emit_delta=False)
+        else:
+            values = self._latest_sample
         self.model.set_zones(build_zones(self.cfg.bar.preset, values))
-        await self._update_dashboard_locked(values, emit_delta=False)
         if self._card_sync_capacity is None:
             messages = [self.model.snapshot()]
         else:
@@ -1082,6 +1103,10 @@ class Daemon:
             },
             "presentation": presentation,
             "last_rx_s": age,
+            "dashboard": {
+                key: self.model.dashboard.get(key)
+                for key in ("cpu", "mem", "network", "rx_bytes_per_s", "tx_bytes_per_s")
+            },
             "config": self.cfg_path,
         }
 
@@ -1126,27 +1151,27 @@ class Daemon:
 
     async def _tick_loop(self) -> None:
         last_offset: int | None = None
-        interval_settings: tuple[float, float] | None = None
-        next_sync = time.monotonic()
+        interval_settings = (
+            float(self.cfg.daemon.tick_s),
+            float(self.cfg.daemon.sync_interval_s),
+        )
+        now = self._monotonic()
+        next_sync = now + interval_settings[1]
+        if self._next_sample_mono is None:
+            self._next_sample_mono = now
 
         while True:
-            tick = float(self.cfg.daemon.tick_s)
-            sync_interval = float(self.cfg.daemon.sync_interval_s)
-            settings = (tick, sync_interval)
-            if settings != interval_settings:
-                next_sync = time.monotonic() + sync_interval
-                interval_settings = settings
-
-            wait_s = tick
+            now = self._monotonic()
+            wait_s = max(0.0, min(self._next_sample_mono, next_sync) - now)
             if self._injected_expiry:
-                wait_s = min(wait_s, max(0.0, min(self._injected_expiry.values()) - time.monotonic()))
+                wait_s = min(wait_s, max(0.0, min(self._injected_expiry.values()) - now))
             attention_deadlines = []
             if self._pending_present_due is not None:
                 attention_deadlines.append(self._pending_present_due)
             if self._presentation is not None and self._presentation["deadline"] is not None:
                 attention_deadlines.append(self._presentation["deadline"])
             if attention_deadlines:
-                wait_s = min(wait_s, max(0.0, min(attention_deadlines) - time.monotonic()))
+                wait_s = min(wait_s, max(0.0, min(attention_deadlines) - now))
             try:
                 await asyncio.wait_for(self._tick_wakeup.wait(), timeout=wait_s)
             except asyncio.TimeoutError:
@@ -1154,16 +1179,19 @@ class Daemon:
             else:
                 self._tick_wakeup.clear()
 
-            # A reload may have changed both intervals while this wait was
-            # active. Reset the sync deadline before processing this tick.
+            # A reload may have changed either interval while this wait was
+            # active. Only a tick interval change moves the sample deadline.
             tick = float(self.cfg.daemon.tick_s)
             sync_interval = float(self.cfg.daemon.sync_interval_s)
             settings = (tick, sync_interval)
             if settings != interval_settings:
-                next_sync = time.monotonic() + sync_interval
+                setting_change_time = self._monotonic()
+                next_sync = setting_change_time + sync_interval
+                if tick != interval_settings[0]:
+                    self._next_sample_mono = setting_change_time + tick
                 interval_settings = settings
 
-            now = time.monotonic()
+            now = self._monotonic()
             for nid, deadline in tuple(self._injected_expiry.items()):
                 if deadline <= now:
                     self._injected_expiry.pop(nid, None)
@@ -1181,22 +1209,23 @@ class Daemon:
                 if self._pending_present_due is not None and self._pending_present_due <= attention_now:
                     await self._publish_pending_presentation_locked(attention_now)
 
-            values = self._sample()
+                now = self._monotonic()
+                if self._next_sample_mono is not None and now >= self._next_sample_mono:
+                    values = self._sample_locked()
+                    epoch, offset = self.clock.read()
+                    if offset != last_offset:
+                        self.model.set_clock(epoch, offset)
+                        await self.send(proto.clock(epoch, offset))
+                        last_offset = offset
 
-            epoch, offset = self.clock.read()
-            async with self._state_lock:
-                if offset != last_offset:
-                    self.model.set_clock(epoch, offset)
-                    await self.send(proto.clock(epoch, offset))
-                    last_offset = offset
+                    await self._update_dashboard_locked(values)
+                    if self.model.set_zones(build_zones(self.cfg.bar.preset, values)):
+                        await self.send(proto.bar(self.model.zones, self.model.rev))
 
-                await self._update_dashboard_locked(values)
-                if self.model.set_zones(build_zones(self.cfg.bar.preset, values)):
-                    await self.send(proto.bar(self.model.zones, self.model.rev))
-
-            if time.monotonic() >= next_sync:
+            now = self._monotonic()
+            if now >= next_sync:
                 await self._send_sync()
-                next_sync = time.monotonic() + float(self.cfg.daemon.sync_interval_s)
+                next_sync = self._monotonic() + float(self.cfg.daemon.sync_interval_s)
 
     async def _ping_loop(self) -> None:
         while True:

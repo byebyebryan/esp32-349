@@ -9,6 +9,8 @@ typedef struct {
     bool cpu_valid, mem_valid, network_valid;
     float cpu, mem;
     bool network;
+    bool rx_bytes_per_s_valid, tx_bytes_per_s_valid;
+    double rx_bytes_per_s, tx_bytes_per_s;
     bool battery_present, charging_known, charging;
     float battery_level;
     bool volume_present, mute_known, mute;

@@ -109,6 +109,147 @@ static void navigation_and_geometry(void)
     assert(s_group_home);
 }
 
+static int text_width(const char *value, const lv_font_t *font)
+{
+    lv_point_t size = {0};
+    lv_text_get_size(&size, value, font, 0, 0, LV_COORD_MAX, 0);
+    return size.x;
+}
+
+static void assert_rail_geometry(void)
+{
+    assert(lv_obj_get_x(s_rail_clock) == 10 && lv_obj_get_y(s_rail_clock) == 7);
+    assert(lv_obj_get_width(s_rail_clock) == 144);
+    assert(!lv_obj_has_flag(s_rail_clock, LV_OBJ_FLAG_HIDDEN));
+    assert(lv_obj_get_y(s_rail_footer) == 156);
+    const char *const names[] = {"CPU", "MEM", "DN", "UP"};
+    for (int i = 0; i < 4; i++) {
+        assert(strcmp(label_storage(s_metric_names[i]), names[i]) == 0);
+        assert(lv_obj_get_x(s_metric_names[i]) == 12);
+        assert(lv_obj_get_y(s_metric_names[i]) == 61 + 24 * i);
+        assert(lv_obj_get_width(s_metric_names[i]) == 36);
+        assert(lv_obj_get_x(s_metric_values[i]) == 52);
+        assert(lv_obj_get_y(s_metric_values[i]) == 58 + 24 * i);
+        assert(lv_obj_get_width(s_metric_values[i]) == 96);
+        assert(text_width(label_storage(s_metric_names[i]), s_meta) <= 36);
+        assert(text_width(label_storage(s_metric_values[i]), &status_text_20) <= 96);
+    }
+}
+
+static void rail_telemetry_captures(void)
+{
+    const double rate_boundaries[] = {
+        .0001, .049, .05, 9.95, 99.5, 999.5, 9950, 999500,
+        9950000, 999500000, 9950000000, 999500000000, 1000000000000.0,
+    };
+    for (unsigned i = 0; i < sizeof(rate_boundaries) / sizeof(rate_boundaries[0]); i++) {
+        char formatted[32];
+        format_rate(formatted, sizeof(formatted), true, rate_boundaries[i]);
+        assert(text_width(formatted, &status_text_20) <= 96);
+    }
+    const int ids[] = {3};
+    groups_reset(ids, 1);
+    step(1000); /* Acquire RTC after its fixture becomes valid. */
+    s_state.dashboard = (status_dashboard_t){
+        .valid = true,
+        .cpu_valid = true, .cpu = .18f,
+        .mem_valid = true, .mem = .43f,
+        .network_valid = true, .network = true,
+        .rx_bytes_per_s_valid = true, .rx_bytes_per_s = 2400000.0,
+        .tx_bytes_per_s_valid = true, .tx_bytes_per_s = 86000.0,
+    };
+    ui_deck_tick(STATE_DIRTY_DASHBOARD);
+    repaint();
+    assert_rail_geometry();
+    assert(strcmp(label_storage(s_rail_clock), "14:35") == 0);
+    assert(strcmp(label_storage(s_metric_values[2]), "2.4 MB/s") == 0);
+    assert(strcmp(label_storage(s_metric_values[3]), "86 KB/s") == 0);
+    assert(capture_frame("telemetry-rail-normal-home"));
+
+    const int rtc_reads = s_rtc_reads;
+    s_state.dashboard.cpu = .88f;
+    ui_deck_tick(STATE_DIRTY_DASHBOARD);
+    assert(s_rtc_reads == rtc_reads);
+    assert(strcmp(label_storage(s_metric_values[0]), "88%") == 0);
+    const int64_t next_clock_second = (s_now_us / 1000000 + 1) * 1000000;
+    step((uint32_t)((next_clock_second - s_now_us) / 1000));
+    assert(s_rtc_reads == rtc_reads + 1);
+    step(50);
+    assert(s_rtc_reads == rtc_reads + 1);
+    s_state.dashboard.cpu = .18f;
+    ui_deck_tick(STATE_DIRTY_DASHBOARD);
+    repaint();
+
+    s_state.dashboard.rx_bytes_per_s = 0;
+    s_state.dashboard.tx_bytes_per_s = 0;
+    ui_deck_tick(STATE_DIRTY_DASHBOARD);
+    repaint();
+    assert(strcmp(label_storage(s_metric_values[2]), "0 B/s") == 0);
+    assert(strcmp(label_storage(s_metric_values[3]), "0 B/s") == 0);
+    assert(capture_frame("telemetry-rail-zero"));
+
+    s_state.dashboard.rx_bytes_per_s = 1000000000000.0;
+    s_state.dashboard.tx_bytes_per_s = 999500.0;
+    ui_deck_tick(STATE_DIRTY_DASHBOARD);
+    repaint();
+    assert(strcmp(label_storage(s_metric_values[2]), ">999GB/s") == 0);
+    assert(strcmp(label_storage(s_metric_values[3]), "1.0 MB/s") == 0);
+    assert_rail_geometry();
+    assert(capture_frame("telemetry-rail-high"));
+
+    s_state.dashboard.rx_bytes_per_s = 9950.0;
+    s_state.dashboard.tx_bytes_per_s = 999500.0;
+    ui_deck_tick(STATE_DIRTY_DASHBOARD);
+    repaint();
+    assert(strcmp(label_storage(s_metric_values[2]), "10.0 KB/s") == 0);
+    assert(strcmp(label_storage(s_metric_values[3]), "1.0 MB/s") == 0);
+    assert_rail_geometry();
+    assert(capture_frame("telemetry-rail-rounding-boundary"));
+
+    s_state.dashboard.rx_bytes_per_s_valid = false;
+    s_state.dashboard.tx_bytes_per_s_valid = false;
+    ui_deck_tick(STATE_DIRTY_DASHBOARD);
+    repaint();
+    assert(strcmp(label_storage(s_metric_values[2]), "--") == 0);
+    assert(strcmp(label_storage(s_metric_values[3]), "--") == 0);
+    assert(capture_frame("telemetry-rail-unavailable"));
+
+    s_state.dashboard.rx_bytes_per_s_valid = true;
+    s_state.dashboard.tx_bytes_per_s_valid = true;
+    s_state.dashboard.rx_bytes_per_s = 2400000.0;
+    s_state.dashboard.tx_bytes_per_s = 86000.0;
+    ui_deck_tick(STATE_DIRTY_DASHBOARD);
+    repaint();
+    group_swipe(450, 90, -130, 0);
+    assert(!s_group_home);
+    assert_rail_geometry();
+    assert(strcmp(label_storage(s_metric_values[2]), "2.4 MB/s") == 0);
+    assert(strcmp(label_storage(s_metric_values[3]), "86 KB/s") == 0);
+    assert(capture_frame("telemetry-rail-normal-notifications"));
+
+    s_state.dashboard.network = false;
+    s_state.dashboard.rx_bytes_per_s_valid = false;
+    s_state.dashboard.tx_bytes_per_s_valid = false;
+    ui_deck_tick(STATE_DIRTY_DASHBOARD);
+    repaint();
+    assert(strcmp(label_storage(s_rail_footer), "Uplink offline") == 0);
+    assert(capture_frame("telemetry-rail-offline"));
+
+    s_state.dashboard.network = true;
+    s_state.dashboard.rx_bytes_per_s_valid = true;
+    s_state.dashboard.tx_bytes_per_s_valid = true;
+    s_state.dashboard.rx_bytes_per_s = 0;
+    s_state.dashboard.tx_bytes_per_s = 0;
+    s_host_connected = false;
+    ui_deck_tick(STATE_DIRTY_DASHBOARD);
+    repaint();
+    assert(s_view.stale);
+    assert(strcmp(label_storage(s_rail_footer), "Readings stale") == 0);
+    assert_rail_geometry();
+    assert(capture_frame("telemetry-rail-stale"));
+    s_host_connected = true;
+}
+
 static void leases_and_manual(void)
 {
     int ids[] = {3, 2, 1};
@@ -595,6 +736,7 @@ int main(int argc, char **argv)
     fixture_init(false);
     s_test_clock_valid = true;
     navigation_and_geometry();
+    rail_telemetry_captures();
     leases_and_manual();
     held_updates_and_removal();
     counts_controls_and_text();

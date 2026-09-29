@@ -19,6 +19,7 @@ GROUPED_UI_CAPABILITY = "grouped-ui-v1"
 NOTIFICATION_ACTIONS_CAPABILITY = "notification-actions-v1"
 CARD_CHUNK_MAX = 2048
 IDENTITY_MAX = 0x7FFFFFFF
+DASHBOARD_RATE_MAX_BPS = 1_000_000_000_000
 
 
 def display_text(value: str) -> str:
@@ -119,16 +120,28 @@ def notification_actions_capable(message: dict) -> bool:
     )
 
 
-def _dashboard_ratio(value: object) -> float | None:
+def _dashboard_number(value: object) -> float | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
     try:
         numeric = float(value)
     except (OverflowError, ValueError):
         return None
-    if not math.isfinite(numeric):
+    return numeric if math.isfinite(numeric) else None
+
+
+def _dashboard_ratio(value: object) -> float | None:
+    numeric = _dashboard_number(value)
+    if numeric is None:
         return None
     return round(max(0.0, min(1.0, numeric)) * 100) / 100
+
+
+def _dashboard_rate(value: object) -> float | None:
+    numeric = _dashboard_number(value)
+    if numeric is None or not 0 <= numeric <= DASHBOARD_RATE_MAX_BPS:
+        return None
+    return numeric
 
 
 def dashboard_payload(value: object) -> dict:
@@ -154,6 +167,8 @@ def dashboard_payload(value: object) -> dict:
         "cpu": _dashboard_ratio(source.get("cpu")),
         "mem": _dashboard_ratio(source.get("mem")),
         "network": network if isinstance(network, bool) else None,
+        "rx_bytes_per_s": _dashboard_rate(source.get("rx_bytes_per_s")),
+        "tx_bytes_per_s": _dashboard_rate(source.get("tx_bytes_per_s")),
         "battery": level_object("battery", "charging"),
         "volume": level_object("volume", "mute"),
         "bluetooth": bluetooth,
@@ -176,6 +191,11 @@ def card_status(message: dict) -> dict | None:
     if len(ids) != count or count > capacity or len(set(ids)) != count:
         return None
     result = {"count": count, "overflow": values[1], "ids": list(ids), "capacity": capacity}
+    if "dashboard" in message:
+        dashboard = _dashboard_status(message["dashboard"])
+        if dashboard is None:
+            return None
+        result["dashboard"] = dashboard
     if "view_pending" in message:
         pending = message["view_pending"]
         if not isinstance(pending, bool) or (pending and ("deck" in message or "grouped" in message)):
@@ -316,6 +336,35 @@ def card_status(message: dict) -> dict | None:
             return None
         result["actions"] = {"enabled": enabled, "open": parsed_open, "pending": parsed_pending}
 
+    return result
+
+
+def _dashboard_status_ratio(value: object) -> float | None:
+    numeric = _dashboard_number(value)
+    if numeric is None or not 0 <= numeric <= 1:
+        return None
+    return numeric
+
+
+def _dashboard_status(value: object) -> dict | None:
+    """Validate device readback without clamping or quantizing its readings."""
+    fields = ("cpu", "mem", "network", "rx_bytes_per_s", "tx_bytes_per_s")
+    if not isinstance(value, dict) or not all(field in value for field in fields):
+        return None
+    network = value["network"]
+    if network is not None and not isinstance(network, bool):
+        return None
+    result = {"network": network}
+    for field, parse in (
+        ("cpu", _dashboard_status_ratio),
+        ("mem", _dashboard_status_ratio),
+        ("rx_bytes_per_s", _dashboard_rate),
+        ("tx_bytes_per_s", _dashboard_rate),
+    ):
+        parsed = parse(value[field])
+        if parsed is None and value[field] is not None:
+            return None
+        result[field] = parsed
     return result
 
 

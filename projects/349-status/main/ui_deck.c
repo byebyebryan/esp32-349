@@ -1,5 +1,6 @@
 #include "ui_deck.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
@@ -33,7 +34,7 @@ LV_FONT_DECLARE(status_clock_80);
 #define CONTROL_GAP 8
 #define GROUP_LIFECYCLE_MS 180
 
-static lv_obj_t *s_root, *s_rail_header, *s_rail_clock, *s_rail_footer;
+static lv_obj_t *s_root, *s_rail_clock, *s_rail_footer;
 static lv_obj_t *s_metric_names[4], *s_metric_values[4];
 static lv_obj_t *s_idle, *s_idle_clock, *s_date, *s_message, *s_idle_transient;
 typedef struct {
@@ -59,6 +60,7 @@ static bool s_have_dashboard;
 static char s_transient[48];
 static int64_t s_transient_until;
 static bool s_visible;
+static int64_t s_last_clock_second = -1;
 static group_input_t s_group_input;
 static bool s_group_mode, s_group_home = true, s_group_manual, s_group_auto;
 static int s_group_session, s_group_generation, s_group_present_id;
@@ -380,24 +382,58 @@ static void transient(const status_dashboard_t *now)
     s_have_dashboard = true;
 }
 
+static void format_rate(char *out, size_t size, bool valid, double rate)
+{
+    static const char *const units[] = {"B/s", "KB/s", "MB/s", "GB/s"};
+    if (!valid || !isfinite(rate) || rate < 0 || rate > 1000000000000.0) {
+        strlcpy(out, "--", size);
+        return;
+    }
+    if (rate == 0) {
+        strlcpy(out, "0 B/s", size);
+        return;
+    }
+
+    unsigned unit = 0;
+    double shown = rate;
+    while (shown >= 1000.0 && unit < 3) {
+        shown /= 1000.0;
+        unit++;
+    }
+    for (;;) {
+        const bool decimal = shown < 10.0;
+        const double rounded = decimal
+            ? floor(shown * 10.0 + 0.5) / 10.0
+            : floor(shown + 0.5);
+        if (rounded >= 1000.0 && unit < 3) {
+            shown /= 1000.0;
+            unit++;
+            continue;
+        }
+        if (unit == 3 && rounded >= 1000.0) {
+            strlcpy(out, ">999GB/s", size);
+        } else if (unit == 0 && rounded == 0.0) {
+            strlcpy(out, "<1 B/s", size);
+        } else if (decimal) {
+            snprintf(out, size, "%.1f %s", rounded, units[unit]);
+        } else {
+            snprintf(out, size, "%.0f %s", rounded, units[unit]);
+        }
+        return;
+    }
+}
+
 static void metrics(const snapshot_t *view, bool active)
 {
     const status_dashboard_t *d = &view->dashboard;
     char value[32];
-    const int top = active ? 58 : 43;
-    const int step = active ? 24 : 26;
+    const int top = 58;
+    const int step = 24;
     for (int i = 0; i < 4; i++) {
         lv_obj_set_y(s_metric_names[i], top + i * step + 3);
         lv_obj_set_y(s_metric_values[i], top + i * step);
         uint32_t color = view->stale ? SECONDARY : FOREGROUND;
-        if (!view->stale && ((i == 2 && d->network_valid && !d->network)
-                || (i == 3 && d->battery_present && d->battery_level <= .2f
-                    && !(d->charging_known && d->charging)))) {
-            color = WARNING;
-        }
         text_color(s_metric_values[i], color);
-        hide(s_metric_names[i], i == 3 && !d->battery_present);
-        hide(s_metric_values[i], i == 3 && !d->battery_present);
     }
     if (d->cpu_valid) {
         snprintf(value, sizeof(value), "%d%%", (int)(d->cpu * 100 + .5f));
@@ -411,20 +447,25 @@ static void metrics(const snapshot_t *view, bool active)
         strlcpy(value, "--", sizeof(value));
     }
     text(s_metric_values[1], value);
-    text(s_metric_values[2], !d->network_valid ? "--" : d->network ? "LINKED" : "OFFLINE");
-    snprintf(value, sizeof(value), "%d%%%s", (int)(d->battery_level * 100 + .5f),
-             d->charging_known && d->charging ? "+" : "");
+    format_rate(value, sizeof(value), d->rx_bytes_per_s_valid, d->rx_bytes_per_s);
+    text(s_metric_values[2], value);
+    format_rate(value, sizeof(value), d->tx_bytes_per_s_valid, d->tx_bytes_per_s);
     text(s_metric_values[3], value);
-    hide(s_rail_clock, !active);
-    hide(s_rail_header, active);
-    text(s_rail_header, view->stale ? "HOST / STALE" : "HOST");
+    hide(s_rail_clock, false);
     const bool showing_transient = !view->stale && esp_timer_get_time() < s_transient_until;
-    text(s_rail_footer, view->stale ? "Readings stale" : active && showing_transient ? s_transient : "");
-    text(s_idle_transient, !active && view->overflow == 0 && showing_transient ? s_transient : "");
+    const char *footer = view->stale ? "Readings stale"
+        : d->network_valid && !d->network ? "Uplink offline"
+        : active && showing_transient ? s_transient : "";
+    text(s_rail_footer, footer);
+    text(s_idle_transient, !active && !view->stale && view->overflow == 0 && showing_transient
+        ? s_transient : "");
 }
 
 static void clocks(void)
 {
+    const int64_t second = esp_timer_get_time() / 1000000;
+    if (second == s_last_clock_second) return;
+    s_last_clock_second = second;
     struct tm tm;
     char clock[16] = "--:--";
     char date[48] = "Waiting for clock";
@@ -1244,6 +1285,7 @@ void ui_deck_show(bool visible)
 
 void ui_deck_init(lv_obj_t *parent, const lv_font_t *small, const lv_font_t *meta)
 {
+    s_last_clock_second = -1;
     deck_input_init(&s_input);
     group_input_init(&s_group_input);
     s_small = small;
@@ -1253,14 +1295,13 @@ void ui_deck_init(lv_obj_t *parent, const lv_font_t *small, const lv_font_t *met
     /* A press starting on the rail stays owned there even if it moves right. */
     lv_obj_add_flag(rail, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_PRESS_LOCK);
     box(s_root, 159, 0, 1, 172, 0x2C3B49, 0);
-    s_rail_header = label(rail, 12, 12, 136, 20, s_meta, SECONDARY, "HOST");
     s_rail_clock = label(rail, 10, 7, 144, 48, &lv_font_montserrat_40, FOREGROUND, "--:--");
     s_rail_footer = label(rail, 12, 156, 136, 16, s_small, SECONDARY, "");
-    const char *names[] = {"CPU", "MEM", "NET", "BAT"};
+    const char *names[] = {"CPU", "MEM", "DN", "UP"};
     for (int i = 0; i < 4; i++) {
-        s_metric_names[i] = label(rail, 12, 43 + 26 * i, 42, 21, s_meta, SECONDARY, names[i]);
-        s_metric_values[i] = label(rail, 56, 43 + 26 * i, 92, 26,
-                                   i == 2 ? s_meta : &status_text_20, FOREGROUND, "--");
+        s_metric_names[i] = label(rail, 12, 61 + 24 * i, 36, 21, s_meta, SECONDARY, names[i]);
+        s_metric_values[i] = label(rail, 52, 58 + 24 * i, 96, 26,
+                                   &status_text_20, FOREGROUND, "--");
         lv_obj_set_style_text_align(s_metric_values[i], LV_TEXT_ALIGN_RIGHT, 0);
     }
     s_content = box(s_root, 160, 0, 480, 172, BACKGROUND, 0);

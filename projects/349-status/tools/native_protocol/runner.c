@@ -660,6 +660,14 @@ static void test_cards_status_pending_until_ui_publication(void)
     st->grouped_present_id = 11;
     st->grouped_deadline_us = s_now_us + 1000000;
     st->grouped_persistent = false;
+    st->dashboard = (status_dashboard_t){
+        .valid = true,
+        .cpu_valid = true, .cpu = .25f,
+        .mem_valid = true, .mem = .75f,
+        .network_valid = true, .network = true,
+        .rx_bytes_per_s_valid = true, .rx_bytes_per_s = 0,
+        .tx_bytes_per_s_valid = true, .tx_bytes_per_s = 125000.5,
+    };
     state_unlock();
 
     CHECK(send_wire("{\"t\":\"close\",\"id\":11,\"session\":79,\"total\":1}") == NULL);
@@ -667,6 +675,13 @@ static void test_cards_status_pending_until_ui_publication(void)
     CHECK(response != NULL && number(response, "count") == 1);
     CHECK(cJSON_IsTrue(field(response, "view_pending")));
     CHECK(field(response, "deck") == NULL && field(response, "grouped") == NULL);
+    const cJSON *dashboard = field(response, "dashboard");
+    CHECK(cJSON_IsObject(dashboard));
+    CHECK(field(dashboard, "cpu")->valuedouble == .25
+        && field(dashboard, "mem")->valuedouble == .75);
+    CHECK(cJSON_IsTrue(field(dashboard, "network")));
+    CHECK(number(dashboard, "rx_bytes_per_s") == 0);
+    CHECK(field(dashboard, "tx_bytes_per_s")->valuedouble == 125000.5);
     const cJSON *ids = field(response, "ids");
     CHECK(cJSON_IsArray(ids) && cJSON_GetArraySize(ids) == 1);
     CHECK(cJSON_GetArrayItem(ids, 0)->valueint == 10);
@@ -722,6 +737,10 @@ static void test_legacy_compatibility(void)
     state_unlock();
 
     cJSON *response = send_wire("{\"t\":\"cards_query\"}");
+    const cJSON *dashboard = field(response, "dashboard");
+    CHECK(cJSON_IsObject(dashboard));
+    CHECK(cJSON_IsNull(field(dashboard, "rx_bytes_per_s")));
+    CHECK(cJSON_IsNull(field(dashboard, "tx_bytes_per_s")));
     const cJSON *grouped = field(response, "grouped");
     CHECK(cJSON_IsFalse(field(grouped, "enabled")));
     CHECK(number(grouped, "session") == 0);

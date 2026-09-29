@@ -62,6 +62,8 @@ def test_dashboard_metadata_is_sanitized_and_kept_out_of_legacy_sync():
         "cpu": 0.42,
         "mem": None,
         "network": True,
+        "rx_bytes_per_s": None,
+        "tx_bytes_per_s": None,
         "battery": {"level": 0.79, "charging": False},
         "volume": None,
         "bluetooth": 2,

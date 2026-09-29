@@ -42,6 +42,9 @@ static status_notif_t s_notifs[STATUS_MAX_NOTIFS];
 static int64_t s_now_us = 1000000;
 static bool s_host_connected = true;
 static bool s_test_clock_valid;
+#ifndef NATIVE_PROTOCOL
+static int s_rtc_reads;
+#endif
 static int s_dismiss_count;
 static int s_last_dismiss_id = -1;
 #ifndef NATIVE_PROTOCOL
@@ -127,6 +130,7 @@ int64_t esp_timer_get_time(void) { return s_now_us; }
 #ifndef NATIVE_PROTOCOL
 rtc_source_t rtc_pcf_get_local(struct tm *out)
 {
+    s_rtc_reads++;
     if (!s_test_clock_valid) {
         return RTC_SOURCE_NONE;
     }

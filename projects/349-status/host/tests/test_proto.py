@@ -264,6 +264,8 @@ def test_dashboard_is_added_only_to_opted_in_sync_begin():
             "cpu": 0.41,
             "mem": 0.52,
             "network": True,
+            "rx_bytes_per_s": 1234.5,
+            "tx_bytes_per_s": None,
             "battery": {"level": 0.78, "charging": False},
             "volume": {"level": 0.32, "mute": False},
             "bluetooth": 2,
@@ -277,8 +279,55 @@ def test_dashboard_is_added_only_to_opted_in_sync_begin():
     new_messages = proto.card_sync_messages(snapshot, tx=2, include_dashboard=True)
 
     assert "dashboard" not in old_messages[0]
-    assert new_messages[0]["dashboard"] == snapshot["dashboard"]
+    assert new_messages[0]["dashboard"] == proto.dashboard_payload(snapshot["dashboard"])
     assert all(len(proto.encode(message)) <= proto.LINE_MAX for message in new_messages)
+
+
+def test_dashboard_rates_are_optional_bounded_and_reject_bool_values():
+    expected = {
+        "cpu": None,
+        "mem": None,
+        "network": None,
+        "rx_bytes_per_s": 1_000_000_000_000.0,
+        "tx_bytes_per_s": 0.0,
+        "battery": None,
+        "volume": None,
+        "bluetooth": None,
+    }
+    assert proto.dashboard_payload({
+        "rx_bytes_per_s": 1_000_000_000_000,
+        "tx_bytes_per_s": 0,
+    }) == expected
+    for invalid in (True, -1, 1_000_000_000_001, 10**1000, float("inf"), float("nan"), "12"):
+        assert proto.dashboard_payload({"rx_bytes_per_s": invalid})["rx_bytes_per_s"] is None
+
+
+def test_cards_status_accepts_old_responses_and_validates_optional_dashboard_readback():
+    base = {"count": 0, "overflow": 0, "ids": [], "capacity": 32}
+    dashboard = {
+        "cpu": 0.25,
+        "mem": 0.75,
+        "network": True,
+        "rx_bytes_per_s": 1000.5,
+        "tx_bytes_per_s": None,
+    }
+
+    assert proto.card_status(base) == base
+    assert proto.card_status({**base, "dashboard": dashboard}) == {**base, "dashboard": dashboard}
+    for field, invalid in (
+        ("cpu", True),
+        ("cpu", 10**1000),
+        ("mem", 1.01),
+        ("network", 1),
+        ("rx_bytes_per_s", True),
+        ("rx_bytes_per_s", -1),
+        ("rx_bytes_per_s", 1_000_000_000_001),
+        ("tx_bytes_per_s", float("inf")),
+        ("tx_bytes_per_s", 10**1000),
+        ("tx_bytes_per_s", "unknown"),
+    ):
+        assert proto.card_status({**base, "dashboard": {**dashboard, field: invalid}}) is None
+    assert proto.card_status({**base, "dashboard": {"cpu": 0.5}}) is None
 
 
 def test_grouped_sync_begin_carries_session_only_when_requested():

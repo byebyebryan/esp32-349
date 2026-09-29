@@ -35,6 +35,20 @@ static bool boolean(const cJSON *item, bool *value, bool *known)
     return true;
 }
 
+static bool rate(const cJSON *item, double *value, bool *known)
+{
+    *known = !absent(item);
+    if (!*known) {
+        return true;
+    }
+    if (!cJSON_IsNumber(item) || !isfinite(item->valuedouble)
+            || item->valuedouble < 0 || item->valuedouble > 1000000000000.0) {
+        return false;
+    }
+    *value = item->valuedouble;
+    return true;
+}
+
 static bool level(const cJSON *item, float *value, bool *present,
                   const char *flag, bool *flag_value, bool *flag_known)
 {
@@ -59,6 +73,10 @@ bool dashboard_parse(const cJSON *obj, status_dashboard_t *out)
             || !ratio(cJSON_GetObjectItemCaseSensitive(obj, "cpu"), &out->cpu, &out->cpu_valid)
             || !ratio(cJSON_GetObjectItemCaseSensitive(obj, "mem"), &out->mem, &out->mem_valid)
             || !boolean(cJSON_GetObjectItemCaseSensitive(obj, "network"), &out->network, &out->network_valid)
+            || !rate(cJSON_GetObjectItemCaseSensitive(obj, "rx_bytes_per_s"),
+                     &out->rx_bytes_per_s, &out->rx_bytes_per_s_valid)
+            || !rate(cJSON_GetObjectItemCaseSensitive(obj, "tx_bytes_per_s"),
+                     &out->tx_bytes_per_s, &out->tx_bytes_per_s_valid)
             || !level(cJSON_GetObjectItemCaseSensitive(obj, "battery"), &out->battery_level,
                       &out->battery_present, "charging", &out->charging, &out->charging_known)
             || !level(cJSON_GetObjectItemCaseSensitive(obj, "volume"), &out->volume_level,
