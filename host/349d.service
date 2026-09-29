@@ -1,11 +1,11 @@
 [Unit]
 Description=349-status desk display daemon
-Documentation=file:%h/code/esp32/projects/349-status/README.md
+Documentation=file:%h/code/esp32-349/README.md
 After=graphical-session.target
 
 [Service]
 Type=simple
-WorkingDirectory=%h/code/esp32/projects/349-status/host
+WorkingDirectory=%h/code/esp32-349/host
 ExecStart=/usr/bin/env uv run --frozen 349d
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=always

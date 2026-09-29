@@ -1,6 +1,6 @@
 /*
  * Board display support for the Waveshare ESP32-S3-Touch-LCD-3.49 V2,
- * extracted from projects/349-hello (which was adapted from Waveshare's
+ * extracted from examples/349-hello (which was adapted from Waveshare's
  * 10_LVGL_V9_Test example, Apache-2.0).
  *
  * The AXS15231B QSPI path does not support hardware rotation (Waveshare's own

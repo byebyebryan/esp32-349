@@ -21,8 +21,8 @@ def cached_cjson(build_dir: Path) -> str | None:
 
 
 def main() -> int:
-    repo = Path(__file__).resolve().parents[3]
-    source = repo / "projects/349-status/tools/native_ui"
+    repo = Path(__file__).resolve().parents[1]
+    source = repo / "tools/native_ui"
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--debug-build-dir", type=Path,
                         default=Path("/tmp/349-native-ui-build"))

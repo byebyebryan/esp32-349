@@ -17,9 +17,4 @@ else
     eim install --config "$REPO_ROOT/scripts/eim-config.toml" -p "$EIM_ROOT"
 fi
 
-if [ -f "$REPO_ROOT/.gitmodules" ]; then
-    echo "Syncing vendor submodules ..."
-    git -C "$REPO_ROOT" submodule update --init --recursive --depth 1
-fi
-
 echo "Done. Activate with: source scripts/env.sh"

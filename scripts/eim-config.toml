@@ -1,5 +1,5 @@
 idf_versions = ["v5.5.3"]
 target = ["esp32s3"]
 cleanup = true
-recurse_submodules = true
+recurse_submodules = false
 non_interactive = true

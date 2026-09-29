@@ -1,6 +1,6 @@
 # Native UI checks
 
-Run from `projects/349-status` after an IDF build has fetched the pinned LVGL
+Run from the repository root after an IDF build has fetched the pinned LVGL
 dependency. Install CMake, a C compiler, pkg-config, SDL2 development headers,
 Python, uv and RTK (used by the check script). Load the IDF environment or supply its cJSON directory:
 
