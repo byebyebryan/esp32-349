@@ -29,7 +29,7 @@ Automated acceptance and Starship's short physical check passed on firmware
 `be39d5e49`; normal mirroring is restored. See the
 [acceptance evidence](design/grouped-ui-acceptance.md).
 The larger close-control follow-up passed its focused Starship check on
-`604fd70da`, the currently deployed image.
+`604fd70da`. Subsequent Snap rollout checkpoints are recorded below.
 
 ## Current validation boundary (2026-09-26)
 
@@ -107,6 +107,22 @@ of that desktop policy are not claimed; see the acceptance boundary above.
 The [card-motion follow-up](design/card-motion.md) adds 180 ms arrivals,
 foreground dismissal and return-to-Home transitions before that final check.
 Native automated gates and Snap's short physical motion observation pass.
+
+### Accepted rail refinement on Starship (2026-09-28)
+
+The [rail checkpoint](design/telemetry-rail-plan.md) keeps HH:MM and fixed
+CPU/MEM/DN/UP rows in both groups, removes HOST/BAT from the rail, and reports
+physical-uplink receive/transmit traffic. Default one-second sampling runs
+independently of notification/action wakeups; network rates use actual elapsed
+counter time with an approximately two-second window. Warmup/reset/unreadable
+counters remain unavailable rather than showing invented zero traffic.
+Host/native gates, ESP-IDF build and real USB telemetry readback pass. The
+resumed Starship check exposed a readback stack overflow in `9c1e6a770`; the
+corrected `4c9005831` passes full-cache numeric readback with measured stack
+headroom and Starship's brief physical rail check. Normal mirroring is restored.
+Snap remains on the earlier candidate and needs the follow-up. See the
+[acceptance record](design/telemetry-rail-acceptance.md). Additional groups,
+body-text scrolling and broader visual polish remain later work.
 
 ### On-device v1 acceptance loop
 

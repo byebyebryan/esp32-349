@@ -153,8 +153,10 @@ normal arrivals do not interrupt manual browsing, while critical attention
 waits for the gesture to settle. Tap × to dismiss
 locally; tapping the body does nothing. The position count includes only locally visible,
 cached cards; `+N uncached` is a separate count, not a navigation target.
-CPU, memory, local network link, and conditional battery appear in the rail;
-volume and Bluetooth changes appear briefly. Bluetooth probing is optional
+The rail keeps local HH:MM and fixed CPU, MEM, DN, and UP rows in both groups.
+DN/UP show physical-uplink receive/transmit traffic in decimal B/s, KB/s,
+MB/s, or GB/s. The rail has no battery row. Volume and Bluetooth changes
+appear briefly. Bluetooth probing is optional
 and failure leaves that reading unavailable. Details and acceptance scope are
 in the [grouped direction](design/grouped-ui-plan.md) and
 [wire contract](design/grouped-ui-protocol.md). The previous horizontal deck
@@ -162,6 +164,30 @@ remains the fallback for older hosts. Its recorded swipe trials measured
 about 16–20 updates/s; the user reports clean, responsive motion. The initial
 25 updates/s tuning target was not reached. Exact build and trial scope are
 recorded in [ACCEPTANCE.md](ACCEPTANCE.md).
+
+Rail telemetry uses a shared one-second sampling cadence, separate from
+notification/action wakeups. The next sample is due one tick after collection
+finishes, so a slow source cannot cause back-to-back refreshes. Full sync reuses
+the latest coherent sample. CPU retains its three-second smoothing; traffic
+uses a short two-second counter window and actual monotonic elapsed time.
+Each active physical interface named by IPv4/IPv6 default routes is counted
+once. Ethernet and Wi-Fi can both contribute; their virtual VPN/container
+interfaces are not added again. This measures interface traffic, including
+local-network traffic, rather than Internet reachability or a speed test.
+New/unreadable/reset counters show `--` until a valid baseline is available;
+`0 B/s` means a measured zero. Link loss and stale host readings have separate
+footer messages. See the [rail refinement plan](design/telemetry-rail-plan.md)
+and [rail acceptance record](design/telemetry-rail-acceptance.md).
+`349ctl status` and the optional dashboard in `349ctl device-cards` expose
+bounded host/firmware telemetry for diagnosis. Older peers remain supported
+and may lack these rate/readback fields.
+The existing ten-second health log includes minimum-free LVGL and link-task
+stack space. The [board telemetry probe](tools/check_telemetry_board.py)
+compares real host samples with USB readback; `--stress-readback` additionally
+checks varied numeric responses with 32 cached cards and measured link-stack
+headroom. It requires a paused daemon and resets the board; the caller resumes
+the daemon afterward. Probe cadence and controlled stress values are separate
+from normal daemon timing and physical traffic measurements.
 
 Rendering uses a full PSRAM buffer in DIRECT mode and the existing rotated
 PSRAM shadow, then sends one complete panel frame. LVGL drawing runs
