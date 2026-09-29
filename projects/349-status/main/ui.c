@@ -14,17 +14,13 @@
 #include "proto.h"
 #include "rtc.h"
 #include "state.h"
+#include "ui_theme.h"
 
 #define BAR_HEIGHT 46
 #define ZONE_FONT  (&s_fonts.zone)
 #define BODY_FONT  (&s_fonts.body)
 #define SMALL_FONT (&s_fonts.small)
 #define OVERLAY_FONT (&lv_font_montserrat_28)
-#define TEXT_COLOR 0xE6E6E6
-#define MUTED_COLOR 0x9FB3C8
-#define ACCENT_COLOR 0x33FF99
-#define TRACK_COLOR 0x2B3648
-#define CARD_BG 0x141A24
 #define MAX_CARDS 2
 
 static lv_obj_t *s_bar;
@@ -60,7 +56,8 @@ static lv_obj_t *make_label(lv_obj_t *parent, const char *text, const status_zon
     lv_obj_t *label = lv_label_create(parent);
     lv_label_set_text(label, text);
     lv_obj_set_style_text_font(label, ZONE_FONT, 0);
-    lv_obj_set_style_text_color(label, lv_color_hex(zone->has_color ? zone->color : TEXT_COLOR), 0);
+    lv_obj_set_style_text_color(label, lv_color_hex(zone->has_color
+        ? zone->color : UI_THEME_TEXT_PRIMARY), 0);
     lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
     if (zone->w > 0) {
         lv_obj_set_width(label, zone->w);
@@ -75,8 +72,8 @@ static lv_obj_t *make_bar(lv_obj_t *parent, int width, int height)
     lv_obj_set_size(bar, width > 0 ? width : LV_PCT(100), height);
     lv_bar_set_range(bar, 0, 100);
     lv_bar_set_value(bar, 0, LV_ANIM_OFF);
-    lv_obj_set_style_bg_color(bar, lv_color_hex(TRACK_COLOR), LV_PART_MAIN);
-    lv_obj_set_style_bg_color(bar, lv_color_hex(ACCENT_COLOR), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(bar, lv_color_hex(UI_THEME_DIVIDER), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(bar, lv_color_hex(UI_THEME_ACCENT), LV_PART_INDICATOR);
     lv_obj_set_style_radius(bar, 2, LV_PART_MAIN);
     lv_obj_set_style_radius(bar, 2, LV_PART_INDICATOR);
     return bar;
@@ -95,7 +92,8 @@ static void make_progress_zone(lv_obj_t *parent, const status_zone_t *zone)
         lv_obj_t *label = lv_label_create(cont);
         lv_label_set_text(label, zone->text);
         lv_obj_set_style_text_font(label, ZONE_FONT, 0);
-        lv_obj_set_style_text_color(label, lv_color_hex(zone->has_color ? zone->color : MUTED_COLOR), 0);
+        lv_obj_set_style_text_color(label, lv_color_hex(zone->has_color
+            ? zone->color : UI_THEME_TEXT_SECONDARY), 0);
         lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
         lv_obj_set_width(label, LV_PCT(100));
     }
@@ -119,7 +117,8 @@ static void make_media_zone(lv_obj_t *parent, const status_zone_t *zone)
     s_media_label = lv_label_create(cont);
     lv_label_set_text(s_media_label, "--");
     lv_obj_set_style_text_font(s_media_label, ZONE_FONT, 0);
-    lv_obj_set_style_text_color(s_media_label, lv_color_hex(MUTED_COLOR), 0);
+    lv_obj_set_style_text_color(s_media_label,
+                                lv_color_hex(UI_THEME_TEXT_SECONDARY), 0);
     lv_label_set_long_mode(s_media_label, LV_LABEL_LONG_DOT);
     lv_obj_set_width(s_media_label, LV_PCT(100));
 
@@ -240,12 +239,12 @@ static void ui_build_bar(void)
 static uint32_t urgency_color(int urgency)
 {
     if (urgency >= 2) {
-        return 0xFF5566;
+        return UI_THEME_CRITICAL;
     }
     if (urgency == 0) {
-        return 0x4A5568;
+        return UI_THEME_TEXT_SECONDARY;
     }
-    return ACCENT_COLOR;
+    return UI_THEME_ACCENT;
 }
 
 static void card_click_cb(lv_event_t *event)
@@ -261,7 +260,7 @@ static void make_card(lv_obj_t *parent, const status_notif_t *notif)
     lv_obj_t *card = lv_obj_create(parent);
     lv_obj_remove_style_all(card);
     lv_obj_set_size(card, LV_PCT(100), 46);
-    lv_obj_set_style_bg_color(card, lv_color_hex(CARD_BG), 0);
+    lv_obj_set_style_bg_color(card, lv_color_hex(UI_THEME_CARD), 0);
     lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(card, 4, 0);
     lv_obj_set_style_pad_all(card, 4, 0);
@@ -301,7 +300,8 @@ static void make_card(lv_obj_t *parent, const status_notif_t *notif)
         lv_obj_t *app = lv_label_create(top);
         lv_label_set_text(app, notif->app);
         lv_obj_set_style_text_font(app, SMALL_FONT, 0);
-        lv_obj_set_style_text_color(app, lv_color_hex(MUTED_COLOR), 0);
+        lv_obj_set_style_text_color(app, lv_color_hex(notif->urgency >= 2
+            ? UI_THEME_CRITICAL : UI_THEME_TEXT_SECONDARY), 0);
         lv_label_set_long_mode(app, LV_LABEL_LONG_DOT);
         lv_obj_set_width(app, 80);
     }
@@ -309,14 +309,14 @@ static void make_card(lv_obj_t *parent, const status_notif_t *notif)
     lv_obj_t *summary = lv_label_create(top);
     lv_label_set_text(summary, notif->summary[0] ? notif->summary : "(no summary)");
     lv_obj_set_style_text_font(summary, ZONE_FONT, 0);
-    lv_obj_set_style_text_color(summary, lv_color_hex(TEXT_COLOR), 0);
+    lv_obj_set_style_text_color(summary, lv_color_hex(UI_THEME_TEXT_PRIMARY), 0);
     lv_label_set_long_mode(summary, LV_LABEL_LONG_DOT);
     lv_obj_set_flex_grow(summary, 1);
 
     lv_obj_t *body = lv_label_create(col);
     lv_label_set_text(body, notif->body);
     lv_obj_set_style_text_font(body, BODY_FONT, 0);
-    lv_obj_set_style_text_color(body, lv_color_hex(MUTED_COLOR), 0);
+    lv_obj_set_style_text_color(body, lv_color_hex(UI_THEME_TEXT_SECONDARY), 0);
     lv_label_set_long_mode(body, LV_LABEL_LONG_DOT);
     lv_obj_set_width(body, LV_PCT(100));
     lv_obj_set_height(body, 17);
@@ -360,7 +360,7 @@ static void ui_build_cards(void)
         lv_obj_t *label = lv_label_create(s_notif_area);
         lv_label_set_text_fmt(label, "+%d more", more);
         lv_obj_set_style_text_font(label, SMALL_FONT, 0);
-        lv_obj_set_style_text_color(label, lv_color_hex(MUTED_COLOR), 0);
+        lv_obj_set_style_text_color(label, lv_color_hex(UI_THEME_TEXT_SECONDARY), 0);
     }
 }
 
@@ -437,7 +437,7 @@ void ui_init(void)
 {
     status_ui_fonts_init(&s_fonts);
     lv_obj_t *scr = lv_screen_active();
-    lv_obj_set_style_bg_color(scr, lv_color_hex(0x0A0E14), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(scr, lv_color_hex(UI_THEME_BACKGROUND), LV_PART_MAIN);
     lv_obj_set_style_pad_all(scr, 0, 0);
     lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
 
@@ -473,7 +473,8 @@ void ui_init(void)
 
     s_overlay_label = lv_label_create(s_overlay);
     lv_obj_set_style_text_font(s_overlay_label, OVERLAY_FONT, 0);
-    lv_obj_set_style_text_color(s_overlay_label, lv_color_hex(TEXT_COLOR), 0);
+    lv_obj_set_style_text_color(s_overlay_label,
+                                lv_color_hex(UI_THEME_TEXT_PRIMARY), 0);
     lv_label_set_text(s_overlay_label, "waiting for host");
     lv_obj_center(s_overlay_label);
 

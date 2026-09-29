@@ -246,6 +246,8 @@ and is disabled by default; body taps remain inert. See the
 In notification-history mode, Open sits above × in a full-height right column.
 Both controls tolerate small finger movements and brighten while pressed;
 see [the button refinement](design/button-controls-refinement.md).
+The shared neutral gray and muted sage palette is documented in the
+[display theme note](design/neutral-theme.md).
 Snap's short Open/× and [card-motion](design/card-motion.md) checks passed.
 Real Ghostty default dispatch/focus passed on Snap with a local Niri compatibility
 setting; see the [acceptance record](design/notification-actions-acceptance.md)

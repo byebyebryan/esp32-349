@@ -14,20 +14,13 @@
 #include "proto.h"
 #include "rtc.h"
 #include "state.h"
+#include "ui_theme.h"
 
 LV_FONT_DECLARE(status_text_16);
 LV_FONT_DECLARE(status_text_20);
 LV_FONT_DECLARE(status_text_22);
 LV_FONT_DECLARE(status_clock_80);
 
-#define BACKGROUND 0x0B1119
-#define RAIL 0x111B26
-#define SURFACE 0x17232E
-#define FOREGROUND 0xEDF3F7
-#define SECONDARY 0x9DAFBE
-#define ACCENT 0x80C6D2
-#define WARNING 0xE9B66A
-#define CRITICAL 0xF07C86
 #define DISMISS_WIDTH 64
 #define DISMISS_HEIGHT 48
 #define DISMISS_CROSS_SPAN 28
@@ -210,6 +203,11 @@ static void text_color(lv_obj_t *obj, uint32_t color)
     }
 }
 
+static uint32_t notification_app_color(int urgency_value)
+{
+    return urgency_value >= 2 ? UI_THEME_CRITICAL : UI_THEME_TEXT_SECONDARY;
+}
+
 static lv_obj_t *box(lv_obj_t *parent, int x, int y, int w, int h, uint32_t color, int radius)
 {
     lv_obj_t *obj = lv_obj_create(parent);
@@ -253,9 +251,10 @@ static void dismiss_geometry(lv_obj_t *button, int width, int height)
 
 static lv_obj_t *dismiss_button(lv_obj_t *parent, int x)
 {
-    lv_obj_t *button = box(parent, x, 0, DISMISS_WIDTH, DISMISS_HEIGHT, 0x243544, 8);
+    lv_obj_t *button = box(parent, x, 0, DISMISS_WIDTH, DISMISS_HEIGHT,
+                           UI_THEME_BUTTON, 8);
     lv_obj_add_flag(button, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_PRESS_LOCK | LV_OBJ_FLAG_EVENT_BUBBLE);
-    lv_obj_set_style_bg_color(button, lv_color_hex(0x405665), LV_STATE_PRESSED);
+    lv_obj_set_style_bg_color(button, lv_color_hex(UI_THEME_BUTTON_PRESSED), LV_STATE_PRESSED);
     /* Draw the cross at its intended size rather than relying on a small
      * text glyph. Non-clickable strokes keep the whole button as the target. */
     static const lv_point_precise_t points[2][2] = {
@@ -270,7 +269,7 @@ static lv_obj_t *dismiss_button(lv_obj_t *parent, int x)
         lv_obj_set_pos(stroke, (DISMISS_WIDTH - DISMISS_CROSS_SPAN) / 2,
                        (DISMISS_HEIGHT - DISMISS_CROSS_SPAN) / 2);
         lv_obj_set_style_line_width(stroke, 3, 0);
-        lv_obj_set_style_line_color(stroke, lv_color_hex(FOREGROUND), 0);
+        lv_obj_set_style_line_color(stroke, lv_color_hex(UI_THEME_TEXT_PRIMARY), 0);
         lv_obj_set_style_line_rounded(stroke, true, 0);
     }
     return button;
@@ -280,13 +279,13 @@ static void open_button(lv_obj_t *parent, lv_obj_t **button_out,
                         lv_obj_t **icon_out, lv_obj_t **label_out)
 {
     lv_obj_t *button = box(parent, OPEN_X, 0, DISMISS_WIDTH, DISMISS_HEIGHT,
-                           0x213641, 8);
+                           UI_THEME_BUTTON, 8);
     lv_obj_add_flag(button, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_PRESS_LOCK |
                             LV_OBJ_FLAG_EVENT_BUBBLE);
     lv_obj_set_style_border_width(button, 1, 0);
-    lv_obj_set_style_border_color(button, lv_color_hex(ACCENT), 0);
+    lv_obj_set_style_border_color(button, lv_color_hex(UI_THEME_BUTTON_BORDER), 0);
     lv_obj_set_style_border_opa(button, LV_OPA_COVER, 0);
-    lv_obj_set_style_bg_color(button, lv_color_hex(0x315563), LV_STATE_PRESSED);
+    lv_obj_set_style_bg_color(button, lv_color_hex(UI_THEME_BUTTON_PRESSED), LV_STATE_PRESSED);
     /* An external/open arrow, using the same 28 px span and 3 px strokes as ×.
      * Line objects are inert so the whole button remains the touch target. */
     lv_obj_t *icon = box(button, 16, 8, 32, 32, 0, 0);
@@ -304,11 +303,11 @@ static void open_button(lv_obj_t *parent, lv_obj_t **button_out,
         lv_obj_remove_flag(stroke, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
         lv_line_set_points(stroke, points[i], counts[i]);
         lv_obj_set_style_line_width(stroke, 3, 0);
-        lv_obj_set_style_line_color(stroke, lv_color_hex(ACCENT), 0);
+        lv_obj_set_style_line_color(stroke, lv_color_hex(UI_THEME_ACCENT), 0);
         lv_obj_set_style_line_rounded(stroke, true, 0);
     }
     lv_obj_t *caption = label(button, 2, 12, DISMISS_WIDTH - 4, 24,
-                              &status_text_20, ACCENT, "…");
+                              &status_text_20, UI_THEME_ACCENT, "…");
     lv_obj_set_style_text_align(caption, LV_TEXT_ALIGN_CENTER, 0);
     hide(caption, true);
     *button_out = button;
@@ -518,11 +517,12 @@ static void metrics(const snapshot_t *view, bool active)
     for (int i = 0; i < 4; i++) {
         lv_obj_set_y(s_metric_names[i], top + i * step + 3);
         lv_obj_set_y(s_metric_values[i], top + i * step);
-        uint32_t color = view->stale ? SECONDARY : FOREGROUND;
+        uint32_t color = view->stale ? UI_THEME_TEXT_SECONDARY : UI_THEME_TEXT_PRIMARY;
         text_color(s_metric_values[i], color);
     }
     for (int i = 0; i < 2; i++) {
-        text_color(s_metric_details[i], view->stale ? SECONDARY : FOREGROUND);
+        text_color(s_metric_details[i], view->stale
+            ? UI_THEME_TEXT_SECONDARY : UI_THEME_TEXT_PRIMARY);
     }
     format_frequency(value, sizeof(value), d->cpu_freq_mhz_valid, d->cpu_freq_mhz);
     text(s_metric_details[0], value);
@@ -653,11 +653,13 @@ static void bind_cards(const snapshot_t *view)
         if (!slot->valid) {
             continue;
         }
-        const lv_color_t accent = lv_color_hex(n->urgency >= 2 ? CRITICAL : ACCENT);
+        const lv_color_t accent = lv_color_hex(n->urgency >= 2
+            ? UI_THEME_CRITICAL : UI_THEME_ACCENT);
         if (!lv_color_eq(lv_obj_get_style_bg_color(slot->accent, 0), accent)) {
             lv_obj_set_style_bg_color(slot->accent, accent, 0);
         }
         text(slot->app, n->app);
+        text_color(slot->app, notification_app_color(n->urgency));
         text(slot->title, n->summary[0] ? n->summary : "Notification");
         text(slot->body, n->body);
         position_text(slot, view->overflow, view);
@@ -1052,11 +1054,13 @@ static void grouped_bind_except(const snapshot_t *view, int frozen_slot)
         lv_obj_set_pos(slot->open_label, 2, (control_height - 24) / 2);
         lv_obj_set_width(slot->open_label, control_width - 4);
         if (!slot->valid) continue;
-        const lv_color_t accent = lv_color_hex(n->urgency >= 2 ? CRITICAL : ACCENT);
+        const lv_color_t accent = lv_color_hex(n->urgency >= 2
+            ? UI_THEME_CRITICAL : UI_THEME_ACCENT);
         if (!lv_color_eq(lv_obj_get_style_bg_color(slot->accent, 0), accent)) {
             lv_obj_set_style_bg_color(slot->accent, accent, 0);
         }
         char metadata[80];
+        text_color(slot->app, notification_app_color(n->urgency));
         if (s_history_mode && i == 1) {
             int64_t age_s = (esp_timer_get_time() - n->history_updated_us) / 1000000;
             if (age_s < 0) age_s = 0;
@@ -1073,12 +1077,15 @@ static void grouped_bind_except(const snapshot_t *view, int frozen_slot)
         if (i == 1 && view->actions_enabled) {
             const bool ready = view->open_enabled;
             const bool pending = view->open_pending;
-            const uint32_t color = ready ? ACCENT : SECONDARY;
+            const uint32_t color = ready
+                ? UI_THEME_ACCENT : UI_THEME_OPEN_DISABLED_GLYPH;
             lv_obj_set_style_bg_color(slot->open,
-                lv_color_hex(ready ? 0x213641 : 0x202A33), 0);
+                lv_color_hex(ready ? UI_THEME_BUTTON : UI_THEME_OPEN_DISABLED_FILL), 0);
             lv_obj_set_style_bg_color(slot->open,
-                lv_color_hex(ready ? 0x315563 : 0x202A33), LV_STATE_PRESSED);
-            lv_obj_set_style_border_color(slot->open, lv_color_hex(color), 0);
+                lv_color_hex(ready ? UI_THEME_BUTTON_PRESSED : UI_THEME_OPEN_DISABLED_FILL),
+                LV_STATE_PRESSED);
+            lv_obj_set_style_border_color(slot->open,
+                lv_color_hex(UI_THEME_BUTTON_BORDER), 0);
             for (uint32_t child = 0; child < lv_obj_get_child_count(slot->open_icon); child++) {
                 lv_obj_set_style_line_color(lv_obj_get_child(slot->open_icon, child),
                     lv_color_hex(color), 0);
@@ -1495,61 +1502,74 @@ void ui_deck_init(lv_obj_t *parent, const lv_font_t *small, const lv_font_t *met
     group_input_init(&s_group_input);
     s_small = small;
     s_meta = meta;
-    s_root = box(parent, 0, 0, 640, 172, BACKGROUND, 0);
-    lv_obj_t *rail = box(s_root, 0, 0, 160, 172, RAIL, 0);
+    s_root = box(parent, 0, 0, 640, 172, UI_THEME_BACKGROUND, 0);
+    lv_obj_t *rail = box(s_root, 0, 0, 160, 172, UI_THEME_RAIL, 0);
     /* A press starting on the rail stays owned there even if it moves right. */
     lv_obj_add_flag(rail, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_PRESS_LOCK);
-    box(s_root, 159, 0, 1, 172, 0x2C3B49, 0);
-    s_rail_clock = label(rail, 10, 7, 144, 48, &lv_font_montserrat_40, FOREGROUND, "--:--");
-    s_rail_footer = label(rail, 12, 156, 136, 16, s_small, SECONDARY, "");
+    box(s_root, 159, 0, 1, 172, UI_THEME_DIVIDER, 0);
+    s_rail_clock = label(rail, 10, 7, 144, 48, &lv_font_montserrat_40,
+                         UI_THEME_TEXT_PRIMARY, "--:--");
+    s_rail_footer = label(rail, 12, 156, 136, 16, s_small,
+                          UI_THEME_TEXT_SECONDARY, "");
     const char *names[] = {"CPU", "MEM", "UP", "DN"};
     for (int i = 0; i < 4; i++) {
-        s_metric_names[i] = label(rail, 12, 61 + 24 * i, 36, 21, s_meta, SECONDARY, names[i]);
+        s_metric_names[i] = label(rail, 12, 61 + 24 * i, 36, 21, s_meta,
+                                  UI_THEME_TEXT_SECONDARY, names[i]);
         const int value_x = i < 2 ? 110 : 52;
         /* 38 px reserves "99%" (34 px) plus one space (4 px). */
         const int value_width = i < 2 ? 38 : 96;
         s_metric_values[i] = label(rail, value_x, 58 + 24 * i, value_width, 26,
-                                   &status_text_16, FOREGROUND, "--");
+                                   &status_text_16, UI_THEME_TEXT_PRIMARY, "--");
         lv_obj_set_style_text_align(s_metric_values[i], LV_TEXT_ALIGN_RIGHT, 0);
     }
     for (int i = 0; i < 2; i++) {
         s_metric_details[i] = label(rail, 52, 58 + 24 * i, 58, 26,
-                                   &status_text_16, FOREGROUND, "--");
+                                   &status_text_16, UI_THEME_TEXT_PRIMARY, "--");
         lv_obj_set_style_text_align(s_metric_details[i], LV_TEXT_ALIGN_RIGHT, 0);
     }
-    s_content = box(s_root, 160, 0, 480, 172, BACKGROUND, 0);
-    s_idle = box(s_content, 0, 0, 480, 172, BACKGROUND, 0);
+    s_content = box(s_root, 160, 0, 480, 172, UI_THEME_BACKGROUND, 0);
+    s_idle = box(s_content, 0, 0, 480, 172, UI_THEME_BACKGROUND, 0);
     lv_obj_add_flag(s_idle, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_PRESS_LOCK);
     lv_obj_add_event_cb(s_idle, input_cb, LV_EVENT_ALL, NULL);
-    s_idle_clock = label(s_idle, 12, 35, 456, 64, &status_clock_80, FOREGROUND, "--:--");
+    s_idle_clock = label(s_idle, 12, 35, 456, 64, &status_clock_80,
+                         UI_THEME_TEXT_PRIMARY, "--:--");
     lv_obj_set_style_text_align(s_idle_clock, LV_TEXT_ALIGN_CENTER, 0);
-    s_date = label(s_idle, 12, 112, 456, 21, s_meta, SECONDARY, "");
+    s_date = label(s_idle, 12, 112, 456, 21, s_meta, UI_THEME_TEXT_SECONDARY, "");
     lv_obj_set_style_text_align(s_date, LV_TEXT_ALIGN_CENTER, 0);
-    s_message = label(s_idle, 12, 138, 456, 26, &status_text_20, WARNING, "");
+    s_message = label(s_idle, 12, 138, 456, 26, &status_text_20,
+                      UI_THEME_WARNING, "");
     lv_obj_set_style_text_align(s_message, LV_TEXT_ALIGN_CENTER, 0);
-    s_idle_transient = label(s_idle, 12, 141, 456, 21, s_meta, SECONDARY, "");
+    s_idle_transient = label(s_idle, 12, 141, 456, 21, s_meta,
+                             UI_THEME_TEXT_SECONDARY, "");
     lv_obj_set_style_text_align(s_idle_transient, LV_TEXT_ALIGN_CENTER, 0);
 
     /* The viewport ends at x=632, keeping the 8 px outer margin. */
-    s_viewport = box(s_content, 0, 0, 472, 172, BACKGROUND, 0);
+    s_viewport = box(s_content, 0, 0, 472, 172, UI_THEME_BACKGROUND, 0);
     lv_obj_add_flag(s_viewport, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_PRESS_LOCK);
     lv_obj_add_event_cb(s_viewport, input_cb, LV_EVENT_ALL, NULL);
-    s_group_empty = label(s_viewport, 12, 50, 456, 30, &status_text_22, SECONDARY, "");
+    s_group_empty = label(s_viewport, 12, 50, 456, 30, &status_text_22,
+                          UI_THEME_TEXT_SECONDARY, "");
     lv_obj_set_style_text_align(s_group_empty, LV_TEXT_ALIGN_CENTER, 0);
     hide(s_group_empty, true);
     for (int i = 0; i < 3; i++) {
         card_view_t *slot = &s_cards[i];
-        slot->root = box(s_viewport, 8 + (i - 1) * 400, 8, 392, 156, SURFACE, 8);
+        slot->root = box(s_viewport, 8 + (i - 1) * 400, 8, 392, 156,
+                         UI_THEME_CARD, 8);
         lv_obj_add_flag(slot->root, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_PRESS_LOCK | LV_OBJ_FLAG_EVENT_BUBBLE);
-        slot->accent = box(slot->root, 0, 10, 3, 136, ACCENT, 2);
-        slot->app = label(slot->root, 12, 6, 322, 20, s_meta, ACCENT, "");
-        slot->title = label(slot->root, 12, 28, 328, 28, &status_text_22, FOREGROUND, "");
-        slot->body = label(slot->root, 12, 58, 368, 78, &status_text_20, FOREGROUND, "");
+        slot->accent = box(slot->root, 0, 10, 3, 136, UI_THEME_ACCENT, 2);
+        slot->app = label(slot->root, 12, 6, 322, 20, s_meta,
+                          UI_THEME_TEXT_SECONDARY, "");
+        slot->title = label(slot->root, 12, 28, 328, 28, &status_text_22,
+                            UI_THEME_TEXT_PRIMARY, "");
+        slot->body = label(slot->root, 12, 58, 368, 78, &status_text_20,
+                           UI_THEME_TEXT_PRIMARY, "");
         lv_obj_set_style_text_line_space(slot->body, 0, 0);
-        slot->position = label(slot->root, 12, 140, 368, 16, s_small, SECONDARY, "");
+        slot->position = label(slot->root, 12, 140, 368, 16, s_small,
+                               UI_THEME_TEXT_SECONDARY, "");
         slot->dismiss = dismiss_button(slot->root, 392 - DISMISS_WIDTH);
         open_button(slot->root, &slot->open, &slot->open_icon, &slot->open_label);
     }
-    s_group_cue = label(s_root, 172, 1, 456, 18, s_small, SECONDARY, "");
+    s_group_cue = label(s_root, 172, 1, 456, 18, s_small,
+                        UI_THEME_TEXT_SECONDARY, "");
     ui_deck_show(false);
 }
