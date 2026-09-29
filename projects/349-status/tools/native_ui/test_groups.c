@@ -453,7 +453,8 @@ static void action_controls_and_capture(void)
     assert(lv_label_get_long_mode(s_cards[1].title) == LV_LABEL_LONG_MODE_CLIP);
     assert(strstr(label_storage(s_cards[1].title), "...") != NULL);
     assert(strncmp(label_storage(s_cards[1].body), "body-", 5) == 0);
-    assert(strcmp(lv_label_get_text(s_cards[1].open_label), "Open") == 0);
+    assert(!lv_obj_has_flag(s_cards[1].open_icon, LV_OBJ_FLAG_HIDDEN));
+    assert(lv_obj_has_flag(s_cards[1].open_label, LV_OBJ_FLAG_HIDDEN));
     assert(lv_obj_has_flag(s_cards[0].open, LV_OBJ_FLAG_HIDDEN));
     assert(lv_obj_has_flag(s_cards[0].dismiss, LV_OBJ_FLAG_HIDDEN));
     assert(lv_obj_get_width(s_cards[0].title) == 440);
@@ -479,6 +480,8 @@ static void action_controls_and_capture(void)
     assert(s_group_manual && !s_group_auto);
     assert(s_state.action_pending && s_state.action_pending_id == 2);
     assert(strcmp(lv_label_get_text(s_cards[1].open_label), "…") == 0);
+    assert(lv_obj_has_flag(s_cards[1].open_icon, LV_OBJ_FLAG_HIDDEN));
+    assert(!lv_obj_has_flag(s_cards[1].open_label, LV_OBJ_FLAG_HIDDEN));
     assert(capture_frame("actions-pending"));
     const int pending_id = current_id();
     pointer_press(528, 44); pointer_release(528, 44);
@@ -492,7 +495,8 @@ static void action_controls_and_capture(void)
     set_open(2, 6, false);
     assert(!lv_obj_has_flag(s_cards[1].open, LV_OBJ_FLAG_HIDDEN));
     assert(lv_obj_get_width(s_cards[1].title) == 304);
-    assert(strcmp(lv_label_get_text(s_cards[1].open_label), "Open") == 0);
+    assert(!lv_obj_has_flag(s_cards[1].open_icon, LV_OBJ_FLAG_HIDDEN));
+    assert(lv_obj_has_flag(s_cards[1].open_label, LV_OBJ_FLAG_HIDDEN));
     assert(capture_frame("actions-disabled"));
     const int before_disabled = s_activate_count;
     pointer_press(528, 44); pointer_release(528, 44);
@@ -508,10 +512,10 @@ static void action_controls_and_capture(void)
     assert(s_activate_count == before_edges + 2);
     s_state.action_pending = false;
 
-    /* The 8 px control gap and neighboring preview never acquire actions. */
+    /* A touch beyond the padded control strip never acquires an action. */
     const int before_gap = s_activate_count;
     const int current = current_id();
-    pointer_press(564, 44); pointer_release(564, 44);
+    pointer_press(487, 44); pointer_release(487, 44);
     assert(s_activate_count == before_gap && current_id() == current);
     assert(!s_group_home);
 
@@ -522,26 +526,44 @@ static void action_controls_and_capture(void)
     const int dismisses = s_dismiss_count;
     pointer_press(528, 44); pointer_move(510, 44, 100);
     pointer_release(528, 44);
-    assert(s_activate_count == before_gap && s_dismiss_count == dismisses);
+    assert(s_activate_count == before_gap + 1 && s_dismiss_count == dismisses);
+    s_state.action_pending = false;
     pointer_press(528, 44); pointer_move(528, 60, 100);
     pointer_release(528, 60);
-    assert(s_activate_count == before_gap);
+    assert(s_activate_count == before_gap + 2);
+    s_state.action_pending = false;
+    /* Finger roll just beyond an edge keeps the originally pressed action. */
+    pointer_press(558, 44); pointer_move(565, 47, 100);
+    pointer_release(565, 47);
+    assert(s_activate_count == before_gap + 3 && s_dismiss_count == dismisses);
+    s_state.action_pending = false;
+    const int after_roll = s_activate_count;
+    pointer_press(558, 44); pointer_move(568, 44, 100);
+    pointer_move(558, 44, 100); pointer_release(558, 44);
+    assert(s_activate_count == after_roll && s_dismiss_count == dismisses);
+    pointer_press(528, 44); pointer_move(552, 44, 100);
+    assert(!s_group_input.control_cancelled && s_group_input.axis == GROUP_AXIS_NONE);
+    assert(lv_obj_has_state(s_cards[1].open, LV_STATE_PRESSED));
+    pointer_release(552, 44);
+    assert(s_activate_count == after_roll + 1);
+    s_state.action_pending = false;
+    const int after_inbounds = s_activate_count;
     pointer_press(528, 44);
     grouped_cancel(); /* The production INDEV_RESET and PRESS_LOST path. */
     pointer_release(528, 44);
-    assert(s_activate_count == before_gap && s_dismiss_count == dismisses);
+    assert(s_activate_count == after_inbounds && s_dismiss_count == dismisses);
 
     /* Revision change and removal while held cancel permanently. */
     pointer_press(528, 44);
     set_open(2, 8, true);
     pointer_release(528, 44);
-    assert(s_activate_count == before_gap);
+    assert(s_activate_count == after_inbounds);
     pointer_press(528, 44);
     int only_one[] = {1};
     set_raw_order(only_one, 1);
     ui_deck_tick(STATE_DIRTY_NOTIF);
     pointer_release(528, 44);
-    assert(s_activate_count == before_gap);
+    assert(s_activate_count == after_inbounds);
 
     /* Body-start movement ending on Open remains ordinary swipe ownership. */
     groups_reset(two, 2);
@@ -576,6 +598,70 @@ static void lifecycle_capture(const char *prefix)
     group_finish();
 }
 
+static void action_control_initial_targets(void)
+{
+    const int ids[] = {2, 1};
+    for (int history = 0; history < 2; history++) {
+        groups_reset(ids, 2);
+        s_state.actions_enabled = true;
+        if (history) {
+            s_state.history_enabled = true;
+            for (int i = 0; i < s_state.notif_count; i++) {
+                s_state.notifs[i].history_revision = 1;
+                s_state.notifs[i].history_updated_us = s_now_us;
+                s_state.notifs[i].history_deadline_us = s_now_us + 1800000000;
+            }
+            ui_deck_tick(STATE_DIRTY_NOTIF);
+            group_finish();
+        } else present(1, 2, 1, -1);
+        set_open(2, 7, true);
+        lv_area_t bounds;
+        lv_obj_get_coords(s_cards[1].open, &bounds);
+        const int y = bounds.y1 + 24;
+        const int points[][2] = {
+            {bounds.x1 - 6, y},
+            {history ? bounds.x2 + 6 : bounds.x1 + 24,
+             history ? y : bounds.y2 + 6},
+            {history ? bounds.x1 + 24 : bounds.x2 + 4,
+             history ? bounds.y2 + 4 : y}, /* Open half of the shared gap. */
+        };
+        for (int i = 0; i < 3; i++) {
+            const int activations = s_activate_count;
+            pointer_press(points[i][0], points[i][1]);
+            assert(s_group_input.control == GROUP_CONTROL_OPEN);
+            assert(lv_obj_has_state(s_cards[1].open, LV_STATE_PRESSED));
+            assert(!lv_obj_has_state(s_cards[1].dismiss, LV_STATE_PRESSED));
+            pointer_release(points[i][0], points[i][1]);
+            assert(s_activate_count == activations + 1 && current_id() == 2);
+            assert(!lv_obj_has_state(s_cards[1].open, LV_STATE_PRESSED));
+            s_state.action_pending = false;
+            set_open(2, 7, true);
+        }
+        /* The other half of the gap belongs to × before its visible edge. */
+        const int dismisses = s_dismiss_count;
+        const int close_x = history ? bounds.x1 + 24 : bounds.x2 + 5;
+        const int close_y = history ? bounds.y2 + 5 : y;
+        pointer_press(close_x, close_y);
+        assert(s_group_input.control == GROUP_CONTROL_DISMISS);
+        assert(lv_obj_has_state(s_cards[1].dismiss, LV_STATE_PRESSED));
+        assert(!lv_obj_has_state(s_cards[1].open, LV_STATE_PRESSED));
+        pointer_release(close_x, close_y);
+        assert(s_dismiss_count == dismisses + 1);
+        group_finish();
+        assert(current_id() == 1);
+
+        /* Screen-edge and lower-margin taps also reach the close control. */
+        lv_obj_get_coords(s_cards[1].dismiss, &bounds);
+        pointer_press(bounds.x2 + 6, bounds.y2 + 6);
+        assert(s_group_input.control == GROUP_CONTROL_DISMISS);
+        assert(lv_obj_has_state(s_cards[1].dismiss, LV_STATE_PRESSED));
+        pointer_release(bounds.x2 + 6, bounds.y2 + 6);
+        assert(s_dismiss_count == dismisses + 2);
+        group_finish();
+        assert(s_deck.count == 0);
+    }
+}
+
 static void lifecycle_motion_and_removal(void)
 {
     const int ids[] = {3, 2, 1};
@@ -608,6 +694,10 @@ static void lifecycle_motion_and_removal(void)
     /* Repeated touch during motion cannot dismiss or open a moving card,
      * including a finger held past the animation's completion. */
     pointer_press(600, 44);
+    for (int i = 0; i < 3; i++) {
+        assert(!lv_obj_has_state(s_cards[i].open, LV_STATE_PRESSED));
+        assert(!lv_obj_has_state(s_cards[i].dismiss, LV_STATE_PRESSED));
+    }
     step(80);
     repaint();
     assert(lv_obj_get_y(s_cards[0].root) < 0);
@@ -754,6 +844,19 @@ static void history_layout_and_navigation(void)
     assert(lv_obj_has_flag(s_group_cue, LV_OBJ_FLAG_HIDDEN));
     assert(lv_obj_get_y(s_viewport) == 0 && lv_obj_get_height(s_viewport) == 172);
     assert(lv_obj_get_height(s_cards[1].root) == 140);
+    assert(lv_obj_get_width(s_cards[1].open) == 64);
+    assert(lv_obj_get_width(s_cards[1].dismiss) == 64);
+    assert(lv_obj_get_height(s_cards[1].open) == 66);
+    assert(lv_obj_get_y(s_cards[1].dismiss) == 74);
+    assert(lv_obj_get_height(s_cards[1].dismiss) == 66);
+    assert(lv_obj_get_x(s_cards[1].open) == 400);
+    assert(lv_obj_get_y(s_cards[1].open) == 0);
+    assert(lv_obj_get_x(s_cards[1].dismiss) == 400);
+    assert(lv_obj_get_height(s_cards[1].body) == 66);
+    assert(lv_obj_get_y(s_cards[1].position) == 124);
+    assert(lv_obj_get_width(s_cards[1].body) == 376);
+    assert(lv_obj_get_x(s_cards[1].body) + lv_obj_get_width(s_cards[1].body)
+        <= lv_obj_get_x(s_cards[1].open) - GROUP_CONTROL_MARGIN_PX);
     assert(lv_obj_get_style_text_font(s_cards[1].body, 0) == &status_text_16);
     assert(strcmp(label_storage(s_cards[1].app), "Claude Code · 8m ago") == 0);
     assert(capture_frame("history-multiple-long"));
@@ -809,17 +912,35 @@ static void history_layout_and_navigation(void)
     snprintf(s_state.notifs[0].summary, sizeof(s_state.notifs[0].summary), "One recent notification");
     snprintf(s_state.notifs[0].body, sizeof(s_state.notifs[0].body),
         "We've completed the review and kept the smaller font's full repertoire: "
-        "we’ve, 東京 が, arrows → and check marks ✓. A single card expands to four "
-        "body lines, showing more original content while preserving the clock "
+        "we’ve, 東京 が, arrows → and check marks ✓. A single card keeps the same "
+        "height and action targets as a stack, preserving the clock "
         "and telemetry on the left. Longer messages still end with a visible ellipsis.");
     ui_deck_tick(STATE_DIRTY_NOTIF);
     assert(s_group_lifecycle.active);
     step(75); repaint();
     assert(capture_frame("history-arrival-motion"));
     group_finish();
-    assert(lv_obj_get_height(s_cards[1].root) == 164);
+    assert(lv_obj_get_height(s_cards[1].root) == 140);
+    assert(lv_obj_get_width(s_cards[1].open) == 64);
+    assert(lv_obj_get_width(s_cards[1].dismiss) == 64);
+    assert(lv_obj_get_height(s_cards[1].open) == 66);
+    assert(lv_obj_get_height(s_cards[1].dismiss) == 66);
+    assert(lv_obj_get_x(s_cards[1].open) == 400);
+    assert(lv_obj_get_y(s_cards[1].open) == 0);
+    assert(lv_obj_get_x(s_cards[1].dismiss) == 400);
+    assert(lv_obj_get_y(s_cards[1].dismiss) == 74);
+    assert(lv_obj_get_width(s_cards[1].body) == 376);
+    assert(lv_obj_get_height(s_cards[1].body) == 66);
+    assert(lv_obj_get_y(s_cards[1].position) == 124);
     assert(capture_frame("history-single"));
-    pointer_press(590, 22); pointer_release(590, 22);
+    const int dismisses = s_dismiss_count;
+    pointer_press(590, 110);
+    pointer_move(614, 130, 100); /* >24 px, still inside the close button. */
+    assert(s_group_input.axis == GROUP_AXIS_NONE && !s_group_input.control_cancelled);
+    assert(lv_obj_has_state(s_cards[1].dismiss, LV_STATE_PRESSED));
+    assert(capture_frame("history-close-pressed"));
+    pointer_release(614, 130);
+    assert(s_dismiss_count == dismisses + 1);
     assert(s_group_lifecycle.active);
     step(75); repaint();
     assert(capture_frame("history-dismiss-motion"));
@@ -843,6 +964,7 @@ int main(int argc, char **argv)
     held_updates_and_removal();
     counts_controls_and_text();
     action_controls_and_capture();
+    action_control_initial_targets();
     lifecycle_motion_and_removal();
     lifecycle_concurrent_updates();
     history_layout_and_navigation();

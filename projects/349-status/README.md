@@ -128,8 +128,10 @@ Firmware advertising `notification-history-v1` dedicates the right side to
 recent notifications. Empty means `No recent notifications`, with the clock
 remaining in the left rail. Swipe vertically between whole cards; horizontal
 drags and body taps are inert. The 22 px title and 16 px body provide three
-body lines with a next-card peek, or four for a singleton. App name and relative
-age identify each card. Open and the large × keep their explicit targets.
+body lines; multiple cards have a next-card peek. A singleton keeps the same
+140 px card height and button positions. App name and relative age identify
+each card. Open and the large × occupy a 64 px column on the right; captured
+touches stay armed while the finger remains inside their padded target.
 
 In this mode, `retention_s` defaults to 1,800 seconds and accepts 1–86,400.
 Genuine arrivals and replacements start a new retention interval. Desktop
@@ -227,10 +229,13 @@ the enlarged close control passed a focused follow-up on `604fd70da`;
 see [acceptance evidence](design/grouped-ui-acceptance.md) and
 [the execution plan](design/grouped-ui-execution.md).
 
-The dedicated **Open** button beside × invokes a live desktop notification's
-default action. It requires a DMS bridge
+The dedicated **Open** button (box with an outgoing arrow) beside × invokes a
+live desktop notification's default action. It requires a DMS bridge
 and is disabled by default; body taps remain inert. See the
 [notification action design and plan](design/notification-actions-plan.md).
+In notification-history mode, Open sits above × in a full-height right column.
+Both controls tolerate small finger movements and brighten while pressed;
+see [the button refinement](design/button-controls-refinement.md).
 Snap's short Open/× and [card-motion](design/card-motion.md) checks passed.
 Real Ghostty default dispatch/focus passed on Snap with a local Niri compatibility
 setting; see the [acceptance record](design/notification-actions-acceptance.md)

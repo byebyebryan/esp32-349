@@ -2,6 +2,9 @@
 #include "deck_input.h"
 #define GROUP_CARD_PITCH_PX 128
 #define HISTORY_CARD_PITCH_PX 148
+/* Captured controls use their padded bounds rather than swipe distance.
+ * The release margin fits within the gap between Open and dismiss. */
+#define GROUP_CONTROL_MARGIN_PX 8
 /* Local navigation target for an empty Notifications group; never a wire ID. */
 #define GROUP_EMPTY_NOTIFICATIONS_ID (-1)
 
@@ -32,7 +35,8 @@ bool group_input_press(group_input_t *input, int x, int y, int64_t now,
                        bool dismiss, bool peek);
 int group_input_move(group_input_t *input, int x, int y, int64_t now);
 deck_input_action_t group_input_release(group_input_t *input, int64_t now);
-/* Attach explicit action ownership to the initial press. Bounds are half-open. */
+/* Capture uses visual half-open bounds plus a small touch margin. The caller
+ * divides overlapping initial targets between neighboring controls. */
 void group_input_capture_control(group_input_t *input, group_control_t control,
                                  int x, int y, int width, int height,
                                  int id, int open_revision, bool enabled);

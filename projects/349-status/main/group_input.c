@@ -27,21 +27,12 @@ void group_input_init(group_input_t *g)
     deck_input_init(&g->motion);
 }
 
-static bool control_contains(const group_input_t *g, int x, int y)
+static bool control_contains_with_margin(const group_input_t *g, int x, int y)
 {
-    return x >= g->control_x && y >= g->control_y &&
-           x < g->control_x + g->control_width &&
-           y < g->control_y + g->control_height;
-}
-
-static bool control_exceeded_slop(const group_input_t *g, int x, int y)
-{
-    const int64_t dx = (int64_t)x - g->motion.start_x;
-    const int64_t dy = (int64_t)y - g->motion.start_y;
-    const int64_t ax = dx < 0 ? -dx : dx;
-    const int64_t ay = dy < 0 ? -dy : dy;
-    return ax >= DECK_INPUT_SLOP_PX || ay >= DECK_INPUT_SLOP_PX ||
-           ax * ax + ay * ay >= DECK_INPUT_SLOP_PX * DECK_INPUT_SLOP_PX;
+    return x >= g->control_x - GROUP_CONTROL_MARGIN_PX &&
+           y >= g->control_y - GROUP_CONTROL_MARGIN_PX &&
+           x < g->control_x + g->control_width + GROUP_CONTROL_MARGIN_PX &&
+           y < g->control_y + g->control_height + GROUP_CONTROL_MARGIN_PX;
 }
 
 static void clear_control(group_input_t *g)
@@ -85,7 +76,7 @@ void group_input_capture_control(group_input_t *g, group_control_t control,
     g->control_y = y;
     g->control_width = width;
     g->control_height = height;
-    if (!control_contains(g, g->motion.start_x, g->motion.start_y)) {
+    if (!control_contains_with_margin(g, g->motion.start_x, g->motion.start_y)) {
         clear_control(g);
         return;
     }
@@ -101,13 +92,15 @@ int group_input_move(group_input_t *g, int x, int y, int64_t now)
 {
     if (!g->motion.pointer_down) return 0;
     if (g->control != GROUP_CONTROL_NONE) {
-        if (!g->control_cancelled &&
-            (!control_contains(g, x, y) || control_exceeded_slop(g, x, y))) {
+        g->motion.last_x = x;
+        g->motion.last_y = y;
+        if (!g->control_cancelled && !control_contains_with_margin(g, x, y)) {
             g->control_cancelled = true;
             deck_input_cancel(&g->motion);
         }
-        if (g->control_cancelled) return 0;
-        return deck_input_move(&g->motion, x, y, now);
+        /* Controls own the contact until release. Movement inside the padded
+         * target stays armed; leaving it cancels permanently. */
+        return 0;
     }
     if (g->motion.state == DECK_INPUT_BUTTON_DISMISS ||
         g->motion.state == DECK_INPUT_BUTTON_OPEN ||
@@ -148,8 +141,7 @@ deck_input_action_t group_input_release_at(group_input_t *g, int x, int y,
         const int id = g->control_id;
         const int revision = g->control_open_revision;
         const bool enabled = g->control_enabled;
-        const bool inside = !g->control_cancelled && control_contains(g, x, y) &&
-                            !control_exceeded_slop(g, x, y);
+        const bool inside = !g->control_cancelled && control_contains_with_margin(g, x, y);
         if (!inside) {
             g->control_cancelled = true;
             deck_input_cancel(&g->motion);

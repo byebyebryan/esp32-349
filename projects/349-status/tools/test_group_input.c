@@ -9,8 +9,71 @@ static void press(group_input_t *g, bool home, int newer, int older, bool cross)
                               newer, newer != 0, older, older != 0, cross, false));
 }
 
+static void control_press(group_input_t *g, group_control_t control, int x, int y)
+{
+    group_input_init(g);
+    assert(group_input_press(g, x, y, 1000, false, 2, true,
+                            1, true, 3, true, true, false));
+    group_input_capture_control(g, control, 496, 20, 64, 48, 2, 7, true);
+    assert(g->control == control);
+}
+
+static void controls_allow_finger_roll(void)
+{
+    for (int control = GROUP_CONTROL_OPEN; control <= GROUP_CONTROL_DISMISS; control++) {
+        group_input_t g;
+        const deck_input_action_kind_t kind = control == GROUP_CONTROL_OPEN
+            ? DECK_INPUT_ACTION_OPEN : DECK_INPUT_ACTION_DISMISS;
+        control_press(&g, control, 528, 44);
+        assert(group_input_move(&g, 546, 50, 20000) == 0);
+        assert(g.axis == GROUP_AXIS_NONE && !g.control_cancelled);
+        deck_input_action_t a = group_input_release_at(&g, 546, 50, 30000);
+        assert(a.kind == kind && a.target_id == 2);
+        if (control == GROUP_CONTROL_OPEN) assert(a.open_revision == 7);
+
+        /* Initial contact may also land just outside the visual rectangle. */
+        control_press(&g, control, 490, 44);
+        group_input_move(&g, 496, 44, 20000);
+        a = group_input_release_at(&g, 496, 44, 30000);
+        assert(a.kind == kind && a.target_id == 2);
+        control_press(&g, control, 528, 73);
+        a = group_input_release_at(&g, 528, 73, 30000);
+        assert(a.kind == kind && a.target_id == 2);
+
+        /* A small edge excursion stays bound to the original button. */
+        control_press(&g, control, 558, 44);
+        group_input_move(&g, 565, 47, 20000);
+        a = group_input_release_at(&g, 565, 47, 30000);
+        assert(a.kind == kind && a.target_id == 2);
+
+        /* The margin ends before the adjacent control. Cancellation latches. */
+        control_press(&g, control, 558, 44);
+        group_input_move(&g, 568, 44, 20000);
+        group_input_move(&g, 558, 44, 30000);
+        assert(g.control_cancelled && g.axis == GROUP_AXIS_NONE);
+        assert(group_input_release_at(&g, 558, 44, 40000).kind == DECK_INPUT_ACTION_NONE);
+
+        /* Larger in-bounds motion stays armed without becoming a swipe. */
+        control_press(&g, control, 528, 44);
+        group_input_move(&g, 552, 44, 20000);
+        assert(!g.control_cancelled && g.axis == GROUP_AXIS_NONE);
+        assert(group_input_release_at(&g, 552, 44, 30000).kind == kind);
+        control_press(&g, control, 528, 44);
+        group_input_move(&g, 546, 62, 20000);
+        assert(!g.control_cancelled && g.axis == GROUP_AXIS_NONE);
+        assert(group_input_release_at(&g, 546, 62, 30000).kind == kind);
+
+        /* A release-only coordinate jump still applies the control policy. */
+        control_press(&g, control, 528, 44);
+        assert(group_input_release_at(&g, 552, 44, 30000).kind == kind);
+        control_press(&g, control, 528, 44);
+        assert(group_input_release_at(&g, 568, 44, 30000).kind == DECK_INPUT_ACTION_NONE);
+    }
+}
+
 int main(void)
 {
+    controls_allow_finger_roll();
     group_input_t g;
     press(&g, true, 0, 0, false);
     assert(group_input_move(&g, 200, 92, 100000) == -120);

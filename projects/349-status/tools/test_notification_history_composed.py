@@ -208,16 +208,16 @@ async def scenario(native: Native) -> None:
         assert archived_open["state"] == "unavailable"
         assert archived_id in status["ids"] and archived_id in daemon.model.retained_notifs
         native.command("capture", name="history-open-unavailable")
-        native.command("press", x=528, y=44, ms=1)
-        native.command("release", x=528, y=44, ms=1)
+        native.command("press", x=596, y=30, ms=1)
+        native.command("release", x=596, y=30, ms=1)
         await route_inputs()
         assert provider.invocations == []
 
         # Explicit × removes the archived record through host input, with a
         # production dismissal transition before the empty result settles.
         frame_before_remove = captured("history-open-unavailable")
-        native.command("press", x=600, y=44, ms=1)
-        native.command("release", x=600, y=44, ms=1)
+        native.command("press", x=600, y=110, ms=1)
+        native.command("release", x=600, y=110, ms=1)
         await route_inputs()
         native.command("capture", name="history-remove-start")
         await advance(75)

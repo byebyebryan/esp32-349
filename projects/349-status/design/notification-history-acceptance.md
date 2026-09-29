@@ -3,6 +3,9 @@
 2026-09-28, Starship. Implementation, automated gates, deployment,
 expanded-cache board readback and the observer's brief visual/touch check pass
 on `b9be56530`. Normal mirroring is restored with the original config unchanged.
+The later [button refinement](button-controls-refinement.md) records the
+Open icon, touch policy and fixed card height separately; captures below are
+from this history checkpoint's original controls and taller singleton.
 The board had disappeared while the host slept; the user reported the host
 awake, and USB/link inspection confirmed its return before flashing.
 

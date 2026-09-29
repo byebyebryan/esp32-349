@@ -32,6 +32,9 @@ LV_FONT_DECLARE(status_clock_80);
 #define DISMISS_HEIGHT 48
 #define DISMISS_CROSS_SPAN 28
 #define OPEN_X 328
+#define HISTORY_CARD_HEIGHT 140
+#define HISTORY_CONTROL_WIDTH 64
+#define HISTORY_CONTROL_X (464 - HISTORY_CONTROL_WIDTH)
 #define CONTROL_GAP 8
 #define GROUP_LIFECYCLE_MS 180
 
@@ -39,7 +42,8 @@ static lv_obj_t *s_root, *s_rail_clock, *s_rail_footer;
 static lv_obj_t *s_metric_names[4], *s_metric_values[4];
 static lv_obj_t *s_idle, *s_idle_clock, *s_date, *s_message, *s_idle_transient;
 typedef struct {
-    lv_obj_t *root, *accent, *app, *title, *body, *position, *open, *open_label, *dismiss;
+    lv_obj_t *root, *accent, *app, *title, *body, *position;
+    lv_obj_t *open, *open_icon, *open_label, *dismiss;
     int id;
     bool valid;
 } card_view_t;
@@ -236,10 +240,21 @@ static lv_obj_t *label(lv_obj_t *parent, int x, int y, int w, int h,
     return obj;
 }
 
+static void dismiss_geometry(lv_obj_t *button, int width, int height)
+{
+    lv_obj_set_size(button, width, height);
+    for (uint32_t i = 0; i < lv_obj_get_child_count(button); i++) {
+        lv_obj_set_pos(lv_obj_get_child(button, i),
+            (width - DISMISS_CROSS_SPAN) / 2,
+            (height - DISMISS_CROSS_SPAN) / 2);
+    }
+}
+
 static lv_obj_t *dismiss_button(lv_obj_t *parent, int x)
 {
     lv_obj_t *button = box(parent, x, 0, DISMISS_WIDTH, DISMISS_HEIGHT, 0x243544, 8);
     lv_obj_add_flag(button, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_PRESS_LOCK | LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_set_style_bg_color(button, lv_color_hex(0x405665), LV_STATE_PRESSED);
     /* Draw the cross at its intended size rather than relying on a small
      * text glyph. Non-clickable strokes keep the whole button as the target. */
     static const lv_point_precise_t points[2][2] = {
@@ -261,7 +276,7 @@ static lv_obj_t *dismiss_button(lv_obj_t *parent, int x)
 }
 
 static void open_button(lv_obj_t *parent, lv_obj_t **button_out,
-                        lv_obj_t **label_out)
+                        lv_obj_t **icon_out, lv_obj_t **label_out)
 {
     lv_obj_t *button = box(parent, OPEN_X, 0, DISMISS_WIDTH, DISMISS_HEIGHT,
                            0x213641, 8);
@@ -270,10 +285,33 @@ static void open_button(lv_obj_t *parent, lv_obj_t **button_out,
     lv_obj_set_style_border_width(button, 1, 0);
     lv_obj_set_style_border_color(button, lv_color_hex(ACCENT), 0);
     lv_obj_set_style_border_opa(button, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(button, lv_color_hex(0x315563), LV_STATE_PRESSED);
+    /* An external/open arrow, using the same 28 px span and 3 px strokes as ×.
+     * Line objects are inert so the whole button remains the touch target. */
+    lv_obj_t *icon = box(button, 16, 8, 32, 32, 0, 0);
+    lv_obj_set_style_bg_opa(icon, LV_OPA_TRANSP, 0);
+    static const lv_point_precise_t outline[] = {
+        {14, 5}, {5, 5}, {5, 27}, {27, 27}, {27, 18},
+    };
+    static const lv_point_precise_t shaft[] = {{15, 17}, {30, 2}};
+    static const lv_point_precise_t head[] = {{20, 2}, {30, 2}, {30, 12}};
+    const lv_point_precise_t *points[] = {outline, shaft, head};
+    const uint32_t counts[] = {5, 2, 3};
+    for (int i = 0; i < 3; i++) {
+        lv_obj_t *stroke = lv_line_create(icon);
+        lv_obj_remove_style_all(stroke);
+        lv_obj_remove_flag(stroke, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+        lv_line_set_points(stroke, points[i], counts[i]);
+        lv_obj_set_style_line_width(stroke, 3, 0);
+        lv_obj_set_style_line_color(stroke, lv_color_hex(ACCENT), 0);
+        lv_obj_set_style_line_rounded(stroke, true, 0);
+    }
     lv_obj_t *caption = label(button, 2, 12, DISMISS_WIDTH - 4, 24,
-                              &status_text_20, ACCENT, "Open");
+                              &status_text_20, ACCENT, "…");
     lv_obj_set_style_text_align(caption, LV_TEXT_ALIGN_CENTER, 0);
+    hide(caption, true);
     *button_out = button;
+    *icon_out = icon;
     *label_out = caption;
 }
 
@@ -552,7 +590,8 @@ static void bind_cards(const snapshot_t *view)
         lv_obj_set_width(slot->title, width - DISMISS_WIDTH - 24);
         lv_obj_set_width(slot->body, width - 24);
         lv_obj_set_width(slot->position, width - 24);
-        lv_obj_set_x(slot->dismiss, width - DISMISS_WIDTH);
+        lv_obj_set_pos(slot->dismiss, width - DISMISS_WIDTH, 0);
+        dismiss_geometry(slot->dismiss, DISMISS_WIDTH, DISMISS_HEIGHT);
         if (!slot->valid) {
             continue;
         }
@@ -741,8 +780,22 @@ static void grouped_animation_exec(void *var, int32_t offset)
     grouped_position(offset);
 }
 
+static void grouped_control_feedback(group_control_t control)
+{
+    for (int slot = 0; slot < 3; slot++) {
+        lv_obj_t *buttons[] = {s_cards[slot].open, s_cards[slot].dismiss};
+        const group_control_t controls[] = {GROUP_CONTROL_OPEN, GROUP_CONTROL_DISMISS};
+        for (int i = 0; i < 2; i++) {
+            if (!buttons[i]) continue;
+            if (slot == 1 && control == controls[i]) lv_obj_add_state(buttons[i], LV_STATE_PRESSED);
+            else lv_obj_remove_state(buttons[i], LV_STATE_PRESSED);
+        }
+    }
+}
+
 static void grouped_cancel(void)
 {
+    grouped_control_feedback(GROUP_CONTROL_NONE);
     grouped_lifecycle_cancel();
     lv_anim_delete(&s_group_input.motion, grouped_animation_exec);
     group_input_cancel(&s_group_input);
@@ -769,8 +822,30 @@ static deck_input_action_t grouped_validate(void)
 static bool button_hit(lv_obj_t *button, int x, int y, lv_area_t *bounds)
 {
     lv_obj_get_coords(button, bounds);
-    return x >= bounds->x1 && x <= bounds->x2 &&
-           y >= bounds->y1 && y <= bounds->y2;
+    lv_area_t target = *bounds;
+    lv_area_increase(&target, GROUP_CONTROL_MARGIN_PX, GROUP_CONTROL_MARGIN_PX);
+    lv_obj_t *peer = button == s_cards[1].open ? s_cards[1].dismiss : s_cards[1].open;
+    if (peer && !lv_obj_has_flag(peer, LV_OBJ_FLAG_HIDDEN)) {
+        lv_area_t other;
+        lv_obj_get_coords(peer, &other);
+        /* Divide the shared gap at its midpoint. Initial near-edge taps have
+         * one owner regardless of widget stacking or event target. */
+        if (bounds->x1 < other.x1) {
+            const int edge = (bounds->x2 + 1 + other.x1) / 2 - 1;
+            if (target.x2 > edge) target.x2 = edge;
+        } else if (bounds->x1 > other.x1) {
+            const int edge = (other.x2 + 1 + bounds->x1) / 2;
+            if (target.x1 < edge) target.x1 = edge;
+        } else if (bounds->y1 < other.y1) {
+            const int edge = (bounds->y2 + 1 + other.y1) / 2 - 1;
+            if (target.y2 > edge) target.y2 = edge;
+        } else {
+            const int edge = (other.y2 + 1 + bounds->y1) / 2;
+            if (target.y1 < edge) target.y1 = edge;
+        }
+    }
+    return x >= target.x1 && x <= target.x2 &&
+           y >= target.y1 && y <= target.y2;
 }
 
 static void grouped_snapshot(snapshot_t *out, bool allow_attention)
@@ -885,25 +960,39 @@ static void grouped_bind_except(const snapshot_t *view, int frozen_slot)
         hide(slot->root, !slot->valid);
         hide(slot->dismiss, i != 1);
         hide(slot->open, i != 1 || !view->actions_enabled);
-        const int height = s_history_mode ? (multiple ? 140 : 164) : (multiple ? 120 : 144);
+        /* A singleton keeps the stack geometry so action targets never move. */
+        const int height = s_history_mode ? HISTORY_CARD_HEIGHT : (multiple ? 120 : 144);
         lv_obj_set_size(slot->root, 464, height);
         lv_obj_set_size(slot->accent, 3, height - 20);
         const int header_width = i == 1
-            ? (view->actions_enabled ? OPEN_X - 24 : 464 - DISMISS_WIDTH - 24)
+            ? (s_history_mode ? HISTORY_CONTROL_X - 24 :
+               view->actions_enabled ? OPEN_X - 24 : 464 - DISMISS_WIDTH - 24)
             : 440;
         lv_obj_set_pos(slot->app, 12, 4); lv_obj_set_width(slot->app, header_width);
         lv_obj_set_pos(slot->title, 12, 24); lv_obj_set_width(slot->title, header_width);
         lv_obj_set_style_text_font(slot->body,
             s_history_mode ? &status_text_16 : &status_text_20, 0);
         lv_obj_set_pos(slot->body, 12, s_history_mode ? 56 : 52);
-        lv_obj_set_size(slot->body, 440, s_history_mode
-            ? (multiple ? 66 : view->overflow ? 82 : 90)
+        const int body_width = s_history_mode && i == 1 ? header_width : 440;
+        lv_obj_set_size(slot->body, body_width, s_history_mode
+            ? 66
             : (multiple ? 52 : view->overflow ? 72 : 84));
         lv_obj_set_pos(slot->position, 12,
-            s_history_mode ? (multiple ? 124 : 148) : (multiple ? 104 : 128));
-        lv_obj_set_width(slot->position, 440);
-        lv_obj_set_x(slot->dismiss, OPEN_X + DISMISS_WIDTH + CONTROL_GAP);
-        lv_obj_set_pos(slot->open, OPEN_X, 0);
+            s_history_mode ? height - 16 : (multiple ? 104 : 128));
+        lv_obj_set_width(slot->position, body_width);
+        const int control_width = s_history_mode ? HISTORY_CONTROL_WIDTH : DISMISS_WIDTH;
+        const int control_height = s_history_mode
+            ? (view->actions_enabled ? (height - CONTROL_GAP) / 2 : height) : DISMISS_HEIGHT;
+        lv_obj_set_pos(slot->dismiss,
+            s_history_mode ? HISTORY_CONTROL_X : OPEN_X + DISMISS_WIDTH + CONTROL_GAP,
+            s_history_mode && view->actions_enabled ? control_height + CONTROL_GAP : 0);
+        dismiss_geometry(slot->dismiss, control_width, control_height);
+        lv_obj_set_pos(slot->open, s_history_mode ? HISTORY_CONTROL_X : OPEN_X, 0);
+        lv_obj_set_size(slot->open, control_width, control_height);
+        lv_obj_set_pos(slot->open_icon, (control_width - 32) / 2,
+            (control_height - 32) / 2);
+        lv_obj_set_pos(slot->open_label, 2, (control_height - 24) / 2);
+        lv_obj_set_width(slot->open_label, control_width - 4);
         if (!slot->valid) continue;
         const lv_color_t accent = lv_color_hex(n->urgency >= 2 ? CRITICAL : ACCENT);
         if (!lv_color_eq(lv_obj_get_style_bg_color(slot->accent, 0), accent)) {
@@ -929,9 +1018,16 @@ static void grouped_bind_except(const snapshot_t *view, int frozen_slot)
             const uint32_t color = ready ? ACCENT : SECONDARY;
             lv_obj_set_style_bg_color(slot->open,
                 lv_color_hex(ready ? 0x213641 : 0x202A33), 0);
+            lv_obj_set_style_bg_color(slot->open,
+                lv_color_hex(ready ? 0x315563 : 0x202A33), LV_STATE_PRESSED);
             lv_obj_set_style_border_color(slot->open, lv_color_hex(color), 0);
+            for (uint32_t child = 0; child < lv_obj_get_child_count(slot->open_icon); child++) {
+                lv_obj_set_style_line_color(lv_obj_get_child(slot->open_icon, child),
+                    lv_color_hex(color), 0);
+            }
+            hide(slot->open_icon, pending);
+            hide(slot->open_label, !pending);
             text_color(slot->open_label, color);
-            text(slot->open_label, pending ? "…" : "Open");
         }
         position_text(slot, view->overflow, view);
     }
@@ -1092,6 +1188,9 @@ static void grouped_input_cb(lv_event_t *event)
     lv_point_t point;
     lv_indev_get_point(indev, &point);
     if (code == LV_EVENT_PRESSED) {
+        /* LVGL sets pressed state before dispatching this event, including on
+         * frozen outgoing widgets. Show feedback only after accepting input. */
+        grouped_control_feedback(GROUP_CONTROL_NONE);
         if (!s_visible || group_busy()) {
             if (s_group_lifecycle.active) lv_indev_wait_release(indev);
             return;
@@ -1121,12 +1220,14 @@ static void grouped_input_cb(lv_event_t *event)
                 open_bounds.y2 - open_bounds.y1 + 1,
                 s_cards[1].id, s_view.cards[1].open_revision,
                 s_view.open_enabled);
+            grouped_control_feedback(GROUP_CONTROL_OPEN);
         } else if (hit_dismiss) {
             group_input_capture_control(&s_group_input, GROUP_CONTROL_DISMISS,
                 dismiss_bounds.x1, dismiss_bounds.y1,
                 dismiss_bounds.x2 - dismiss_bounds.x1 + 1,
                 dismiss_bounds.y2 - dismiss_bounds.y1 + 1,
                 s_cards[1].id, 0, true);
+            grouped_control_feedback(GROUP_CONTROL_DISMISS);
         }
     } else if (indev == s_input_indev && deck_input_busy(&s_group_input.motion)) {
         grouped_snapshot(&s_view, true);
@@ -1142,9 +1243,13 @@ static void grouped_input_cb(lv_event_t *event)
         if (code == LV_EVENT_PRESSING) {
             group_axis_t old_axis = s_group_input.axis;
             int offset = group_input_move(&s_group_input, point.x, point.y, esp_timer_get_time());
+            if (s_group_input.control_cancelled) {
+                grouped_control_feedback(GROUP_CONTROL_NONE);
+            }
             if (old_axis == GROUP_AXIS_NONE && s_group_input.axis != GROUP_AXIS_NONE) grouped_takeover();
             if (s_group_input.motion.state == DECK_INPUT_DRAGGING) grouped_position(offset);
         } else if (code == LV_EVENT_RELEASED) {
+            grouped_control_feedback(GROUP_CONTROL_NONE);
             deck_input_action_t action = group_input_release_at(
                 &s_group_input, point.x, point.y, esp_timer_get_time());
             if (action.kind == DECK_INPUT_ACTION_SNAP || action.kind == DECK_INPUT_ACTION_NEXT_TAP) {
@@ -1377,7 +1482,7 @@ void ui_deck_init(lv_obj_t *parent, const lv_font_t *small, const lv_font_t *met
         lv_obj_set_style_text_line_space(slot->body, 0, 0);
         slot->position = label(slot->root, 12, 140, 368, 16, s_small, SECONDARY, "");
         slot->dismiss = dismiss_button(slot->root, 392 - DISMISS_WIDTH);
-        open_button(slot->root, &slot->open, &slot->open_label);
+        open_button(slot->root, &slot->open, &slot->open_icon, &slot->open_label);
     }
     s_group_cue = label(s_root, 172, 1, 456, 18, s_small, SECONDARY, "");
     ui_deck_show(false);
