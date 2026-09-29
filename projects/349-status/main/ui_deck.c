@@ -528,18 +528,24 @@ static void metrics(const snapshot_t *view, bool active)
     text(s_metric_details[0], value);
     format_memory(value, sizeof(value), d->mem_used_bytes_valid, d->mem_used_bytes);
     text(s_metric_details[1], value);
-    if (d->cpu_valid) {
-        snprintf(value, sizeof(value), "%d%%", (int)(d->cpu * 100 + .5f));
-    } else {
-        strlcpy(value, "--", sizeof(value));
+    const bool usage_valid[] = {d->cpu_valid, d->mem_valid};
+    const float usage[] = {d->cpu, d->mem};
+    for (int i = 0; i < 2; i++) {
+        const int percent = usage_valid[i] ? (int)(usage[i] * 100 + .5f) : 0;
+        if (usage_valid[i]) {
+            snprintf(value, sizeof(value), "%d%%", percent);
+        } else {
+            strlcpy(value, "--", sizeof(value));
+        }
+        /* Keep 100% intact without widening the reserved 99% + space column. */
+        const lv_font_t *font = usage_valid[i] && percent == 100
+            ? &lv_font_montserrat_14 : &status_text_16;
+        const int baseline_offset = status_text_16.line_height - status_text_16.base_line
+            - font->line_height + font->base_line;
+        lv_obj_set_style_text_font(s_metric_values[i], font, 0);
+        lv_obj_set_y(s_metric_values[i], top + i * step + baseline_offset);
+        text(s_metric_values[i], value);
     }
-    text(s_metric_values[0], value);
-    if (d->mem_valid) {
-        snprintf(value, sizeof(value), "%d%%", (int)(d->mem * 100 + .5f));
-    } else {
-        strlcpy(value, "--", sizeof(value));
-    }
-    text(s_metric_values[1], value);
     format_rate(value, sizeof(value), d->tx_bytes_per_s_valid, d->tx_bytes_per_s);
     text(s_metric_values[2], value);
     format_rate(value, sizeof(value), d->rx_bytes_per_s_valid, d->rx_bytes_per_s);
@@ -1499,15 +1505,15 @@ void ui_deck_init(lv_obj_t *parent, const lv_font_t *small, const lv_font_t *met
     const char *names[] = {"CPU", "MEM", "UP", "DN"};
     for (int i = 0; i < 4; i++) {
         s_metric_names[i] = label(rail, 12, 61 + 24 * i, 36, 21, s_meta, SECONDARY, names[i]);
-        const int value_x = i < 2 ? 106 : 52;
-        /* 42 px is exactly the generated 16 px font's width for "100%". */
-        const int value_width = i < 2 ? 42 : 96;
+        const int value_x = i < 2 ? 110 : 52;
+        /* 38 px reserves "99%" (34 px) plus one space (4 px). */
+        const int value_width = i < 2 ? 38 : 96;
         s_metric_values[i] = label(rail, value_x, 58 + 24 * i, value_width, 26,
                                    &status_text_16, FOREGROUND, "--");
         lv_obj_set_style_text_align(s_metric_values[i], LV_TEXT_ALIGN_RIGHT, 0);
     }
     for (int i = 0; i < 2; i++) {
-        s_metric_details[i] = label(rail, 52, 58 + 24 * i, 50, 26,
+        s_metric_details[i] = label(rail, 52, 58 + 24 * i, 58, 26,
                                    &status_text_16, FOREGROUND, "--");
         lv_obj_set_style_text_align(s_metric_details[i], LV_TEXT_ALIGN_RIGHT, 0);
     }

@@ -134,21 +134,29 @@ static void assert_rail_geometry(void)
         assert(lv_obj_get_x(s_metric_names[i]) == 12);
         assert(lv_obj_get_y(s_metric_names[i]) == 61 + 24 * i);
         assert(lv_obj_get_width(s_metric_names[i]) == 36);
-        assert(lv_obj_get_x(s_metric_values[i]) == (i < 2 ? 106 : 52));
-        assert(lv_obj_get_y(s_metric_values[i]) == 58 + 24 * i);
-        assert(lv_obj_get_width(s_metric_values[i]) == (i < 2 ? 42 : 96));
+        const lv_font_t *font = lv_obj_get_style_text_font(s_metric_values[i], 0);
+        const bool full_usage = i < 2 && strcmp(label_storage(s_metric_values[i]), "100%") == 0;
+        const int baseline_offset = status_text_16.line_height - status_text_16.base_line
+            - font->line_height + font->base_line;
+        assert(lv_obj_get_x(s_metric_values[i]) == (i < 2 ? 110 : 52));
+        assert(lv_obj_get_y(s_metric_values[i]) == 58 + 24 * i + baseline_offset);
+        assert(lv_obj_get_width(s_metric_values[i]) == (i < 2 ? 38 : 96));
         assert(text_width(label_storage(s_metric_names[i]), s_meta) <= 36);
-        assert(text_width(label_storage(s_metric_values[i]), &status_text_16) <=
-               lv_obj_get_width(s_metric_values[i]));
-        assert(lv_obj_get_style_text_font(s_metric_values[i], 0) == &status_text_16);
+        const int width = text_width(label_storage(s_metric_values[i]), font);
+        assert(width <= lv_obj_get_width(s_metric_values[i]));
+        assert(font == (full_usage ? &lv_font_montserrat_14 : &status_text_16));
+        if (i < 2) {
+            assert(lv_obj_get_x(s_metric_values[i]) + lv_obj_get_width(s_metric_values[i]) - width >=
+                   lv_obj_get_x(s_metric_details[i]) + lv_obj_get_width(s_metric_details[i]));
+        }
     }
-    assert(text_width("100%", &status_text_16) == 42);
+    assert(text_width("99%", &status_text_16) + text_width(" ", &status_text_16) == 38);
     for (int i = 0; i < 2; i++) {
         assert(lv_obj_get_x(s_metric_details[i]) == 52);
         assert(lv_obj_get_y(s_metric_details[i]) == 58 + 24 * i);
-        assert(lv_obj_get_width(s_metric_details[i]) == 50);
+        assert(lv_obj_get_width(s_metric_details[i]) == 58);
         assert(lv_obj_get_style_text_align(s_metric_details[i], 0) == LV_TEXT_ALIGN_RIGHT);
-        assert(text_width(label_storage(s_metric_details[i]), &status_text_16) <= 50);
+        assert(text_width(label_storage(s_metric_details[i]), &status_text_16) <= 58);
     }
 }
 
@@ -207,6 +215,7 @@ static void rail_telemetry_captures(void)
         assert_rail_geometry();
         assert(strcmp(label_storage(s_metric_details[0]), "3.6G") == 0);
         assert(strcmp(label_storage(s_metric_details[1]), "8.4G") == 0);
+        if (percentages[i] == .99f) assert(capture_frame("telemetry-rail-details-99-percent"));
     }
     assert(capture_frame("telemetry-rail-details-100-percent"));
     s_state.dashboard.mem = .43f;

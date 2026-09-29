@@ -10,19 +10,22 @@ Keep the 160 px left rail, local HH:MM, four fixed row baselines and footer.
 The row order is CPU, MEM, UP, DN. Example readings:
 
 ```text
-CPU  3.6G      18%
-MEM  8.4G      43%
+CPU    3.6G 18%
+MEM    8.4G 43%
 UP        86 KB/s
 DN       2.4 MB/s
 ```
 
-Labels begin at x=12. CPU/MEM detail widgets begin at x=52 and occupy 50 px,
-right aligned through x=102 so their unit letters stay fixed.
-Percentages occupy a separate 42 px column at x=106, right aligned through
-x=148, separated from details by 4 px. The generated font's `100%` measures
-exactly 42 px; `1%`, `99%`, `100%` and `--` cannot shift the detail widgets. Traffic
-occupies x=52 through x=148. All values use the existing 16 px font, giving
-traffic and CPU/MEM equal visual weight. Names use the existing metadata font.
+Labels begin at x=12. CPU/MEM detail widgets begin at x=52 and occupy 58 px,
+right aligned through x=110 so their unit letters stay fixed.
+Percentages occupy a separate 38 px column at x=110, right aligned through
+x=148. This reserves the generated 16 px font's `99%` (34 px) plus one space
+(4 px), shifting the detail units 8 px right from the first accepted layout.
+`100%` uses the existing 14 px Montserrat font, aligned to the same baseline,
+so it fits without overlapping details. `1%`, `99%`, `100%` and `--` cannot
+shift the detail widgets. Traffic occupies x=52 through x=148. Other values
+use the existing 16 px font, giving traffic and CPU/MEM equal visual weight.
+Names use the existing metadata font.
 The same geometry applies to recent-notification history and legacy dashboard
 views, including empty, stale and disconnected states.
 
@@ -71,16 +74,17 @@ maximum wire values.
   average current frequency, paired memory sampling, unavailable readings,
   optional backward-compatible readback, bounds and full-sync coherence.
 - Native LVGL/composed protocol suites: 10/10 in Debug and 10/10 in Release.
-  Checks measure text with the actual 16 px font, keep the same widget positions
-  across `1%`/`99%`/`100%`, exercise unit rounding and verify UP/DN binding.
+  Checks measure text with the actual fonts, keep detail positions fixed and
+  percentage baselines aligned across `1%`/`99%`/`100%`, exercise unit rounding
+  and verify UP/DN binding.
 - Standalone firmware dashboard parser: warnings-as-errors build and checks pass,
   including nullable details, integral memory and numeric bounds.
 - ESP-IDF firmware build passes. Native captures are synthetic UI evidence;
   device USB readback and physical readability are separate gates below.
 
-## Starship deployment
+## Prior accepted Starship deployment
 
-The refined firmware is running on Starship's attached board:
+The first spacing refinement was accepted on Starship's attached board:
 
 | Artifact | Value |
 |---|---|
@@ -115,3 +119,21 @@ The user confirmed **"Aligned and readable"** on the refined Starship build:
 unit letters stay fixed, percentages have a clear gap, and UP is above DN.
 This accepts the brief rail readability/alignment check. It does not add a
 long-duration stability or rendering-performance claim.
+
+## Tighter spacing follow-up
+
+The requested `99%` plus one-space reservation is implemented in the layout
+above. Debug and Release native suites each pass 10/10, including actual-font
+width and non-overlap checks at 99% and 100%, plus captures of both cases.
+The firmware build passes; Starship now runs ELF SHA prefix `293745885`
+from `c144f53` plus this spacing change. The previous accepted `8987b3aa3`
+image and configuration are preserved in
+`~/.local/share/esp32/backups/rail-spacing-starship-20260929T080000Z/`.
+
+The daemon was paused for flashing and resumed without restarting. Its
+configuration is unchanged. Four normal-feed USB readbacks agree with the
+surrounding host snapshots; the new firmware hello and runtime source hashes
+match the candidate image. The user confirmed **"better"** on Starship after
+this spacing adjustment. This observes the normal rail spacing; the 100%
+fallback remains covered by native captures rather than a physical full-load
+test.

@@ -182,10 +182,11 @@ cached cards; `+N uncached` is a separate count, not a navigation target.
 All dashboard layouts keep local HH:MM and fixed CPU, MEM, UP, and DN rows.
 CPU shows average current host frequency and usage; MEM shows used memory
 and usage. Details and percentages occupy separate fixed columns, both right
-aligned to keep unit letters fixed, with exactly enough room for `100%`.
+aligned to keep unit letters fixed. The percentage column reserves `99%` plus
+one space; `100%` uses the existing 14 px font on the same baseline to fit.
 `3.6G` on CPU means GHz; `8.4G` on MEM means GiB. Memory usage is
 `MemTotal - MemAvailable`, with the amount and percentage from the same read.
-All four value rows use 16 px text. UP/DN show physical-uplink transmit/receive
+Values otherwise use 16 px text. UP/DN show physical-uplink transmit/receive
 traffic in decimal B/s, KB/s, MB/s, or GB/s. The rail has no battery row. Volume and Bluetooth changes
 appear briefly. Bluetooth probing is optional
 and failure leaves that reading unavailable. Details and acceptance scope are
