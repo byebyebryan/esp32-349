@@ -35,7 +35,8 @@ views, including empty, stale and disconnected states.
 
 - CPU frequency is the mean of the current `cpu MHz` entries in `/proc/cpuinfo`,
   rounded to 0.1 MHz on the host. It is neither the nominal model frequency nor
-  a claim that every core has the same clock. Compact `M`/`G` mean MHz/GHz.
+  a claim that every core has the same clock. The rail always shows GHz with
+  a compact `G`, including frequencies below 1 GHz.
 - CPU usage keeps its existing three-second EMA and integer percentage.
 - Used memory is `MemTotal - MemAvailable` from one `/proc/meminfo` read.
   Its percentage divides that exact amount by `MemTotal`; readily reclaimable

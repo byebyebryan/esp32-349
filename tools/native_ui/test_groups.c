@@ -171,10 +171,15 @@ static void rail_telemetry_captures(void)
         format_rate(formatted, sizeof(formatted), true, rate_boundaries[i]);
         assert(text_width(formatted, &status_text_16) <= 96);
     }
-    const double frequencies[] = {0, 800, 999.4, 999.5, 3600, 9949, 9950, 99999, 100000};
+    const struct { double mhz; const char *display; } frequencies[] = {
+        {0, "0.0G"}, {607.4, "0.6G"}, {800, "0.8G"},
+        {999.4, "1.0G"}, {999.5, "1.0G"}, {3600, "3.6G"},
+        {9949, "9.9G"}, {9950, "10G"}, {99999, "100G"}, {100000, "100G"},
+    };
     for (unsigned i = 0; i < sizeof(frequencies) / sizeof(frequencies[0]); i++) {
         char formatted[32];
-        format_frequency(formatted, sizeof(formatted), true, frequencies[i]);
+        format_frequency(formatted, sizeof(formatted), true, frequencies[i].mhz);
+        assert(strcmp(formatted, frequencies[i].display) == 0);
         assert(text_width(formatted, &status_text_16) <= 50);
     }
     for (unsigned unit = 0; unit < 5; unit++) {
@@ -207,6 +212,13 @@ static void rail_telemetry_captures(void)
     assert(strcmp(label_storage(s_metric_values[2]), "86 KB/s") == 0);
     assert(strcmp(label_storage(s_metric_values[3]), "2.4 MB/s") == 0);
     assert(capture_frame("telemetry-rail-normal-home"));
+    s_state.dashboard.cpu_freq_mhz = 607.4;
+    ui_deck_tick(STATE_DIRTY_DASHBOARD);
+    repaint();
+    assert(strcmp(label_storage(s_metric_details[0]), "0.6G") == 0);
+    assert_rail_geometry();
+    s_state.dashboard.cpu_freq_mhz = 3600;
+    ui_deck_tick(STATE_DIRTY_DASHBOARD);
     const float percentages[] = {.01f, .99f, 1.0f};
     for (unsigned i = 0; i < sizeof(percentages) / sizeof(percentages[0]); i++) {
         s_state.dashboard.cpu = s_state.dashboard.mem = percentages[i];

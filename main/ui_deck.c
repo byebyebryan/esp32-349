@@ -468,8 +468,6 @@ static void format_frequency(char *out, size_t size, bool valid, double mhz)
 {
     if (!valid || !isfinite(mhz) || mhz < 0 || mhz > 100000.0) {
         strlcpy(out, "--", size);
-    } else if (mhz < 999.5) {
-        snprintf(out, size, "%.0fM", mhz);
     } else if (mhz < 9950.0) {
         snprintf(out, size, "%.1fG", floor(mhz / 100.0 + .5) / 10.0);
     } else {
