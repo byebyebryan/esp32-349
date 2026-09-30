@@ -427,7 +427,7 @@ static void transient(const status_dashboard_t *now)
 
 static void format_rate(char *out, size_t size, bool valid, double rate)
 {
-    static const char *const units[] = {"B/s", "KB/s", "MB/s", "GB/s"};
+    static const char *const units[] = {"B/s", "KiB/s", "MiB/s", "GiB/s"};
     if (!valid || !isfinite(rate) || rate < 0 || rate > 1000000000000.0) {
         strlcpy(out, "--", size);
         return;
@@ -439,8 +439,8 @@ static void format_rate(char *out, size_t size, bool valid, double rate)
 
     unsigned unit = 0;
     double shown = rate;
-    while (shown >= 1000.0 && unit < 3) {
-        shown /= 1000.0;
+    while (shown >= 1024.0 && unit < 3) {
+        shown /= 1024.0;
         unit++;
     }
     for (;;) {
@@ -448,14 +448,12 @@ static void format_rate(char *out, size_t size, bool valid, double rate)
         const double rounded = decimal
             ? floor(shown * 10.0 + 0.5) / 10.0
             : floor(shown + 0.5);
-        if (rounded >= 1000.0 && unit < 3) {
-            shown /= 1000.0;
+        if (rounded >= 1024.0 && unit < 3) {
+            shown /= 1024.0;
             unit++;
             continue;
         }
-        if (unit == 3 && rounded >= 1000.0) {
-            strlcpy(out, ">999GB/s", size);
-        } else if (unit == 0 && rounded == 0.0) {
+        if (unit == 0 && rounded == 0.0) {
             strlcpy(out, "<1 B/s", size);
         } else if (decimal) {
             snprintf(out, size, "%.1f %s", rounded, units[unit]);

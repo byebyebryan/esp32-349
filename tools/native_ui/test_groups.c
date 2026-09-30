@@ -167,13 +167,17 @@ static void assert_rail_geometry(void)
 
 static void rail_telemetry_captures(void)
 {
-    const double rate_boundaries[] = {
-        .0001, .049, .05, 9.95, 99.5, 999.5, 9950, 999500,
-        9950000, 999500000, 9950000000, 999500000000, 1000000000000.0,
+    const struct { double bytes_per_s; const char *display; } rates[] = {
+        {0, "0 B/s"}, {.0001, "<1 B/s"}, {.049, "<1 B/s"}, {.05, "0.1 B/s"},
+        {1023.49, "1023 B/s"}, {1023.5, "1.0 KiB/s"}, {1024, "1.0 KiB/s"},
+        {102400, "100 KiB/s"}, {1048063, "1023 KiB/s"}, {1048064, "1.0 MiB/s"},
+        {1048576, "1.0 MiB/s"}, {1073741824, "1.0 GiB/s"},
+        {1000000000000.0, "931 GiB/s"},
     };
-    for (unsigned i = 0; i < sizeof(rate_boundaries) / sizeof(rate_boundaries[0]); i++) {
+    for (unsigned i = 0; i < sizeof(rates) / sizeof(rates[0]); i++) {
         char formatted[32];
-        format_rate(formatted, sizeof(formatted), true, rate_boundaries[i]);
+        format_rate(formatted, sizeof(formatted), true, rates[i].bytes_per_s);
+        assert(strcmp(formatted, rates[i].display) == 0);
         assert(text_width(formatted, &status_text_16) <= 96);
     }
     const struct { double mhz; const char *display; } frequencies[] = {
@@ -214,8 +218,8 @@ static void rail_telemetry_captures(void)
     assert(strcmp(label_storage(s_rail_clock), "14:35") == 0);
     assert(strcmp(label_storage(s_metric_details[0]), "3.6G") == 0);
     assert(strcmp(label_storage(s_metric_details[1]), "8.4G") == 0);
-    assert(strcmp(label_storage(s_metric_values[2]), "86 KB/s") == 0);
-    assert(strcmp(label_storage(s_metric_values[3]), "2.4 MB/s") == 0);
+    assert(strcmp(label_storage(s_metric_values[2]), "84 KiB/s") == 0);
+    assert(strcmp(label_storage(s_metric_values[3]), "2.3 MiB/s") == 0);
     assert_color(lv_obj_get_style_text_color(s_rail_clock, LV_PART_MAIN),
                  UI_THEME_RAIL_CLOCK);
     assert_color(lv_obj_get_style_text_color(s_metric_values[0], LV_PART_MAIN),
@@ -281,17 +285,17 @@ static void rail_telemetry_captures(void)
     s_state.dashboard.tx_bytes_per_s = 999500.0;
     ui_deck_tick(STATE_DIRTY_DASHBOARD);
     repaint();
-    assert(strcmp(label_storage(s_metric_values[2]), "1.0 MB/s") == 0);
-    assert(strcmp(label_storage(s_metric_values[3]), ">999GB/s") == 0);
+    assert(strcmp(label_storage(s_metric_values[2]), "976 KiB/s") == 0);
+    assert(strcmp(label_storage(s_metric_values[3]), "931 GiB/s") == 0);
     assert_rail_geometry();
     assert(capture_frame("telemetry-rail-high"));
 
-    s_state.dashboard.rx_bytes_per_s = 9950.0;
-    s_state.dashboard.tx_bytes_per_s = 999500.0;
+    s_state.dashboard.rx_bytes_per_s = 1023.5;
+    s_state.dashboard.tx_bytes_per_s = 1048064.0;
     ui_deck_tick(STATE_DIRTY_DASHBOARD);
     repaint();
-    assert(strcmp(label_storage(s_metric_values[2]), "1.0 MB/s") == 0);
-    assert(strcmp(label_storage(s_metric_values[3]), "10.0 KB/s") == 0);
+    assert(strcmp(label_storage(s_metric_values[2]), "1.0 MiB/s") == 0);
+    assert(strcmp(label_storage(s_metric_values[3]), "1.0 KiB/s") == 0);
     assert_rail_geometry();
     assert(capture_frame("telemetry-rail-rounding-boundary"));
 
@@ -338,8 +342,8 @@ static void rail_telemetry_captures(void)
     group_swipe(450, 90, -130, 0);
     assert(!s_group_home);
     assert_rail_geometry();
-    assert(strcmp(label_storage(s_metric_values[2]), "86 KB/s") == 0);
-    assert(strcmp(label_storage(s_metric_values[3]), "2.4 MB/s") == 0);
+    assert(strcmp(label_storage(s_metric_values[2]), "84 KiB/s") == 0);
+    assert(strcmp(label_storage(s_metric_values[3]), "2.3 MiB/s") == 0);
     assert(capture_frame("telemetry-rail-normal-notifications"));
 
     s_state.dashboard.network = false;
