@@ -301,7 +301,7 @@ static void make_card(lv_obj_t *parent, const status_notif_t *notif)
         lv_label_set_text(app, notif->app);
         lv_obj_set_style_text_font(app, SMALL_FONT, 0);
         lv_obj_set_style_text_color(app, lv_color_hex(notif->urgency >= 2
-            ? UI_THEME_CRITICAL : UI_THEME_TEXT_SECONDARY), 0);
+            ? UI_THEME_CRITICAL : UI_THEME_TEXT_SAGE), 0);
         lv_label_set_long_mode(app, LV_LABEL_LONG_DOT);
         lv_obj_set_width(app, 80);
     }
@@ -316,7 +316,7 @@ static void make_card(lv_obj_t *parent, const status_notif_t *notif)
     lv_obj_t *body = lv_label_create(col);
     lv_label_set_text(body, notif->body);
     lv_obj_set_style_text_font(body, BODY_FONT, 0);
-    lv_obj_set_style_text_color(body, lv_color_hex(UI_THEME_TEXT_SECONDARY), 0);
+    lv_obj_set_style_text_color(body, lv_color_hex(UI_THEME_TEXT_BODY), 0);
     lv_label_set_long_mode(body, LV_LABEL_LONG_DOT);
     lv_obj_set_width(body, LV_PCT(100));
     lv_obj_set_height(body, 17);

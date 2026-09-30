@@ -28,6 +28,8 @@ LV_FONT_DECLARE(status_clock_80);
 #define HISTORY_CARD_HEIGHT 140
 #define HISTORY_CONTROL_WIDTH 64
 #define HISTORY_CONTROL_X (464 - HISTORY_CONTROL_WIDTH)
+#define HISTORY_AGE_WIDTH 72
+#define HISTORY_AGE_GAP 8
 #define CONTROL_GAP 8
 #define GROUP_LIFECYCLE_MS 180
 
@@ -36,7 +38,7 @@ static lv_obj_t *s_metric_names[4], *s_metric_values[4];
 static lv_obj_t *s_metric_details[2];
 static lv_obj_t *s_idle, *s_idle_clock, *s_date, *s_message, *s_idle_transient;
 typedef struct {
-    lv_obj_t *root, *accent, *app, *title, *body, *position;
+    lv_obj_t *root, *accent, *app, *age, *title, *body, *position;
     lv_obj_t *open, *open_icon, *open_label, *dismiss;
     int id;
     bool valid;
@@ -205,7 +207,7 @@ static void text_color(lv_obj_t *obj, uint32_t color)
 
 static uint32_t notification_app_color(int urgency_value)
 {
-    return urgency_value >= 2 ? UI_THEME_CRITICAL : UI_THEME_TEXT_SECONDARY;
+    return urgency_value >= 2 ? UI_THEME_CRITICAL : UI_THEME_TEXT_SAGE;
 }
 
 static lv_obj_t *box(lv_obj_t *parent, int x, int y, int w, int h, uint32_t color, int radius)
@@ -279,13 +281,13 @@ static void open_button(lv_obj_t *parent, lv_obj_t **button_out,
                         lv_obj_t **icon_out, lv_obj_t **label_out)
 {
     lv_obj_t *button = box(parent, OPEN_X, 0, DISMISS_WIDTH, DISMISS_HEIGHT,
-                           UI_THEME_BUTTON, 8);
+                           UI_THEME_OPEN_FILL, 8);
     lv_obj_add_flag(button, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_PRESS_LOCK |
                             LV_OBJ_FLAG_EVENT_BUBBLE);
     lv_obj_set_style_border_width(button, 1, 0);
-    lv_obj_set_style_border_color(button, lv_color_hex(UI_THEME_BUTTON_BORDER), 0);
+    lv_obj_set_style_border_color(button, lv_color_hex(UI_THEME_OPEN_BORDER), 0);
     lv_obj_set_style_border_opa(button, LV_OPA_COVER, 0);
-    lv_obj_set_style_bg_color(button, lv_color_hex(UI_THEME_BUTTON_PRESSED), LV_STATE_PRESSED);
+    lv_obj_set_style_bg_color(button, lv_color_hex(UI_THEME_OPEN_PRESSED), LV_STATE_PRESSED);
     /* An external/open arrow, using the same 28 px span and 3 px strokes as ×.
      * Line objects are inert so the whole button remains the touch target. */
     lv_obj_t *icon = box(button, 16, 8, 32, 32, 0, 0);
@@ -303,11 +305,11 @@ static void open_button(lv_obj_t *parent, lv_obj_t **button_out,
         lv_obj_remove_flag(stroke, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
         lv_line_set_points(stroke, points[i], counts[i]);
         lv_obj_set_style_line_width(stroke, 3, 0);
-        lv_obj_set_style_line_color(stroke, lv_color_hex(UI_THEME_ACCENT), 0);
+        lv_obj_set_style_line_color(stroke, lv_color_hex(UI_THEME_TEXT_SAGE), 0);
         lv_obj_set_style_line_rounded(stroke, true, 0);
     }
     lv_obj_t *caption = label(button, 2, 12, DISMISS_WIDTH - 4, 24,
-                              &status_text_20, UI_THEME_ACCENT, "…");
+                              &status_text_20, UI_THEME_TEXT_SAGE, "…");
     lv_obj_set_style_text_align(caption, LV_TEXT_ALIGN_CENTER, 0);
     hide(caption, true);
     *button_out = button;
@@ -506,6 +508,12 @@ static void format_memory(char *out, size_t size, bool valid, double bytes)
     }
 }
 
+static void metric_text(lv_obj_t *label, const char *value, bool fresh)
+{
+    text(label, value);
+    text_color(label, fresh ? UI_THEME_RAIL_VALUE : UI_THEME_RAIL_LABEL);
+}
+
 static void metrics(const snapshot_t *view, bool active)
 {
     const status_dashboard_t *d = &view->dashboard;
@@ -515,17 +523,11 @@ static void metrics(const snapshot_t *view, bool active)
     for (int i = 0; i < 4; i++) {
         lv_obj_set_y(s_metric_names[i], top + i * step + 3);
         lv_obj_set_y(s_metric_values[i], top + i * step);
-        uint32_t color = view->stale ? UI_THEME_TEXT_SECONDARY : UI_THEME_TEXT_PRIMARY;
-        text_color(s_metric_values[i], color);
-    }
-    for (int i = 0; i < 2; i++) {
-        text_color(s_metric_details[i], view->stale
-            ? UI_THEME_TEXT_SECONDARY : UI_THEME_TEXT_PRIMARY);
     }
     format_frequency(value, sizeof(value), d->cpu_freq_mhz_valid, d->cpu_freq_mhz);
-    text(s_metric_details[0], value);
+    metric_text(s_metric_details[0], value, !view->stale && strcmp(value, "--") != 0);
     format_memory(value, sizeof(value), d->mem_used_bytes_valid, d->mem_used_bytes);
-    text(s_metric_details[1], value);
+    metric_text(s_metric_details[1], value, !view->stale && strcmp(value, "--") != 0);
     const bool usage_valid[] = {d->cpu_valid, d->mem_valid};
     const float usage[] = {d->cpu, d->mem};
     for (int i = 0; i < 2; i++) {
@@ -542,12 +544,12 @@ static void metrics(const snapshot_t *view, bool active)
             - font->line_height + font->base_line;
         lv_obj_set_style_text_font(s_metric_values[i], font, 0);
         lv_obj_set_y(s_metric_values[i], top + i * step + baseline_offset);
-        text(s_metric_values[i], value);
+        metric_text(s_metric_values[i], value, !view->stale && usage_valid[i]);
     }
     format_rate(value, sizeof(value), d->tx_bytes_per_s_valid, d->tx_bytes_per_s);
-    text(s_metric_values[2], value);
+    metric_text(s_metric_values[2], value, !view->stale && strcmp(value, "--") != 0);
     format_rate(value, sizeof(value), d->rx_bytes_per_s_valid, d->rx_bytes_per_s);
-    text(s_metric_values[3], value);
+    metric_text(s_metric_values[3], value, !view->stale && strcmp(value, "--") != 0);
     hide(s_rail_clock, false);
     const bool showing_transient = !view->stale && esp_timer_get_time() < s_transient_until;
     const char *footer = view->stale ? "Readings stale"
@@ -566,11 +568,14 @@ static void clocks(void)
     struct tm tm;
     char clock[16] = "--:--";
     char date[48] = "Waiting for clock";
-    if (rtc_pcf_get_local(&tm) != RTC_SOURCE_NONE) {
+    const bool clock_available = rtc_pcf_get_local(&tm) != RTC_SOURCE_NONE;
+    if (clock_available) {
         strftime(clock, sizeof(clock), "%H:%M", &tm);
         strftime(date, sizeof(date), "%a, %d %b %Y", &tm);
     }
     text(s_rail_clock, clock);
+    text_color(s_rail_clock, clock_available
+        ? UI_THEME_RAIL_CLOCK : UI_THEME_RAIL_LABEL);
     text(s_idle_clock, clock);
     text(s_date, date);
 }
@@ -633,6 +638,7 @@ static void bind_cards(const snapshot_t *view)
         hide(slot->root, !slot->valid);
         hide(slot->dismiss, false);
         hide(slot->open, true);
+        hide(slot->age, true);
         lv_obj_set_height(slot->root, 156);
         lv_obj_set_y(slot->root, 8);
         lv_obj_set_height(slot->accent, 136);
@@ -1018,6 +1024,7 @@ static void grouped_bind_except(const snapshot_t *view, int frozen_slot)
         hide(slot->root, !slot->valid);
         hide(slot->dismiss, i != 1);
         hide(slot->open, i != 1 || !view->actions_enabled);
+        hide(slot->age, true);
         /* A singleton keeps the stack geometry so action targets never move. */
         const int height = s_history_mode ? HISTORY_CARD_HEIGHT : (multiple ? 120 : 144);
         lv_obj_set_size(slot->root, 464, height);
@@ -1026,7 +1033,13 @@ static void grouped_bind_except(const snapshot_t *view, int frozen_slot)
             ? (s_history_mode ? HISTORY_CONTROL_X - 24 :
                view->actions_enabled ? OPEN_X - 24 : 464 - DISMISS_WIDTH - 24)
             : 440;
-        lv_obj_set_pos(slot->app, 12, 4); lv_obj_set_width(slot->app, header_width);
+        const bool show_age = s_history_mode && i == 1;
+        const int sender_width = show_age
+            ? header_width - HISTORY_AGE_WIDTH - HISTORY_AGE_GAP : header_width;
+        lv_obj_set_pos(slot->app, 12, 4); lv_obj_set_width(slot->app, sender_width);
+        lv_obj_set_pos(slot->age, 12 + header_width - HISTORY_AGE_WIDTH, 4);
+        lv_obj_set_size(slot->age, HISTORY_AGE_WIDTH, 20);
+        lv_obj_set_style_text_align(slot->age, LV_TEXT_ALIGN_RIGHT, 0);
         lv_obj_set_pos(slot->title, 12, 24); lv_obj_set_width(slot->title, header_width);
         lv_obj_set_style_text_font(slot->body,
             s_history_mode ? &status_text_16 : &status_text_20, 0);
@@ -1059,31 +1072,39 @@ static void grouped_bind_except(const snapshot_t *view, int frozen_slot)
         }
         char metadata[80];
         text_color(slot->app, notification_app_color(n->urgency));
-        if (s_history_mode && i == 1) {
+        if (show_age) {
             int64_t age_s = (esp_timer_get_time() - n->history_updated_us) / 1000000;
             if (age_s < 0) age_s = 0;
-            if (age_s < 60) snprintf(metadata, sizeof(metadata), "%s · now", n->app);
-            else if (age_s < 3600) snprintf(metadata, sizeof(metadata), "%s · %lldm ago",
-                n->app, (long long)(age_s / 60));
-            else snprintf(metadata, sizeof(metadata), "%s · %lldh ago",
-                n->app, (long long)(age_s / 3600));
-            text(slot->app, metadata);
+            if (age_s < 60) snprintf(metadata, sizeof(metadata), "now");
+            else if (age_s < 3600) snprintf(metadata, sizeof(metadata), "%lldm ago",
+                (long long)(age_s / 60));
+            else snprintf(metadata, sizeof(metadata), "%lldh ago",
+                (long long)(age_s / 3600));
+            text(slot->app, n->app);
+            text(slot->age, metadata);
+            text_color(slot->age, UI_THEME_TEXT_SECONDARY);
+            hide(slot->age, false);
         } else text(slot->app, i == 1 ? n->app : n->summary);
         grouped_title(slot, n->summary[0] ? n->summary : "Notification",
                       i == 1 && view->actions_enabled, header_width);
         text(slot->body, n->body);
         if (i == 1 && view->actions_enabled) {
-            const bool ready = view->open_enabled;
             const bool pending = view->open_pending;
-            const uint32_t color = ready
-                ? UI_THEME_ACCENT : UI_THEME_OPEN_DISABLED_GLYPH;
+            const bool available = view->open_enabled || pending;
+            const uint32_t fill = available
+                ? UI_THEME_OPEN_FILL : UI_THEME_OPEN_DISABLED_FILL;
+            const uint32_t pressed_fill = available
+                ? UI_THEME_OPEN_PRESSED : UI_THEME_OPEN_DISABLED_FILL;
+            const uint32_t border = available
+                ? UI_THEME_OPEN_BORDER : UI_THEME_OPEN_DISABLED_BORDER;
+            const uint32_t color = available
+                ? UI_THEME_TEXT_SAGE : UI_THEME_OPEN_DISABLED_GLYPH;
             lv_obj_set_style_bg_color(slot->open,
-                lv_color_hex(ready ? UI_THEME_BUTTON : UI_THEME_OPEN_DISABLED_FILL), 0);
+                lv_color_hex(fill), 0);
             lv_obj_set_style_bg_color(slot->open,
-                lv_color_hex(ready ? UI_THEME_BUTTON_PRESSED : UI_THEME_OPEN_DISABLED_FILL),
-                LV_STATE_PRESSED);
+                lv_color_hex(pressed_fill), LV_STATE_PRESSED);
             lv_obj_set_style_border_color(slot->open,
-                lv_color_hex(UI_THEME_BUTTON_BORDER), 0);
+                lv_color_hex(border), 0);
             for (uint32_t child = 0; child < lv_obj_get_child_count(slot->open_icon); child++) {
                 lv_obj_set_style_line_color(lv_obj_get_child(slot->open_icon, child),
                     lv_color_hex(color), 0);
@@ -1506,23 +1527,23 @@ void ui_deck_init(lv_obj_t *parent, const lv_font_t *small, const lv_font_t *met
     lv_obj_add_flag(rail, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_PRESS_LOCK);
     box(s_root, 159, 0, 1, 172, UI_THEME_DIVIDER, 0);
     s_rail_clock = label(rail, 10, 7, 144, 48, &lv_font_montserrat_40,
-                         UI_THEME_TEXT_PRIMARY, "--:--");
+                         UI_THEME_RAIL_LABEL, "--:--");
     s_rail_footer = label(rail, 12, 156, 136, 16, s_small,
                           UI_THEME_TEXT_SECONDARY, "");
     const char *names[] = {"CPU", "MEM", "UP", "DN"};
     for (int i = 0; i < 4; i++) {
         s_metric_names[i] = label(rail, 12, 61 + 24 * i, 36, 21, s_meta,
-                                  UI_THEME_TEXT_SECONDARY, names[i]);
+                                  UI_THEME_RAIL_LABEL, names[i]);
         const int value_x = i < 2 ? 110 : 52;
         /* 38 px reserves "99%" (34 px) plus one space (4 px). */
         const int value_width = i < 2 ? 38 : 96;
         s_metric_values[i] = label(rail, value_x, 58 + 24 * i, value_width, 26,
-                                   &status_text_16, UI_THEME_TEXT_PRIMARY, "--");
+                                   &status_text_16, UI_THEME_RAIL_LABEL, "--");
         lv_obj_set_style_text_align(s_metric_values[i], LV_TEXT_ALIGN_RIGHT, 0);
     }
     for (int i = 0; i < 2; i++) {
         s_metric_details[i] = label(rail, 52, 58 + 24 * i, 58, 26,
-                                   &status_text_16, UI_THEME_TEXT_PRIMARY, "--");
+                                   &status_text_16, UI_THEME_RAIL_LABEL, "--");
         lv_obj_set_style_text_align(s_metric_details[i], LV_TEXT_ALIGN_RIGHT, 0);
     }
     s_content = box(s_root, 160, 0, 480, 172, UI_THEME_BACKGROUND, 0);
@@ -1556,11 +1577,14 @@ void ui_deck_init(lv_obj_t *parent, const lv_font_t *small, const lv_font_t *met
         lv_obj_add_flag(slot->root, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_PRESS_LOCK | LV_OBJ_FLAG_EVENT_BUBBLE);
         slot->accent = box(slot->root, 0, 10, 3, 136, UI_THEME_ACCENT, 2);
         slot->app = label(slot->root, 12, 6, 322, 20, s_meta,
+                          UI_THEME_TEXT_SAGE, "");
+        slot->age = label(slot->root, 12, 6, HISTORY_AGE_WIDTH, 20, s_meta,
                           UI_THEME_TEXT_SECONDARY, "");
+        lv_obj_set_style_text_align(slot->age, LV_TEXT_ALIGN_RIGHT, 0);
         slot->title = label(slot->root, 12, 28, 328, 28, &status_text_22,
                             UI_THEME_TEXT_PRIMARY, "");
         slot->body = label(slot->root, 12, 58, 368, 78, &status_text_20,
-                           UI_THEME_TEXT_PRIMARY, "");
+                           UI_THEME_TEXT_BODY, "");
         lv_obj_set_style_text_line_space(slot->body, 0, 0);
         slot->position = label(slot->root, 12, 140, 368, 16, s_small,
                                UI_THEME_TEXT_SECONDARY, "");

@@ -122,6 +122,11 @@ static int text_width(const char *value, const lv_font_t *font)
     return size.x;
 }
 
+static void assert_color(lv_color_t actual, uint32_t expected)
+{
+    assert(lv_color_eq(actual, lv_color_hex(expected)));
+}
+
 static void assert_rail_geometry(void)
 {
     assert(lv_obj_get_x(s_rail_clock) == 10 && lv_obj_get_y(s_rail_clock) == 7);
@@ -211,6 +216,24 @@ static void rail_telemetry_captures(void)
     assert(strcmp(label_storage(s_metric_details[1]), "8.4G") == 0);
     assert(strcmp(label_storage(s_metric_values[2]), "86 KB/s") == 0);
     assert(strcmp(label_storage(s_metric_values[3]), "2.4 MB/s") == 0);
+    assert_color(lv_obj_get_style_text_color(s_rail_clock, LV_PART_MAIN),
+                 UI_THEME_RAIL_CLOCK);
+    assert_color(lv_obj_get_style_text_color(s_metric_values[0], LV_PART_MAIN),
+                 UI_THEME_RAIL_VALUE);
+    assert_color(lv_obj_get_style_text_color(s_metric_values[1], LV_PART_MAIN),
+                 UI_THEME_RAIL_VALUE);
+    assert_color(lv_obj_get_style_text_color(s_metric_details[0], LV_PART_MAIN),
+                 UI_THEME_RAIL_VALUE);
+    assert_color(lv_obj_get_style_text_color(s_metric_details[1], LV_PART_MAIN),
+                 UI_THEME_RAIL_VALUE);
+    assert_color(lv_obj_get_style_text_color(s_metric_values[2], LV_PART_MAIN),
+                 UI_THEME_RAIL_VALUE);
+    assert_color(lv_obj_get_style_text_color(s_metric_values[3], LV_PART_MAIN),
+                 UI_THEME_RAIL_VALUE);
+    for (int i = 0; i < 4; i++) {
+        assert_color(lv_obj_get_style_text_color(s_metric_names[i], LV_PART_MAIN),
+                     UI_THEME_RAIL_LABEL);
+    }
     assert(capture_frame("telemetry-rail-normal-home"));
     s_state.dashboard.cpu_freq_mhz = 607.4;
     ui_deck_tick(STATE_DIRTY_DASHBOARD);
@@ -278,19 +301,33 @@ static void rail_telemetry_captures(void)
     repaint();
     assert(strcmp(label_storage(s_metric_values[2]), "--") == 0);
     assert(strcmp(label_storage(s_metric_values[3]), "--") == 0);
+    assert_color(lv_obj_get_style_text_color(s_metric_values[2], LV_PART_MAIN),
+                 UI_THEME_RAIL_LABEL);
+    assert_color(lv_obj_get_style_text_color(s_metric_values[3], LV_PART_MAIN),
+                 UI_THEME_RAIL_LABEL);
     assert(capture_frame("telemetry-rail-unavailable"));
     s_state.dashboard.cpu_freq_mhz_valid = false;
     s_state.dashboard.mem_used_bytes_valid = false;
+    s_state.dashboard.cpu_valid = false;
+    s_state.dashboard.mem_valid = false;
     ui_deck_tick(STATE_DIRTY_DASHBOARD);
     repaint();
     assert(strcmp(label_storage(s_metric_details[0]), "--") == 0);
     assert(strcmp(label_storage(s_metric_details[1]), "--") == 0);
-    assert(strcmp(label_storage(s_metric_values[0]), "18%") == 0);
-    assert(strcmp(label_storage(s_metric_values[1]), "43%") == 0);
+    assert(strcmp(label_storage(s_metric_values[0]), "--") == 0);
+    assert(strcmp(label_storage(s_metric_values[1]), "--") == 0);
+    for (int i = 0; i < 2; i++) {
+        assert_color(lv_obj_get_style_text_color(s_metric_details[i], LV_PART_MAIN),
+                     UI_THEME_RAIL_LABEL);
+        assert_color(lv_obj_get_style_text_color(s_metric_values[i], LV_PART_MAIN),
+                     UI_THEME_RAIL_LABEL);
+    }
     assert_rail_geometry();
     assert(capture_frame("telemetry-rail-details-unavailable"));
     s_state.dashboard.cpu_freq_mhz_valid = true;
     s_state.dashboard.mem_used_bytes_valid = true;
+    s_state.dashboard.cpu_valid = true;
+    s_state.dashboard.mem_valid = true;
 
     s_state.dashboard.rx_bytes_per_s_valid = true;
     s_state.dashboard.tx_bytes_per_s_valid = true;
@@ -324,8 +361,28 @@ static void rail_telemetry_captures(void)
     assert(s_view.stale);
     assert(strcmp(label_storage(s_rail_footer), "Readings stale") == 0);
     assert_rail_geometry();
+    assert_color(lv_obj_get_style_text_color(s_rail_clock, LV_PART_MAIN),
+                 UI_THEME_RAIL_CLOCK);
+    for (int i = 0; i < 4; i++) {
+        assert_color(lv_obj_get_style_text_color(s_metric_values[i], LV_PART_MAIN),
+                     UI_THEME_RAIL_LABEL);
+    }
+    for (int i = 0; i < 2; i++) {
+        assert_color(lv_obj_get_style_text_color(s_metric_details[i], LV_PART_MAIN),
+                     UI_THEME_RAIL_LABEL);
+    }
     assert(capture_frame("telemetry-rail-stale"));
     s_host_connected = true;
+    ui_deck_tick(STATE_DIRTY_DASHBOARD);
+    repaint();
+    for (int i = 0; i < 4; i++) {
+        assert_color(lv_obj_get_style_text_color(s_metric_values[i], LV_PART_MAIN),
+                     UI_THEME_RAIL_VALUE);
+    }
+    for (int i = 0; i < 2; i++) {
+        assert_color(lv_obj_get_style_text_color(s_metric_details[i], LV_PART_MAIN),
+                     UI_THEME_RAIL_VALUE);
+    }
 }
 
 static void leases_and_manual(void)
@@ -530,6 +587,30 @@ static void action_controls_and_capture(void)
     assert(lv_label_get_long_mode(s_cards[1].title) == LV_LABEL_LONG_MODE_CLIP);
     assert(strstr(label_storage(s_cards[1].title), "...") != NULL);
     assert(strncmp(label_storage(s_cards[1].body), "body-", 5) == 0);
+    assert_color(lv_obj_get_style_text_color(s_cards[1].app, LV_PART_MAIN),
+                 UI_THEME_TEXT_SAGE);
+    assert_color(lv_obj_get_style_text_color(s_cards[1].body, LV_PART_MAIN),
+                 UI_THEME_TEXT_BODY);
+    for (int i = 0; i < 3; i++) {
+        assert(lv_obj_has_flag(s_cards[i].age, LV_OBJ_FLAG_HIDDEN));
+    }
+    assert_color(lv_obj_get_style_bg_color(s_cards[1].open,
+                                           LV_PART_MAIN | LV_STATE_DEFAULT),
+                 UI_THEME_OPEN_FILL);
+    assert_color(lv_obj_get_style_border_color(s_cards[1].open,
+                                               LV_PART_MAIN | LV_STATE_DEFAULT),
+                 UI_THEME_OPEN_BORDER);
+    assert_color(lv_obj_get_style_bg_color(s_cards[1].open,
+                                           LV_PART_MAIN | LV_STATE_PRESSED),
+                 UI_THEME_OPEN_PRESSED);
+    assert_color(lv_obj_get_style_line_color(lv_obj_get_child(s_cards[1].open_icon, 0),
+                                             LV_PART_MAIN),
+                 UI_THEME_TEXT_SAGE);
+    assert_color(lv_obj_get_style_bg_color(s_cards[1].dismiss, LV_PART_MAIN),
+                 UI_THEME_BUTTON);
+    assert_color(lv_obj_get_style_bg_color(s_cards[1].dismiss,
+                                           LV_PART_MAIN | LV_STATE_PRESSED),
+                 UI_THEME_BUTTON_PRESSED);
     assert(!lv_obj_has_flag(s_cards[1].open_icon, LV_OBJ_FLAG_HIDDEN));
     assert(lv_obj_has_flag(s_cards[1].open_label, LV_OBJ_FLAG_HIDDEN));
     assert(lv_obj_has_flag(s_cards[0].open, LV_OBJ_FLAG_HIDDEN));
@@ -551,7 +632,10 @@ static void action_controls_and_capture(void)
     pointer_press(350, 100); pointer_release(350, 100);
     assert(s_activate_count == activations && current_id() == 2);
     assert(s_group_auto && s_dismiss_count == body_dismissals);
-    pointer_press(528, 44); pointer_release(528, 44);
+    pointer_press(528, 44);
+    assert(lv_obj_has_state(s_cards[1].open, LV_STATE_PRESSED));
+    assert(capture_frame("actions-ready-pressed"));
+    pointer_release(528, 44);
     assert(s_activate_count == activations + 1);
     assert(s_last_activate_id == 2 && s_last_activate_revision == 5);
     assert(s_group_manual && !s_group_auto);
@@ -559,6 +643,12 @@ static void action_controls_and_capture(void)
     assert(strcmp(lv_label_get_text(s_cards[1].open_label), "…") == 0);
     assert(lv_obj_has_flag(s_cards[1].open_icon, LV_OBJ_FLAG_HIDDEN));
     assert(!lv_obj_has_flag(s_cards[1].open_label, LV_OBJ_FLAG_HIDDEN));
+    assert_color(lv_obj_get_style_bg_color(s_cards[1].open, LV_PART_MAIN),
+                 UI_THEME_OPEN_FILL);
+    assert_color(lv_obj_get_style_border_color(s_cards[1].open, LV_PART_MAIN),
+                 UI_THEME_OPEN_BORDER);
+    assert_color(lv_obj_get_style_text_color(s_cards[1].open_label, LV_PART_MAIN),
+                 UI_THEME_TEXT_SAGE);
     assert(capture_frame("actions-pending"));
     const int pending_id = current_id();
     pointer_press(528, 44); pointer_release(528, 44);
@@ -574,6 +664,16 @@ static void action_controls_and_capture(void)
     assert(lv_obj_get_width(s_cards[1].title) == 304);
     assert(!lv_obj_has_flag(s_cards[1].open_icon, LV_OBJ_FLAG_HIDDEN));
     assert(lv_obj_has_flag(s_cards[1].open_label, LV_OBJ_FLAG_HIDDEN));
+    assert_color(lv_obj_get_style_bg_color(s_cards[1].open, LV_PART_MAIN),
+                 UI_THEME_OPEN_DISABLED_FILL);
+    assert_color(lv_obj_get_style_border_color(s_cards[1].open, LV_PART_MAIN),
+                 UI_THEME_OPEN_DISABLED_BORDER);
+    assert_color(lv_obj_get_style_bg_color(s_cards[1].open,
+                                           LV_PART_MAIN | LV_STATE_PRESSED),
+                 UI_THEME_OPEN_DISABLED_FILL);
+    assert_color(lv_obj_get_style_line_color(lv_obj_get_child(s_cards[1].open_icon, 0),
+                                             LV_PART_MAIN),
+                 UI_THEME_OPEN_DISABLED_GLYPH);
     assert(capture_frame("actions-disabled"));
     const int before_disabled = s_activate_count;
     pointer_press(528, 44); pointer_release(528, 44);
@@ -906,7 +1006,14 @@ static void history_layout_and_navigation(void)
         n->history_deadline_us = s_now_us + 1800000000;
         n->open_revision = 1;
         n->open_ready = n->id != 2;
-        snprintf(n->app, sizeof(n->app), "Claude Code");
+        if (n->id == 3) {
+            n->urgency = 2;
+            /* Use the widest ASCII sender that fits the protocol field. */
+            memset(n->app, 'W', sizeof(n->app) - 1);
+            n->app[sizeof(n->app) - 1] = '\0';
+        } else {
+            snprintf(n->app, sizeof(n->app), "Claude Code");
+        }
         snprintf(n->summary, sizeof(n->summary), "Review complete — 東京");
         snprintf(n->body, sizeof(n->body),
             "We've reviewed the notification history and its retention policy. "
@@ -936,14 +1043,42 @@ static void history_layout_and_navigation(void)
     assert(lv_obj_get_x(s_cards[1].body) + lv_obj_get_width(s_cards[1].body)
         <= lv_obj_get_x(s_cards[1].open) - GROUP_CONTROL_MARGIN_PX);
     assert(lv_obj_get_style_text_font(s_cards[1].body, 0) == &status_text_16);
-    assert(strcmp(label_storage(s_cards[1].app), "Claude Code · 8m ago") == 0);
-    assert(capture_frame("history-multiple-long"));
+    assert(strlen(label_storage(s_cards[1].app)) ==
+           sizeof(s_state.notifs[0].app) - 1);
+    assert(strspn(label_storage(s_cards[1].app), "W") ==
+           sizeof(s_state.notifs[0].app) - 1);
+    assert(strcmp(label_storage(s_cards[1].age), "8m ago") == 0);
+    assert(!lv_obj_has_flag(s_cards[1].age, LV_OBJ_FLAG_HIDDEN));
+    assert(lv_obj_has_flag(s_cards[0].age, LV_OBJ_FLAG_HIDDEN));
+    assert(lv_obj_has_flag(s_cards[2].age, LV_OBJ_FLAG_HIDDEN));
+    assert(lv_obj_get_width(s_cards[1].app) == 296);
+    assert(text_width(label_storage(s_cards[1].app), s_meta) >
+           lv_obj_get_width(s_cards[1].app));
+    assert(lv_obj_get_x(s_cards[1].age) == 316);
+    assert(lv_obj_get_width(s_cards[1].age) == 72);
+    assert(lv_obj_get_style_text_align(s_cards[1].age, LV_PART_MAIN) == LV_TEXT_ALIGN_RIGHT);
+    assert(lv_obj_get_x(s_cards[1].app) + lv_obj_get_width(s_cards[1].app) <=
+           lv_obj_get_x(s_cards[1].age) - HISTORY_AGE_GAP);
+    assert_color(lv_obj_get_style_text_color(s_cards[1].app, LV_PART_MAIN),
+                 UI_THEME_CRITICAL);
+    assert_color(lv_obj_get_style_text_color(s_cards[1].age, LV_PART_MAIN),
+                 UI_THEME_TEXT_SECONDARY);
+    assert_color(lv_obj_get_style_bg_color(s_cards[1].accent, LV_PART_MAIN),
+                 UI_THEME_CRITICAL);
+    assert(capture_frame("history-multiple-long-critical-neutral-age"));
 
     const int newest = current_id();
     group_swipe(350, 90, -130, 0);
     assert(current_id() == newest && !s_group_home);
     group_swipe(350, 110, 0, -65);
     assert(current_id() == 2 && s_group_manual);
+    assert(!lv_obj_has_flag(s_cards[1].age, LV_OBJ_FLAG_HIDDEN));
+    assert(lv_obj_has_flag(s_cards[0].age, LV_OBJ_FLAG_HIDDEN));
+    assert(lv_obj_has_flag(s_cards[2].age, LV_OBJ_FLAG_HIDDEN));
+    assert_color(lv_obj_get_style_text_color(s_cards[1].app, LV_PART_MAIN),
+                 UI_THEME_TEXT_SAGE);
+    assert_color(lv_obj_get_style_text_color(s_cards[1].age, LV_PART_MAIN),
+                 UI_THEME_TEXT_SECONDARY);
     assert(!s_view.open_enabled);
     assert(capture_frame("history-unavailable-open"));
     present(1, 3, 1, 10000);
@@ -1011,6 +1146,17 @@ static void history_layout_and_navigation(void)
     assert(lv_obj_get_height(s_cards[1].body) == 66);
     assert(lv_obj_get_y(s_cards[1].position) == 124);
     assert(capture_frame("history-single"));
+    s_test_clock_valid = false;
+    step(1000); repaint();
+    assert(strcmp(label_storage(s_rail_clock), "--:--") == 0);
+    assert_color(lv_obj_get_style_text_color(s_rail_clock, LV_PART_MAIN),
+                 UI_THEME_RAIL_LABEL);
+    assert(capture_frame("history-clock-unavailable"));
+    s_test_clock_valid = true;
+    step(1000); repaint();
+    assert(strcmp(label_storage(s_rail_clock), "14:35") == 0);
+    assert_color(lv_obj_get_style_text_color(s_rail_clock, LV_PART_MAIN),
+                 UI_THEME_RAIL_CLOCK);
     const int dismisses = s_dismiss_count;
     pointer_press(590, 110);
     pointer_move(614, 130, 100); /* >24 px, still inside the close button. */
@@ -1035,6 +1181,7 @@ int main(int argc, char **argv)
     assert(artifact_path(path, sizeof(path), "trace.txt"));
     s_trace_file = fopen(path, "w"); assert(s_trace_file);
     fixture_init(false);
+    assert(s_label_count <= 40);
     s_test_clock_valid = true;
     navigation_and_geometry();
     rail_telemetry_captures();
