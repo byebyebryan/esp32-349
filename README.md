@@ -192,7 +192,8 @@ one space; `100%` uses the existing 14 px font on the same baseline to fit.
 `3.6G` on CPU means GHz; `8.4G` on MEM means GiB. Memory usage is
 `MemTotal - MemAvailable`, with the amount and percentage from the same read.
 Values otherwise use 16 px text. UP/DN show physical-uplink transmit/receive
-traffic in decimal B/s, KB/s, MB/s, or GB/s. The rail has no battery row. Volume and Bluetooth changes
+traffic in binary B/s, KiB/s, MiB/s, or GiB/s (1,024 per step), with a space
+before the unit. The rail has no battery row. Volume and Bluetooth changes
 appear briefly. Bluetooth probing is optional
 and failure leaves that reading unavailable. Details and acceptance scope are
 in the [grouped direction](design/grouped-ui-plan.md) and
@@ -252,7 +253,10 @@ In notification-history mode, Open sits above × in a full-height right column.
 Both controls tolerate small finger movements and brighten while pressed;
 see [the button refinement](design/button-controls-refinement.md).
 The shared neutral gray and muted sage palette is documented in the
-[display theme note](design/neutral-theme.md).
+[current color hierarchy](design/color-hierarchy-pass.md),
+[rail clock accent pass](design/rail-clock-accent-pass.md),
+[number/unit refinement](design/rail-number-unit-pass.md), and
+[original neutral theme acceptance](design/neutral-theme.md).
 Snap's short Open/× and [card-motion](design/card-motion.md) checks passed.
 Real Ghostty default dispatch/focus passed on Snap with a local Niri compatibility
 setting; see the [acceptance record](design/notification-actions-acceptance.md)

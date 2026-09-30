@@ -1,5 +1,9 @@
 # Neutral gray and muted sage theme
 
+This records the first neutral theme and its 2026-09-29 board acceptance. The
+subsequent [color hierarchy pass](color-hierarchy-pass.md) refines text and
+button roles while retaining these neutral surfaces.
+
 Both firmware UI paths use one shared palette in `main/ui_theme.h`. The values
 were selected in the local notification theme study; its rail color follows
 the `#212121` Material Darker background used by the local Ghostty and Kitty

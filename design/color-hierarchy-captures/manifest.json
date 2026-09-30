@@ -1,0 +1,19 @@
+{
+  "scope": "Production LVGL native fixture rendered through RGB565 at 640x172; synthetic, not board photographs",
+  "source": "tools/native_ui/test_groups.c",
+  "build": "Debug native suite in /tmp/esp32-349-color-debug",
+  "conversion": "PPM framebuffer captures converted to PNG with ImageMagick; no recoloring",
+  "sha256": {
+    "actions-disabled.png": "dde80c3faef7ee85116bcc20c6fe423527b24d2d8a1a87171ad9afeeddd22fed",
+    "actions-pending.png": "5637230f4ac1dbbf66659a3618cd12d0bd462883c9a8856da25cf4a4219b56bd",
+    "actions-ready-pressed.png": "ab1f1ffa0cb5f98b14d069d5f61f67e22c12df30ecf11f384ac9dd25242a0638",
+    "history-clock-unavailable.png": "63a1c11ecd1465818e18fc270ae039030c9cb8b4f6c540e0a33674431ea90117",
+    "history-empty.png": "a672cacc24511c9a177be961b86172ef582d3add71a2072b810fef3b451f49dd",
+    "history-multiple-long-critical-neutral-age.png": "1e1d21b1aa21f271cb68729d079f1541168dfe90da03ee16bb8f1672d4988d10",
+    "history-single.png": "876612bde17dbb9fa9642bfd9911146a915c6aea09d05aad32bf5b564fbe79ea",
+    "history-unavailable-open.png": "8f392b3857309800f8f2af66ae1076bad3d2c86de8d3ccabd2978bdfe55bb12e",
+    "telemetry-rail-details-unavailable.png": "6f79498dcffbadeccc7ed246644e9f269e1f7664733b568d0204b0c2a043fc44"
+  },
+  "palette": "Sage valid rail clock, uniform neutral live stat values, gray labels and unavailable clock/readings",
+  "snapshot": "Accepted sage-clock palette before binary traffic conversion; historical fixture output"
+}

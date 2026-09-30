@@ -12,8 +12,8 @@ The row order is CPU, MEM, UP, DN. Example readings:
 ```text
 CPU    3.6G 18%
 MEM    8.4G 43%
-UP        86 KB/s
-DN       2.4 MB/s
+UP        84 KiB/s
+DN       2.3 MiB/s
 ```
 
 Labels begin at x=12. CPU/MEM detail widgets begin at x=52 and occupy 58 px,
@@ -45,8 +45,11 @@ views, including empty, stale and disconnected states.
   below 100 have one decimal; larger amounts have no decimal. Values promote
   to the next unit when rounding would otherwise require four integer digits.
 - UP is transmit and DN is receive. Their existing physical-uplink scope,
-  decimal units, zero/unavailable distinction and two-second counter window
-  remain. Sampling and clock polling retain the one-second cadence.
+  zero/unavailable distinction and two-second counter window remain. Following
+  the 2026-09-30 unit refinement, rates use binary multiples of 1,024 with
+  `B/s`, `KiB/s`, `MiB/s`, `GiB/s` and a space before the unit. The earlier
+  capture above reflects the preceding decimal formatter. Sampling and clock
+  polling retain the one-second cadence.
 
 Missing or invalid detail readings show `--`; valid CPU/MEM percentages stay
 visible. A measured zero is distinct from unavailable. Stale data retains its

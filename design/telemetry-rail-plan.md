@@ -34,8 +34,8 @@ Keep one fixed layout in Home and Notifications:
 
 CPU          12%
 MEM          41%
-DN      2.4 MB/s
-UP       86 KB/s
+DN      2.3 MiB/s
+UP       84 KiB/s
 ```
 
 - Pin local `HH:MM` at the top. Remove `HOST`; no seconds or hostname heading.
@@ -95,9 +95,11 @@ Internet speed test or application-level throughput measure.
   If no qualifying physical uplink can be identified, report unavailable.
 - Use a short two-second measurement window, refreshed once per second, to
   make ordinary bursts readable. Do not animate between readings.
-- Show decimal `B/s`, `KB/s`, `MB/s`, `GB/s`, choosing precision so the numeric
+- Show binary `B/s`, `KiB/s`, `MiB/s`, `GiB/s` (1,024 per step), with a space
+  before the unit and precision chosen so the numeric
   value and unit fit without an ellipsis. Promote units when rounding would
-  otherwise produce `1000`; bound the representation at the high end.
+  otherwise produce `1024`. The supported rate limit is 10^12 B/s, which
+  displays as `931 GiB/s` and fits the existing traffic column.
 - Show `--` while a new interface lacks a baseline or counters are unreadable.
   Show `0 B/s` only after a valid measurement yields no traffic.
 - On an interface change or counter reset, start a fresh baseline and suppress
@@ -133,7 +135,10 @@ on Starship. That check passed after the automated USB probe exposed and
 verified the correction for a link-task stack overflow.
 
 The implemented geometry uses 36 px label columns and 96 px value columns.
-Production-font checks cover unit rounding and the bounded `>999GB/s` value.
+The original production-font checks covered decimal unit rounding and the
+bounded `>999GB/s` value. The 2026-09-30 binary-unit refinement is recorded in
+the [number/unit pass](rail-number-unit-pass.md), including conversion and
+width checks through `931 GiB/s`.
 Older hosts leave the optional rate fields unavailable; the previous firmware
 dashboard parser accepts the added fields. Legacy battery collection/schema
 remains available, while the rail has no battery row.
