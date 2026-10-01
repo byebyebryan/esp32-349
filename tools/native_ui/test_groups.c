@@ -1176,6 +1176,111 @@ static void history_layout_and_navigation(void)
     assert(s_deck.count == 0 && !s_group_home);
 }
 
+static void history_age_progress(void)
+{
+    const int ids[] = {2, 1};
+    groups_reset(ids, 2);
+    s_state.history_enabled = true;
+    s_state.actions_enabled = true;
+    for (int i = 0; i < s_state.notif_count; i++) {
+        status_notif_t *n = &s_state.notifs[i];
+        n->history_revision = 1;
+        n->history_updated_us = s_now_us;
+        n->history_deadline_us = s_now_us + 600000000;
+        n->open_revision = 1;
+        n->open_ready = true;
+        snprintf(n->app, sizeof(n->app), "Codex");
+        snprintf(n->summary, sizeof(n->summary), "Notification age");
+        snprintf(n->body, sizeof(n->body),
+            "The footer bar empties toward the close button as this card ages.");
+    }
+    ui_deck_tick(STATE_DIRTY_NOTIF);
+    group_finish();
+    card_view_t *slot = &s_cards[1];
+    assert(!lv_obj_has_flag(slot->age_bar, LV_OBJ_FLAG_HIDDEN));
+    assert(lv_bar_get_mode(slot->age_bar) == LV_BAR_MODE_RANGE);
+    assert(lv_bar_get_value(slot->age_bar) == 1000);
+    assert(lv_bar_get_start_value(slot->age_bar) < 2);
+    assert(lv_obj_get_x(slot->age_bar) == 96);
+    assert(lv_obj_get_y(slot->age_bar) == 130);
+    assert(lv_obj_get_height(slot->age_bar) == 4);
+    assert(lv_obj_get_x(slot->age_bar) + lv_obj_get_width(slot->age_bar) == 388);
+    assert(!lv_obj_has_flag(slot->age_bar, LV_OBJ_FLAG_CLICKABLE));
+    assert(lv_obj_has_flag(s_cards[0].age_bar, LV_OBJ_FLAG_HIDDEN));
+    assert(lv_obj_has_flag(s_cards[2].age_bar, LV_OBJ_FLAG_HIDDEN));
+    assert(capture_frame("history-age-fresh"));
+
+    status_notif_t *n = NULL;
+    for (int i = 0; i < s_state.notif_count; i++) {
+        if (s_state.notifs[i].id == slot->id) n = &s_state.notifs[i];
+    }
+    assert(n != NULL);
+    n->history_updated_us = s_now_us - 300000000;
+    n->history_deadline_us = s_now_us + 300000000;
+    ui_deck_tick(0); repaint();
+    assert(lv_bar_get_start_value(slot->age_bar) == 500);
+    /* Verify the actual pixels: the left half is empty, the right half filled. */
+    lv_area_t bar_coords;
+    lv_obj_get_coords(slot->age_bar, &bar_coords);
+    const int bar_width = lv_area_get_width(&bar_coords);
+    const int bar_y = (bar_coords.y1 + bar_coords.y2) / 2;
+    assert(s_framebuffer[bar_y * DISPLAY_WIDTH + bar_coords.x1 + bar_width / 4] ==
+        lv_color_to_u16(lv_color_hex(UI_THEME_DIVIDER)));
+    assert(s_framebuffer[bar_y * DISPLAY_WIDTH + bar_coords.x1 + 3 * bar_width / 4] ==
+        lv_color_to_u16(lv_color_hex(UI_THEME_TEXT_SECONDARY)));
+    assert(capture_frame("history-age-half"));
+    s_host_connected = false;
+    step(60000); repaint();
+    assert(lv_bar_get_start_value(slot->age_bar) == 600); /* Continues aging offline. */
+    assert(capture_frame("history-age-offline"));
+    s_host_connected = true;
+
+    n->history_updated_us = s_now_us - 599000000;
+    n->history_deadline_us = s_now_us + 1000000;
+    ui_deck_tick(0); repaint();
+    assert(lv_bar_get_start_value(slot->age_bar) == 998);
+    assert(capture_frame("history-age-near-expiry"));
+
+    /* A custom one-minute retention uses its own lifetime, not ten minutes. */
+    n->history_updated_us = s_now_us - 30000000;
+    n->history_deadline_us = s_now_us + 30000000;
+    ui_deck_tick(0); repaint();
+    assert(lv_bar_get_start_value(slot->age_bar) == 500);
+
+    /* Footer touches are inert, and a held replacement keeps coherent pixels
+     * until release, just like the captured title and body. */
+    const int selected = slot->id;
+    const int dismisses = s_dismiss_count, activations = s_activate_count;
+    pointer_press(400, 138);
+    n->history_revision++;
+    n->history_updated_us = s_now_us;
+    n->history_deadline_us = s_now_us + 600000000;
+    ui_deck_tick(STATE_DIRTY_NOTIF);
+    assert(lv_bar_get_start_value(slot->age_bar) == 500);
+    pointer_release(400, 138); group_finish();
+    assert(slot->id == selected && s_dismiss_count == dismisses);
+    assert(s_activate_count == activations && lv_bar_get_start_value(slot->age_bar) < 2);
+
+    /* Overflow plus the longest action feedback must not run into the track. */
+    s_state.notif_overflow = 32;
+    s_state.action_feedback = STATUS_ACTION_FEEDBACK_NO_CONFIRMATION;
+    s_state.action_feedback_id = selected;
+    s_state.action_feedback_open_rev = n->open_revision;
+    s_state.action_feedback_until_us = s_now_us + 10000000;
+    ui_deck_tick(STATE_DIRTY_NOTIF); repaint();
+    assert(strstr(label_storage(slot->position), "+32 uncached") != NULL);
+    assert(strstr(label_storage(slot->position), "No confirmation") != NULL);
+    assert(lv_obj_get_x(slot->position) + lv_obj_get_width(slot->position) +
+        HISTORY_AGE_BAR_GAP <= lv_obj_get_x(slot->age_bar));
+    assert(lv_obj_get_width(slot->age_bar) >= HISTORY_AGE_BAR_MIN_WIDTH);
+    assert(capture_frame("history-age-footer-feedback"));
+
+    groups_reset(ids, 2);
+    present(1, 2, 1, -1);
+    for (int i = 0; i < 3; i++)
+        assert(lv_obj_has_flag(s_cards[i].age_bar, LV_OBJ_FLAG_HIDDEN));
+}
+
 int main(int argc, char **argv)
 {
     s_artifact_dir = argc > 2 && strcmp(argv[1], "--artifacts") == 0
@@ -1197,6 +1302,7 @@ int main(int argc, char **argv)
     lifecycle_motion_and_removal();
     lifecycle_concurrent_updates();
     history_layout_and_navigation();
+    history_age_progress();
     fixture_shutdown();
     fclose(s_trace_file);
     puts("grouped production LVGL: passed");

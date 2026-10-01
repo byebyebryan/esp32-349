@@ -126,6 +126,11 @@ static void composed_add_body_readback(cJSON *out)
             lv_spangroup_get_overflow(slot->body_span));
         composed_add_rect(card, "body_rect", slot->body);
         composed_add_rect(card, "span_rect", slot->body_span);
+        composed_add_rect(card, "age_bar_rect", slot->age_bar);
+        cJSON_AddBoolToObject(card, "age_bar_visible",
+            !lv_obj_has_flag(slot->age_bar, LV_OBJ_FLAG_HIDDEN));
+        cJSON_AddNumberToObject(card, "age_bar_remaining",
+            lv_bar_get_value(slot->age_bar) - lv_bar_get_start_value(slot->age_bar));
 
         cJSON *runs = cJSON_AddArrayToObject(card, "body_runs");
         cJSON *cached_runs = cJSON_AddArrayToObject(card, "cached_body_runs");

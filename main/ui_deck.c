@@ -33,6 +33,8 @@ LV_FONT_DECLARE(status_clock_80);
 #define HISTORY_CONTROL_X (464 - HISTORY_CONTROL_WIDTH)
 #define HISTORY_AGE_WIDTH 72
 #define HISTORY_AGE_GAP 8
+#define HISTORY_AGE_BAR_MIN_WIDTH 80
+#define HISTORY_AGE_BAR_GAP 12
 #define CONTROL_GAP 8
 #define GROUP_LIFECYCLE_MS 180
 
@@ -41,7 +43,7 @@ static lv_obj_t *s_metric_names[4], *s_metric_values[4];
 static lv_obj_t *s_metric_details[2];
 static lv_obj_t *s_idle, *s_idle_clock, *s_date, *s_message, *s_idle_transient;
 typedef struct {
-    lv_obj_t *root, *accent, *app, *age, *title, *body, *position;
+    lv_obj_t *root, *accent, *app, *age, *title, *body, *position, *age_bar;
     lv_obj_t *body_span;
     lv_obj_t *open, *open_icon, *open_label, *dismiss;
     char styled_body[STATUS_NOTIF_BODY_MAX];
@@ -701,6 +703,35 @@ static void position_text(card_view_t *slot, int overflow, const snapshot_t *vie
     text(slot->position, value);
 }
 
+static void age_progress(card_view_t *slot, const status_notif_t *notif)
+{
+    const int64_t lifetime = notif->history_deadline_us - notif->history_updated_us;
+    const bool visible = s_history_mode && slot == &s_cards[1] && slot->valid &&
+                         notif->history_revision > 0 && lifetime > 0;
+    hide(slot->age_bar, !visible);
+    if (!visible) return;
+
+    /* Keep room for overflow/action feedback as well as the ordinary x/y
+     * counter, without letting footer text overlap the age track. */
+    lv_point_t caption = {0};
+    lv_text_get_size(&caption, lv_obj_get_user_data(slot->position), s_small,
+                     0, 0, LV_COORD_MAX, LV_TEXT_FLAG_BREAK_ALL);
+    const int end = HISTORY_CONTROL_X - 12;
+    const int max_caption = end - HISTORY_AGE_BAR_MIN_WIDTH - HISTORY_AGE_BAR_GAP - 12;
+    const int caption_width = caption.x > max_caption ? max_caption : caption.x;
+    lv_obj_set_width(slot->position, caption_width > 0 ? caption_width : 1);
+    const int start = caption_width + 12 + HISTORY_AGE_BAR_GAP > 96
+        ? caption_width + 12 + HISTORY_AGE_BAR_GAP : 96;
+    lv_obj_set_pos(slot->age_bar, start, HISTORY_CARD_HEIGHT - 10);
+    lv_obj_set_size(slot->age_bar, end - start, 4);
+
+    const int64_t elapsed = esp_timer_get_time() - notif->history_updated_us;
+    const int value = elapsed <= 0 ? 0 : elapsed >= lifetime ? 1000
+        : (int)(elapsed * 1000 / lifetime);
+    /* The remaining segment stays beside × while its left edge advances. */
+    lv_bar_set_start_value(slot->age_bar, value, LV_ANIM_OFF);
+}
+
 static void position_cards(int offset)
 {
     s_offset = offset;
@@ -722,6 +753,7 @@ static void bind_cards(const snapshot_t *view)
         hide(slot->dismiss, false);
         hide(slot->open, true);
         hide(slot->age, true);
+        hide(slot->age_bar, true);
         lv_obj_set_height(slot->root, 156);
         lv_obj_set_y(slot->root, 8);
         lv_obj_set_height(slot->accent, 136);
@@ -1106,6 +1138,7 @@ static void grouped_bind_except(const snapshot_t *view, int frozen_slot)
         hide(slot->dismiss, i != 1);
         hide(slot->open, i != 1 || !view->actions_enabled);
         hide(slot->age, true);
+        hide(slot->age_bar, true);
         /* A singleton keeps the stack geometry so action targets never move. */
         const int height = s_history_mode ? HISTORY_CARD_HEIGHT : (multiple ? 120 : 144);
         lv_obj_set_size(slot->root, 464, height);
@@ -1194,6 +1227,7 @@ static void grouped_bind_except(const snapshot_t *view, int frozen_slot)
             text_color(slot->open_label, color);
         }
         position_text(slot, view->overflow, view);
+        age_progress(slot, n);
     }
     grouped_position(0);
 }
@@ -1680,6 +1714,20 @@ void ui_deck_init(lv_obj_t *parent, const lv_font_t *small, const lv_font_t *met
         hide(slot->body_span, true);
         slot->position = label(slot->root, 12, 140, 368, 16, s_small,
                                UI_THEME_TEXT_SECONDARY, "");
+        slot->age_bar = lv_bar_create(slot->root);
+        lv_obj_remove_style_all(slot->age_bar);
+        lv_obj_remove_flag(slot->age_bar, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_style_bg_opa(slot->age_bar, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_set_style_bg_color(slot->age_bar, lv_color_hex(UI_THEME_DIVIDER), LV_PART_MAIN);
+        lv_obj_set_style_radius(slot->age_bar, 2, LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(slot->age_bar, LV_OPA_COVER, LV_PART_INDICATOR);
+        lv_obj_set_style_bg_color(slot->age_bar,
+            lv_color_hex(UI_THEME_TEXT_SECONDARY), LV_PART_INDICATOR);
+        lv_obj_set_style_radius(slot->age_bar, 2, LV_PART_INDICATOR);
+        lv_bar_set_range(slot->age_bar, 0, 1000);
+        lv_bar_set_mode(slot->age_bar, LV_BAR_MODE_RANGE);
+        lv_bar_set_value(slot->age_bar, 1000, LV_ANIM_OFF);
+        hide(slot->age_bar, true);
         slot->dismiss = dismiss_button(slot->root, 392 - DISMISS_WIDTH);
         open_button(slot->root, &slot->open, &slot->open_icon, &slot->open_label);
     }

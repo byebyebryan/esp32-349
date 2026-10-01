@@ -36,6 +36,10 @@ async def scenario(native: Native) -> None:
     serial = 1
     input_trace: list[dict] = []
 
+    def age_progress() -> dict:
+        return next(card for card in native.command("readback")["readback"]["rendered_cards"]
+                    if card["slot"] == 1)
+
     async def write(message: dict) -> bool:
         native.wire(message)
         return True
@@ -157,6 +161,8 @@ async def scenario(native: Native) -> None:
         assert legacy["body"].endswith("…")
         assert native.status()["ids"] == [10]
         await settle_arrival()
+        assert age_progress()["age_bar_visible"]
+        assert age_progress()["age_bar_remaining"] > 998
         native.command("capture", name="history-single-long-cjk")
 
         # The 10 s attention lease ends, while history stays in the new pane.
@@ -246,6 +252,8 @@ async def scenario(native: Native) -> None:
         begin, cards = latest_sync()
         assert begin["grouped"]["history"] is True
         near_expiry = {card["id"]: card["history"] for card in cards}
+        remaining_before_reconnect = age_progress()["age_bar_remaining"]
+        assert 0 < remaining_before_reconnect <= 20
         assert {50, 51} <= set(near_expiry)
         for nid in (50, 51):
             assert near_expiry[nid]["rev"] == first_revisions[nid]
@@ -269,6 +277,7 @@ async def scenario(native: Native) -> None:
         assert all(reconnected[nid]["rev"] == first_revisions[nid] for nid in (50, 51))
         assert all(0 < reconnected[nid]["remaining_ms"] <= 10000 for nid in (50, 51))
         assert {50, 51} <= set(native.status()["ids"])
+        assert age_progress()["age_bar_remaining"] == remaining_before_reconnect
 
         # Replace one record just before the original deadline. Its new
         # revision renews retention; the other expires locally with no host
@@ -281,6 +290,7 @@ async def scenario(native: Native) -> None:
         assert renewed["history"]["age_ms"] == 0
         assert renewed["history"]["remaining_ms"] == 600000
         await settle_arrival()
+        assert age_progress()["age_bar_remaining"] > 998
         # Expiry of a captured destination during a real vertical gesture
         # must return to its surviving source without resurrecting the target.
         native.command("press", x=350, y=100, ms=1)

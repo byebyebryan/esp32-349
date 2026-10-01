@@ -135,7 +135,12 @@ remaining in the left rail. Swipe vertically between whole cards; horizontal
 drags and body taps are inert. The 22 px title and 16 px body provide three
 body lines; multiple cards have a next-card peek. A singleton keeps the same
 140 px card height and button positions. App name and relative age identify
-each card. Open and the large × occupy a 64 px column on the right; captured
+each card. A thin neutral footer bar between the position counter and × starts
+full and empties left to right toward × as the card approaches its history
+limit. It continues offline, resets on a genuine replacement, and has no
+touch action; see the
+[age-bar checkpoint](design/notification-age-bar.md).
+Open and the large × occupy a 64 px column on the right; captured
 touches stay armed while the finger remains inside their padded target.
 
 In this mode, `retention_s` defaults to 600 seconds (10 minutes) and accepts 1–86,400.
