@@ -1,0 +1,9 @@
+{
+  "kind": "native synthetic LVGL screenshots; not physical photos",
+  "fixture": "tools/test_notification_body_composed.py",
+  "build": "Debug, /tmp/esp32-349-color-debug",
+  "files": {
+    "notification-body-four-fonts-cjk-multiline.png": "b6745ff9b5807ec6c311efa8d62ae57f9dd3ac6d315900c3e7e3ddda2f2efabd",
+    "notification-body-production-font-ellipsis.png": "57f2db44542d8b5978e2a07360d1779108914ae37ec3e337e7a0ce5a5198401e"
+  }
+}

@@ -50,6 +50,22 @@ The September 29 [rail details refinement](design/telemetry-rail-details.md)
 adds current CPU frequency and used memory beside fixed-width percentages,
 places UP before DN, and gives all four value rows the same text size.
 
+### Implemented refinement — notification body text (2026-09-30)
+
+First convert desktop markup and identified Codex Markdown to readable plain
+text, preserving available line breaks and original Open-action metadata.
+Then add capability-gated bold/italic body spans with bounded style ranges and
+plain fallback for older peers. The [design and validated execution plan](design/notification-body-plan.md)
+records source handling, Kitty paragraph delivery, the initial Ghostty paragraph
+limit, font/cache bounds and automated gates. Both checkpoints passed host,
+native Debug/Release and firmware checks, then Starship's brief formatting,
+swipe/× and real Kitty Open checks on `b2794933e`. See the
+[acceptance record](design/notification-body-acceptance.md) and
+[wire contract](design/notification-body-protocol.md). Inline-code styling,
+images, tables and body scrolling remain outside this pass. Snap received the
+same accepted binary and host/helper source on 2026-10-01; its rollout evidence
+is recorded separately in the acceptance document.
+
 ## Current validation boundary (2026-09-26)
 
 The hardware findings below describe the 2026-09-23 builds. The fresh

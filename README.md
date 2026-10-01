@@ -151,6 +151,22 @@ an ellipsis; older peers keep the 159-byte projection. See the
 [notification-only plan](design/notification-history-plan.md) and
 [acceptance record](design/notification-history-acceptance.md).
 
+Notification bodies are converted on the host before clipping: supported
+desktop markup becomes readable text, links retain their labels, and Kitty's
+plain-text guards are removed. Markdown is interpreted only for identified
+Codex terminal notifications; other terminal messages keep literal markers.
+Available paragraphs survive as line breaks. The managed `codex-notify` helper
+preserves paragraphs in Kitty's encoded body; Ghostty currently keeps its
+compact single-line transport.
+
+Peers advertising `notification-body-style-v1` also receive bounded bold and
+italic ranges. Latin/punctuation use matching Montserrat variants; CJK and
+other fallback glyphs keep regular typography. Body taps remain inert, and
+links/code gain no extra controls or special styling. Other peers receive
+plain text. See the [body formatting plan](design/notification-body-plan.md),
+[wire contract](design/notification-body-protocol.md) and
+[Starship acceptance](design/notification-body-acceptance.md).
+
 `349ctl notify` uses a five-second test presentation by default. Mirrored
 notifications follow a positive app timeout; for the server-default timeout (`-1`),
 normal/low cards use `popup_timeout_ms` and
