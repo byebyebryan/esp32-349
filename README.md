@@ -92,7 +92,7 @@ device_dismiss = "local"   # local | propagate
 device_open = "off"        # off | dms; opt in after installing the DMS action plugin
 max_visible = 3                 # legacy firmware snapshot cap
 cache_limit = 32                # newest retained cards; active cards on older firmware
-retention_s = 1800               # new history mode: age limit from arrival/replacement
+retention_s = 600                # history mode: 10-minute age limit from arrival/replacement
 popup_timeout_ms = 10000          # fallback when an app requests server default (-1)
 critical_popup_timeout_ms = 0     # 0 keeps critical cards until closed
 ignore_apps = ["KeePassXC", "Bitwarden", "1Password"]
@@ -138,7 +138,7 @@ body lines; multiple cards have a next-card peek. A singleton keeps the same
 each card. Open and the large × occupy a 64 px column on the right; captured
 touches stay armed while the finger remains inside their padded target.
 
-In this mode, `retention_s` defaults to 1,800 seconds and accepts 1–86,400.
+In this mode, `retention_s` defaults to 600 seconds (10 minutes) and accepts 1–86,400.
 Genuine arrivals and replacements start a new retention interval. Desktop
 popup timeout, viewing, sync and board reconnect do not extend it; the board
 also expires cached text while disconnected. Explicit desktop close/dismiss

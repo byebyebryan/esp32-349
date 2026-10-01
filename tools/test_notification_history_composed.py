@@ -24,7 +24,7 @@ async def scenario(native: Native) -> None:
     native.clock_hook = lambda ms: now.__setitem__(0, now[0] + ms / 1000)
     cfg = default_config()
     cfg.notifications.device_open = "dms"
-    assert cfg.notifications.retention_s == 1800
+    assert cfg.notifications.retention_s == 600
     daemon = Daemon(cfg, asyncio.Event())
     provider = Provider()
     daemon.action_manager.provider = provider
@@ -149,7 +149,7 @@ async def scenario(native: Native) -> None:
         assert len(sent["body"].encode("utf-8")) <= proto.NOTIFICATION_BODY_HISTORY_BYTES
         assert sent["body"].endswith("…") and "東京" in sent["body"]
         assert sent["history"]["age_ms"] == 0
-        assert sent["history"]["remaining_ms"] == 1800000
+        assert sent["history"]["remaining_ms"] == 600000
         legacy = daemon._notification_projection(
             daemon.model.retained_notifs[10], history=False, now_mono=now[0]
         )
@@ -231,7 +231,7 @@ async def scenario(native: Native) -> None:
         assert archived_id not in daemon.model.retained_notifs
         assert status["grouped"]["group"] == "notifications"
 
-        # Two records share a 30-minute deadline. Full sync and a reconnect
+        # Two records share a 10-minute deadline. Full sync and a reconnect
         # handshake keep their original revisions and remaining lifetime.
         await direct_notify(50, "EXPIRY WITHOUT REPLACEMENT", "Original record.")
         await direct_notify(51, "EXPIRY WITH REPLACEMENT", "Will be renewed.")
@@ -241,7 +241,7 @@ async def scenario(native: Native) -> None:
             nid: daemon.model.retained_history_rev[nid] for nid in (50, 51)
         }
         assert daemon.model.retained_received_mono[51] == born
-        await advance(1790000)
+        await advance(590000)
         await daemon._send_sync()
         begin, cards = latest_sync()
         assert begin["grouped"]["history"] is True
@@ -249,7 +249,7 @@ async def scenario(native: Native) -> None:
         assert {50, 51} <= set(near_expiry)
         for nid in (50, 51):
             assert near_expiry[nid]["rev"] == first_revisions[nid]
-            assert near_expiry[nid]["age_ms"] >= 1790000
+            assert near_expiry[nid]["age_ms"] >= 590000
             assert 0 < near_expiry[nid]["remaining_ms"] <= 10000
             assert daemon.model.retained_received_mono[nid] == born
 
@@ -279,7 +279,7 @@ async def scenario(native: Native) -> None:
                        if message.get("t") == "notify" and message.get("id") == 51)
         assert renewed["history"]["rev"] > first_revisions[51]
         assert renewed["history"]["age_ms"] == 0
-        assert renewed["history"]["remaining_ms"] == 1800000
+        assert renewed["history"]["remaining_ms"] == 600000
         await settle_arrival()
         # Expiry of a captured destination during a real vertical gesture
         # must return to its surviving source without resurrecting the target.
@@ -308,7 +308,7 @@ async def scenario(native: Native) -> None:
         native.command("press", x=350, y=100, ms=1)
         native.command("move", x=350, y=50, ms=100)
         await route_inputs()
-        await advance(1800000)
+        await advance(600000)
         assert native.status()["ids"] == []
         native.command("release", x=350, y=50, ms=1)
         await route_inputs()

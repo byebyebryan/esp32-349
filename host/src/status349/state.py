@@ -15,7 +15,7 @@ RETAINED_LIMIT = 32
 
 
 class StateModel:
-    def __init__(self, max_visible: int = 3, cache_limit: int = 32, retention_s: int = 1800) -> None:
+    def __init__(self, max_visible: int = 3, cache_limit: int = 32, retention_s: int = 600) -> None:
         self.max_visible = max(0, int(max_visible))
         self.cache_limit = max(0, min(32, int(cache_limit)))
         self.retention_s = int(retention_s)

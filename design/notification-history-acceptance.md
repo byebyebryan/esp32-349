@@ -18,8 +18,8 @@ navigation, body-tap inertness, explicit Open/× controls and lifecycle motion
 remain. Titles are 22 px; bodies are 16 px with three lines plus a peek, or four
 for a singleton. App metadata includes relative age.
 
-Default retention is 1,800 seconds from genuine arrival/replacement, bounded to
-32 records in daemon RAM. Popup timeout retains text; viewing, full sync and
+At this checkpoint, default retention was 1,800 seconds from genuine arrival
+or replacement, bounded to 32 records in daemon RAM. Popup timeout retains text; viewing, full sync and
 reconnect do not renew it. Explicit close/dismiss removes it. The device also
 expires cached records offline. A higher history revision renews a record;
 same/older revisions cannot extend a deadline or undo an expired revision.
@@ -27,6 +27,24 @@ Manual browsing preserves focus, including against critical arrivals; 30 seconds
 without interaction makes later arrivals eligible again. Emptying the collection
 also releases manual focus suppression. Open requires a valid live action and
 unexpired history. New peers get 511-byte UTF-8 bodies; legacy peers keep 159.
+
+## Retention refinement, 2026-09-30
+
+The current default is **600 seconds (10 minutes)** from genuine arrival or
+replacement. Desktop popup duration remains independent. Reloading a shorter
+limit preserves receipt times, removes already-old records and sends the
+remaining lifetime to the board; browsing/sync/reconnect still do not renew it.
+
+Focused configuration, state, history and reload tests pass: **62 tests**.
+The native `host_history_composed` and `smoke_recorder` checks also pass with
+the new default. Virtual time covers offline expiry, reconnect and replacement
+renewal; the reload regression checks that existing cards keep their age.
+
+Both hosts' unmanaged `349d` configs now explicitly set `retention_s = 600`,
+and both reloads succeeded without restarting the daemons. Snap's live host
+and board counts agree, with the notification pane settled and no stale view.
+Starship's board is disconnected; its host configuration is updated, with no
+device claim. No firmware change or additional physical check was needed.
 
 ## Automated evidence
 

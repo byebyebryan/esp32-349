@@ -13,7 +13,7 @@ def test_defaults():
     assert cfg.notifications.device_dismiss == "local"
     assert cfg.notifications.device_open == "off"
     assert cfg.notifications.cache_limit == 32
-    assert cfg.notifications.retention_s == 1800
+    assert cfg.notifications.retention_s == 600
     assert cfg.notifications.ignore_apps
     assert cfg.notifications.popup_timeout_ms == 10000
     assert cfg.notifications.critical_popup_timeout_ms == 0

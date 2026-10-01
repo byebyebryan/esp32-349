@@ -38,7 +38,7 @@ Keep the fixed HH:MM/CPU/MEM/UP/DN rail and dedicate the right side to recent
 notifications, with `No recent notifications` when empty. Keep vertical whole-card
 swiping, explicit Open/× controls and card motion. The body becomes 16 px with
 the existing glyph repertoire, relative age metadata and a 511-byte UTF-8 bound.
-Retain cards for 30 minutes from genuine arrival/replacement, capped at 32;
+Retain cards for 10 minutes from genuine arrival/replacement, capped at 32;
 popup timeout, viewing and sync do not renew them. Older peers retain their
 existing grouped/active-card behavior. See the
 [implementation plan](design/notification-history-plan.md) and

@@ -4,11 +4,12 @@ Implementation checkpoint, 2026-09-28. The user parks horizontal app navigation
 and dedicates the right 480 px to recent notifications. The accepted fixed
 160 px telemetry rail remains visible. This supersedes the Home/presentation
 behavior of the grouped UI only when both peers negotiate the new mode.
+The 2026-09-30 refinement reduces the default retention from 30 to 10 minutes.
 
 ## Product behavior
 
 - Empty state: `No recent notifications`; no duplicate large clock/date.
-- Retain newest-first cards for a default 1,800 seconds after genuine arrival
+- Retain newest-first cards for a default 600 seconds after genuine arrival
   or replacement, with a maximum of 32 records. Busy bursts can evict earlier.
 - Desktop popup timeout ends attention, not retained text. Device dismiss and
   explicit desktop dismissal/close remove the corresponding card immediately.
@@ -37,7 +38,7 @@ card-sync and dashboard capability set. Negotiated `sync_begin.grouped` adds
 Each history card carries:
 
 ```json
-{"history":{"rev":1,"age_ms":0,"remaining_ms":1800000}}
+{"history":{"rev":1,"age_ms":0,"remaining_ms":600000}}
 ```
 
 All three fields are integers: `rev` is positive 31-bit; `age_ms` is
@@ -57,7 +58,7 @@ history mode selects eligible content but never returns to a clock on timeout.
 
 ## Acceptance
 
-1. Deterministic host tests prove 30-minute expiry, replacement renewal,
+1. Deterministic host tests prove 10-minute expiry, replacement renewal,
    popup-versus-retention independence, bounded metadata, no sync/view/replug
    renewal and old-peer projection limits.
 2. Production C/native tests prove history parsing, offline and same-revision

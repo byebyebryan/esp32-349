@@ -23,7 +23,7 @@ build/artifact directories. The default directories are
 | `native_ui_composed` | Real parser/state plus the same LVGL fixture | Native platform services and pointer/time adapter |
 | `host_composed` CTest | Real Python daemon/protocol → production parser/state → LVGL → daemon input | Controlled host clock and transport to `native_ui_composed` |
 | `host_actions_composed` CTest | Notification source → daemon/provider action request → production parser/state/LVGL → correlated host result | Controlled source/provider adapter and native transport; no desktop IPC |
-| `host_history_composed` CTest | Negotiated 30-minute history → production parser/state/LVGL → host browse/idle/dismiss input | Virtual time and transport; popup/archive, body limits, no-renewal sync/reconnect and replacement renewal |
+| `host_history_composed` CTest | Negotiated 10-minute history → production parser/state/LVGL → host browse/idle/dismiss input | Virtual time and transport; popup/archive, body limits, no-renewal sync/reconnect and replacement renewal |
 | `smoke_recorder` CTest | Isolated production host policy → parser/state/LVGL, actual × round trip, timed retention and fresh process recovery | Native transport; fake IPC checks finish/error/pause ownership cleanup |
 
 CTest also runs serialized replay and an SDL dummy-driver smoke. If uv is
@@ -133,7 +133,7 @@ the hardware or contact the real daemon. It validates the controller through
 the composed native target and uses fake IPC for cleanup/ownership checks.
 
 For the notification-only physical check, add `--history`. This negotiates the
-new mode and seeds three cards with expanded text and the default 30-minute
+new mode and seeds three cards with expanded text and the default 10-minute
 retention. Browse vertically, check inert horizontal/body input, then use × to
 remove the cards and inspect `No recent notifications`. `status` records the
 current view, and `finish` restores the normal daemon. No timed Home phase or

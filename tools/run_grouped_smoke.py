@@ -53,7 +53,7 @@ class SmokeHost:
                 "We've / we’ve 東京 が → ✓. " + (
                     "The smaller body shows more content. Swipe vertically between recent notifications; "
                     "horizontal movement and body taps do nothing. Close with the large ×; "
-                    "popup timeout keeps this card, with a thirty-minute retention limit."
+                    "popup timeout keeps this card, with a ten-minute retention limit."
                     if history else "Swipe horizontally for groups; vertically for cards."),
                 1, 0, int(time.time())))
 

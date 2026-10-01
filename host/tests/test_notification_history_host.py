@@ -126,6 +126,46 @@ def test_sync_and_replug_serialize_age_without_renewal(monkeypatch):
     asyncio.run(scenario())
 
 
+def test_reload_shortens_history_without_renewing_existing_cards(tmp_path, monkeypatch):
+    async def scenario():
+        now = [100.0]
+        monkeypatch.setattr("status349.daemon.time.monotonic", lambda: now[0])
+        daemon, writer = _history_daemon(retention_s=1800)
+        daemon.cfg.notifications.mode = "off"
+        cfg_path = tmp_path / "349d.toml"
+        cfg_path.write_text('[notifications]\nmode = "off"\nretention_s = 600\n')
+        daemon.cfg_path = str(cfg_path)
+
+        await daemon._device_notify(proto.notify(1, "app", "older", "body", 1, 0, 1))
+        now[0] = 700.0
+        await daemon._device_notify(proto.notify(2, "app", "recent", "body", 1, 0, 2))
+        recent_revision = daemon.model.retained_history_rev[2]
+        now[0] = 800.0
+        writer.frames.clear()
+
+        assert await daemon.reload()
+        assert daemon.model.retention_s == 600
+        assert list(daemon.model.retained_notifs) == [2]
+        assert any(frame["t"] == "close" and frame["id"] == 1 for frame in writer.frames)
+        assert daemon._needs_sync and daemon._tick_wakeup.is_set()
+        await daemon._send_sync()
+        card = next(
+            card for frame in writer.frames if frame["t"] == "sync_cards" for card in frame["notifs"]
+        )
+        assert card["id"] == 2
+        assert card["history"] == {
+            "rev": recent_revision, "age_ms": 100000, "remaining_ms": 500000,
+        }
+        assert daemon.model.retained_received_mono[2] == 700.0
+
+        now[0] = 1300.0
+        async with daemon._state_lock:
+            assert await daemon._expire_history_locked(now[0]) == [2]
+        assert not daemon.model.retained_notifs
+
+    asyncio.run(scenario())
+
+
 def test_identical_accepted_notification_replacement_renews_but_sync_does_not(monkeypatch):
     async def scenario():
         now = [300.0]
