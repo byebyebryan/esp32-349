@@ -37,10 +37,7 @@ class StateModel:
         for source in self.notifs.values():
             message = dict(source)
             message.pop("history", None)
-            if isinstance(message.get("body"), str):
-                message["body"] = proto.clip_utf8_ellipsis(
-                    proto.display_text(message["body"]), proto.NOTIFICATION_BODY_LEGACY_BYTES
-                )
+            proto.project_notification_body(message, proto.NOTIFICATION_BODY_LEGACY_BYTES)
             notifs.append(message)
         overflow = max(0, len(notifs) - self.max_visible)
         if overflow and self.max_visible:

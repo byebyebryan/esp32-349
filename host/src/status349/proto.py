@@ -10,6 +10,8 @@ import json
 import math
 import unicodedata
 
+from .notification_text import project_body
+
 PREFIX = "@349 "
 PROTO_VERSION = 1
 LINE_MAX = 8192
@@ -18,6 +20,7 @@ DASHBOARD_CAPABILITY = "dashboard-v1"
 GROUPED_UI_CAPABILITY = "grouped-ui-v1"
 NOTIFICATION_ACTIONS_CAPABILITY = "notification-actions-v1"
 NOTIFICATION_HISTORY_CAPABILITY = "notification-history-v1"
+NOTIFICATION_BODY_STYLE_CAPABILITY = "notification-body-style-v1"
 CARD_CHUNK_MAX = 2048
 IDENTITY_MAX = 0x7FFFFFFF
 DASHBOARD_RATE_MAX_BPS = 1_000_000_000_000
@@ -128,6 +131,27 @@ def notification_history_capable(message: dict) -> bool:
         and isinstance(capabilities, list)
         and NOTIFICATION_HISTORY_CAPABILITY in capabilities
     )
+
+
+def notification_body_style_capable(message: dict) -> bool:
+    """Body styles require history's full cache/dashboard capability set."""
+    capabilities = message.get("cap", [])
+    if isinstance(capabilities, str):
+        capabilities = [capabilities]
+    return (
+        notification_history_capable(message)
+        and isinstance(capabilities, list)
+        and NOTIFICATION_BODY_STYLE_CAPABILITY in capabilities
+    )
+
+
+def project_notification_body(message: dict, max_bytes: int, *, include_styles: bool = False) -> None:
+    """Project a copied card for one peer, keeping text and ranges coherent."""
+    runs = message.pop("body_runs", None)
+    if isinstance(message.get("body"), str):
+        message["body"], projected_runs = project_body(message["body"], runs, max_bytes)
+        if include_styles and projected_runs:
+            message["body_runs"] = projected_runs
 
 
 def _device_boot_id(value: object) -> int | None:
@@ -435,12 +459,15 @@ def card_sync_messages(
     grouped_session: int | None = None,
     include_actions: bool = False,
     include_history: bool = False,
+    include_body_styles: bool = False,
 ) -> list[dict]:
     """Build a bounded begin/cards/commit transfer for a card-cache snapshot."""
     if include_history and grouped_session is None:
         raise ValueError("notification history requires grouped sync")
     if include_history and not include_dashboard:
         raise ValueError("notification history requires dashboard sync")
+    if include_body_styles and not include_history:
+        raise ValueError("notification body styles require history sync")
     cards = snapshot["notifs"]
     begin = {
         "t": "sync_begin",
@@ -486,9 +513,8 @@ def card_sync_messages(
 
     for source_card in cards:
         card = dict(source_card)
-        if "body" in card and isinstance(card["body"], str):
-            body_limit = NOTIFICATION_BODY_HISTORY_BYTES if include_history else NOTIFICATION_BODY_LEGACY_BYTES
-            card["body"] = clip_utf8_ellipsis(display_text(card["body"]), body_limit)
+        body_limit = NOTIFICATION_BODY_HISTORY_BYTES if include_history else NOTIFICATION_BODY_LEGACY_BYTES
+        project_notification_body(card, body_limit, include_styles=include_body_styles)
         if include_history:
             history = card.get("history")
             if not isinstance(history, dict) or set(history) != {"rev", "age_ms", "remaining_ms"}:
@@ -614,17 +640,21 @@ def notify(
     cached: bool | None = None,
     session: int | None = None,
     body_max_bytes: int = NOTIFICATION_BODY_HISTORY_BYTES,
+    body_runs: list[dict] | None = None,
 ) -> dict:
+    body, runs = project_body(body, body_runs, body_max_bytes)
     message = {
         "t": "notify",
         "id": int(nid),
         "app": clip_utf8(display_text(app), 31),
         "summary": clip_utf8(display_text(summary), 63),
-        "body": clip_utf8_ellipsis(display_text(body), body_max_bytes),
+        "body": body,
         "urgency": int(urgency),
         "expire": int(expire),
         "ts": int(ts),
     }
+    if runs:
+        message["body_runs"] = runs
     if total is not None:
         message["total"] = int(total)
     if cached is not None:

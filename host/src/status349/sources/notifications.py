@@ -30,6 +30,7 @@ from dbus_next.constants import BusType
 
 from .. import proto
 from ..config import NotificationsConfig
+from ..notification_text import convert_body
 
 log = logging.getLogger(__name__)
 
@@ -93,22 +94,25 @@ def parse_notify_body(body: list) -> dict | None:
         return None
     app_name, replaces_id, _app_icon, summary, body_text, _actions, hints, expire_timeout = body[:8]
 
+    display_body, body_runs = convert_body(str(app_name), str(summary), str(body_text), hints)
+
     urgency = 1
     if isinstance(hints, dict):
         variant = hints.get("urgency")
         if isinstance(variant, Variant) and isinstance(variant.value, int):
             urgency = int(variant.value)
 
-    return {
+    parsed = {
         "app": str(app_name),
         "replaces": int(replaces_id),
         "summary": str(summary),
-        "body": proto.clip_utf8_ellipsis(
-            proto.display_text(str(body_text)), proto.NOTIFICATION_BODY_HISTORY_BYTES
-        ),
+        "body": display_body,
         "urgency": urgency,
         "expire": int(expire_timeout),
     }
+    if body_runs:
+        parsed["body_runs"] = body_runs
+    return parsed
 
 
 def parse_closed_body(body: list) -> tuple[int, int] | None:
@@ -657,6 +661,7 @@ class NotificationSource:
             parsed["urgency"],
             parsed["expire"],
             int(time.time()),
+            body_runs=parsed.get("body_runs"),
         )
         self._outbox[local_id]["_received_mono"] = received_mono
         while len(self._outbox) > NOTIFY_OUTBOX_LIMIT:

@@ -3,7 +3,12 @@ name = "status349"
 version = "0.1.0"
 description = "Host-side link tools for the 349-status desktop display"
 requires-python = ">=3.11"
-dependencies = ["dbus-next>=0.2.3", "pyserial>=3.5", "pyserial-asyncio>=0.6"]
+dependencies = [
+    "dbus-next>=0.2.3",
+    "markdown-it-py==4.2.0",
+    "pyserial>=3.5",
+    "pyserial-asyncio>=0.6",
+]
 
 [project.scripts]
 349ctl = "status349.__main__:main"

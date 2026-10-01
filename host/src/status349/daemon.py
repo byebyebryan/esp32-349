@@ -113,6 +113,7 @@ class Daemon:
         self._grouped_mode = False
         self._history_enabled = False
         self._history_mode = False
+        self._body_style_enabled = False
         self.grouped_session = secrets.randbelow(SESSION_MAX) + 1
         self._grouped_generation = 0
         self._device_expected_generation = 0
@@ -266,9 +267,12 @@ class Daemon:
                 if history is None:
                     await self._expire_history_locked(send_now)
                     return
-                update["body"] = proto.clip_utf8_ellipsis(
-                    proto.display_text(clean_message.get("body", "")),
-                    proto.NOTIFICATION_BODY_HISTORY_BYTES,
+                update["body"] = clean_message.get("body", "")
+                if "body_runs" in clean_message:
+                    update["body_runs"] = clean_message["body_runs"]
+                proto.project_notification_body(
+                    update, proto.NOTIFICATION_BODY_HISTORY_BYTES,
+                    include_styles=self._body_style_enabled,
                 )
                 update["history"] = history
             sent = await self.send(update)
@@ -278,11 +282,12 @@ class Daemon:
     def _notification_projection(self, message: dict, *, history: bool, now_mono: float) -> dict | None:
         """Build one peer-specific notification projection without retained internals."""
         projected = {key: value for key, value in message.items() if not key.startswith("_") and key != "history"}
-        if isinstance(projected.get("body"), str):
-            body_limit = (
-                proto.NOTIFICATION_BODY_HISTORY_BYTES if history else proto.NOTIFICATION_BODY_LEGACY_BYTES
-            )
-            projected["body"] = proto.clip_utf8_ellipsis(proto.display_text(projected["body"]), body_limit)
+        body_limit = (
+            proto.NOTIFICATION_BODY_HISTORY_BYTES if history else proto.NOTIFICATION_BODY_LEGACY_BYTES
+        )
+        proto.project_notification_body(
+            projected, body_limit, include_styles=history and self._body_style_enabled,
+        )
         if history:
             local_id = int(projected["id"])
             metadata = self.model.history_metadata(local_id, now_mono)
@@ -648,6 +653,7 @@ class Daemon:
                 grouped_session=self.grouped_session if grouped else None,
                 include_actions=bool(grouped and self._actions_negotiated),
                 include_history=self._history_enabled,
+                include_body_styles=self._body_style_enabled,
             )
 
         # Hold the wire lock across the full transaction, including begin and
@@ -695,6 +701,7 @@ class Daemon:
             async with self._state_lock:
                 self._grouped_enabled = False
                 self._history_enabled = False
+                self._body_style_enabled = False
                 self._actions_capable = False
                 self._actions_negotiated = False
                 self._device_expected_generation = 0
@@ -728,6 +735,7 @@ class Daemon:
                     self._writer = None
                     self._grouped_enabled = False
                     self._history_enabled = False
+                    self._body_style_enabled = False
                     self._actions_capable = False
                     self._actions_negotiated = False
                     self.action_manager.invalidate_for_link_reset()
@@ -791,6 +799,7 @@ class Daemon:
                 new_dashboard = new_capacity is not None and proto.dashboard_capable(message)
                 new_grouped = new_capacity is not None and proto.grouped_ui_capable(message)
                 new_history = new_capacity is not None and proto.notification_history_capable(message)
+                new_body_style = proto.notification_body_style_capable(message)
                 new_actions_capable = proto.notification_actions_capable(message)
                 new_actions_negotiated = (
                     self.cfg.notifications.device_open == "dms" and new_actions_capable
@@ -803,6 +812,7 @@ class Daemon:
                     or new_dashboard != self._dashboard_capable
                     or new_grouped != self._grouped_enabled
                     or new_history != self._history_enabled
+                    or new_body_style != self._body_style_enabled
                     or new_actions_negotiated != self._actions_negotiated
                 )
                 self._card_sync_capacity = new_capacity
@@ -811,6 +821,7 @@ class Daemon:
                 self._grouped_mode = new_grouped
                 self._history_enabled = new_history
                 self._history_mode = new_history
+                self._body_style_enabled = new_body_style
                 self._actions_capable = new_actions_capable
                 self._actions_negotiated = new_actions_negotiated
                 if boot_id is not None and boot_id != self._action_ledger_boot_id:
@@ -1232,6 +1243,7 @@ class Daemon:
             "retained_notifs": len(self.model.retained_notifs),
             "grouped": self._grouped_enabled,
             "notification_history": self._history_enabled,
+            "notification_body_style": self._body_style_enabled,
             "notification_actions": {
                 "configured": self.cfg.notifications.device_open == "dms",
                 "capable": self._actions_capable,
