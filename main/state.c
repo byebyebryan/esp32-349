@@ -140,6 +140,32 @@ static status_media_t parse_media(const cJSON *obj)
     return media;
 }
 
+static void parse_body_runs(const cJSON *obj, status_notif_t *notif)
+{
+    const cJSON *runs = cJSON_GetObjectItemCaseSensitive(obj, "body_runs");
+    if (!cJSON_IsArray(runs) || cJSON_GetArraySize(runs) > STATUS_NOTIF_BODY_RUNS_MAX) return;
+    const size_t bytes = strlen(notif->body);
+    int previous_end = 0;
+    const cJSON *run;
+    cJSON_ArrayForEach(run, runs) {
+        int start, end, style;
+        if (!cJSON_IsObject(run) || cJSON_GetArraySize(run) != 3 ||
+            !int_field(run, "start", previous_end, (int)bytes, &start) ||
+            !int_field(run, "end", start + 1, (int)bytes, &end) ||
+            !int_field(run, "style", 1, 3, &style) ||
+            ((unsigned char)notif->body[start] & 0xc0) == 0x80 ||
+            ((unsigned char)notif->body[end] & 0xc0) == 0x80) {
+            /* A style error never discards an otherwise valid notification. */
+            memset(notif->body_runs, 0, sizeof(notif->body_runs));
+            notif->body_run_count = 0;
+            return;
+        }
+        status_body_run_t *out = &notif->body_runs[notif->body_run_count++];
+        *out = (status_body_run_t){ .start = start, .end = end, .style = style };
+        previous_end = end;
+    }
+}
+
 static bool parse_notif(const cJSON *obj, status_notif_t *notif)
 {
     const cJSON *id = cJSON_GetObjectItemCaseSensitive(obj, "id");
@@ -164,6 +190,7 @@ static bool parse_notif(const cJSON *obj, status_notif_t *notif)
     }
     copy_str(notif->body, history ? sizeof(notif->body) : 160,
              cJSON_GetObjectItemCaseSensitive(obj, "body"));
+    if (history) parse_body_runs(obj, notif);
     const cJSON *urgency = cJSON_GetObjectItemCaseSensitive(obj, "urgency");
     notif->urgency = cJSON_IsNumber(urgency) ? urgency->valueint : 1;
     return true;

@@ -149,6 +149,47 @@ static void sync_grouped_actions(int session, const char *records, bool actions_
     cJSON_Delete(cards);
 }
 
+static void sync_grouped_history(int session, const char *records)
+{
+    cJSON *cards = parse_json(records);
+    const int count = cJSON_GetArraySize(cards);
+    char message[1200];
+    snprintf(message, sizeof(message),
+        "{\"t\":\"sync_begin\",\"tx\":31,\"count\":%d,\"limit\":%d,"
+        "\"overflow\":0,\"bar\":{\"zones\":[]},\"dashboard\":{},"
+        "\"grouped\":{\"session\":%d,\"history\":true}}",
+        count, count, session);
+    CHECK(send_wire(message) == NULL);
+    if (count > 0) {
+        char chunk[4096];
+        snprintf(chunk, sizeof(chunk),
+            "{\"t\":\"sync_cards\",\"tx\":31,\"start\":0,\"notifs\":%s}", records);
+        CHECK(send_wire(chunk) == NULL);
+    }
+    CHECK(send_wire("{\"t\":\"sync_commit\",\"tx\":31}") == NULL);
+    cJSON_Delete(cards);
+}
+
+static void body_style_delta(int session, int id, int revision, const char *body,
+                             const char *runs, bool include_history)
+{
+    char message[4096];
+    const char *style_fields = runs == NULL ? "" : runs;
+    if (include_history) {
+        snprintf(message, sizeof(message),
+            "{\"t\":\"notify\",\"session\":%d,\"id\":%d,\"app\":\"test\","
+            "\"summary\":\"body style\",\"body\":\"%s\",\"urgency\":1,"
+            "\"history\":{\"rev\":%d,\"age_ms\":0,\"remaining_ms\":10000}%s}",
+            session, id, body, revision, style_fields);
+    } else {
+        snprintf(message, sizeof(message),
+            "{\"t\":\"notify\",\"session\":%d,\"id\":%d,\"app\":\"test\","
+            "\"summary\":\"body style\",\"body\":\"%s\",\"urgency\":1%s}",
+            session, id, body, style_fields);
+    }
+    CHECK(send_wire(message) == NULL);
+}
+
 static cJSON *action_result(int session, uint32_t boot_id, int id, int revision,
                             int request, const char *status)
 {
@@ -554,14 +595,18 @@ static void test_status_and_outbound_actions(void)
     CHECK(s_outbound_count == 1);
     cJSON *hello = parse_json(s_outbound[0]);
     const uint32_t boot_id = (uint32_t)number(hello, "boot_id");
-    bool found_actions = false;
+    bool found_actions = false, found_history = false, found_body_styles = false;
     const cJSON *hello_cap = field(hello, "cap");
     const cJSON *hello_item = NULL;
     cJSON_ArrayForEach(hello_item, hello_cap) {
         found_actions |= cJSON_IsString(hello_item) &&
             strcmp(hello_item->valuestring, "notification-actions-v1") == 0;
+        found_history |= cJSON_IsString(hello_item) &&
+            strcmp(hello_item->valuestring, "notification-history-v1") == 0;
+        found_body_styles |= cJSON_IsString(hello_item) &&
+            strcmp(hello_item->valuestring, "notification-body-style-v1") == 0;
     }
-    CHECK(boot_id != 0 && found_actions);
+    CHECK(boot_id != 0 && found_actions && found_history && found_body_styles);
     cJSON_Delete(hello);
 
     clear_outbound();
@@ -935,6 +980,83 @@ static void test_history_deadlines_and_projection(void)
     s_connected = true;
 }
 
+static void test_notification_body_style_ranges(void)
+{
+    state_init();
+    sync_grouped_history(903,
+        "[{\"id\":1,\"app\":\"test\",\"summary\":\"styled\","
+        "\"body\":\"Aé東京Z\",\"urgency\":1,"
+        "\"history\":{\"rev\":1,\"age_ms\":0,\"remaining_ms\":10000},"
+        "\"body_runs\":[{\"start\":1,\"end\":9,\"style\":3}]}]");
+    state_lock();
+    const status_state_t *st = state_get();
+    CHECK(st->history_enabled && st->notif_count == 1);
+    CHECK(strcmp(st->notifs[0].body, "Aé東京Z") == 0);
+    CHECK(st->notifs[0].body_run_count == 1);
+    CHECK(st->notifs[0].body_runs[0].start == 1);
+    CHECK(st->notifs[0].body_runs[0].end == 9);
+    CHECK(st->notifs[0].body_runs[0].style == 3);
+    state_unlock();
+
+    /* A replacement without style metadata must remove the prior emphasis. */
+    body_style_delta(903, 1, 2, "plain replacement", NULL, true);
+    state_lock();
+    st = state_get();
+    CHECK(st->notif_count == 1 && strcmp(st->notifs[0].body, "plain replacement") == 0);
+    CHECK(st->notifs[0].body_run_count == 0);
+    state_unlock();
+
+    /* Invalid byte boundaries and overlapping ranges fall back for the whole body. */
+    body_style_delta(903, 1, 3, "Aé東京Z",
+        ",\"body_runs\":[{\"start\":2,\"end\":9,\"style\":1}]", true);
+    state_lock();
+    st = state_get();
+    CHECK(st->notif_count == 1 && strcmp(st->notifs[0].body, "Aé東京Z") == 0);
+    CHECK(st->notifs[0].body_run_count == 0);
+    state_unlock();
+
+    body_style_delta(903, 1, 4, "abcdefghij",
+        ",\"body_runs\":[{\"start\":1,\"end\":5,\"style\":1},"
+        "{\"start\":4,\"end\":6,\"style\":2}]", true);
+    state_lock();
+    st = state_get();
+    CHECK(st->notif_count == 1 && strcmp(st->notifs[0].body, "abcdefghij") == 0);
+    CHECK(st->notifs[0].body_run_count == 0);
+    state_unlock();
+
+    /* The fixed parser bound also fails closed without dropping the card. */
+    char runs[1200] = ",\"body_runs\":[";
+    size_t used = strlen(runs);
+    for (int i = 0; i < STATUS_NOTIF_BODY_RUNS_MAX + 1; i++) {
+        int written = snprintf(runs + used, sizeof(runs) - used,
+            "%s{\"start\":%d,\"end\":%d,\"style\":1}",
+            i == 0 ? "" : ",", i * 2, i * 2 + 1);
+        CHECK(written > 0 && (size_t)written < sizeof(runs) - used);
+        used += (size_t)written;
+    }
+    CHECK(used + 2 < sizeof(runs));
+    runs[used++] = ']';
+    runs[used] = '\0';
+    body_style_delta(903, 1, 5,
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", runs, true);
+    state_lock();
+    st = state_get();
+    CHECK(st->notif_count == 1 && st->notifs[0].body_run_count == 0);
+    CHECK(strcmp(st->notifs[0].body, "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx") == 0);
+    state_unlock();
+
+    /* A legacy grouped peer may send the unknown field; C ignores it. */
+    sync_grouped(904,
+        "[{\"id\":2,\"app\":\"test\",\"summary\":\"legacy\","
+        "\"body\":\"plain\",\"urgency\":1,"
+        "\"body_runs\":[{\"start\":0,\"end\":5,\"style\":1}]}]");
+    state_lock();
+    st = state_get();
+    CHECK(!st->history_enabled && st->notif_count == 1 && st->notifs[0].id == 2);
+    CHECK(st->notifs[0].body_run_count == 0);
+    state_unlock();
+}
+
 static int run_line_json(void)
 {
     state_init();
@@ -966,6 +1088,7 @@ int main(int argc, char **argv)
         test_cards_status_pending_until_ui_publication();
         test_legacy_compatibility();
         test_history_deadlines_and_projection();
+        test_notification_body_style_ranges();
         printf("native protocol: %d checks passed\n", s_checks);
         return 0;
     }

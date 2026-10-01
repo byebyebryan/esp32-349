@@ -17,6 +17,9 @@
 #include "ui_theme.h"
 
 LV_FONT_DECLARE(status_text_16);
+LV_FONT_DECLARE(status_text_16_bold);
+LV_FONT_DECLARE(status_text_16_italic);
+LV_FONT_DECLARE(status_text_16_bold_italic);
 LV_FONT_DECLARE(status_text_20);
 LV_FONT_DECLARE(status_text_22);
 LV_FONT_DECLARE(status_clock_80);
@@ -39,7 +42,11 @@ static lv_obj_t *s_metric_details[2];
 static lv_obj_t *s_idle, *s_idle_clock, *s_date, *s_message, *s_idle_transient;
 typedef struct {
     lv_obj_t *root, *accent, *app, *age, *title, *body, *position;
+    lv_obj_t *body_span;
     lv_obj_t *open, *open_icon, *open_label, *dismiss;
+    char styled_body[STATUS_NOTIF_BODY_MAX];
+    status_body_run_t styled_runs[STATUS_NOTIF_BODY_RUNS_MAX];
+    uint8_t styled_run_count;
     int id;
     bool valid;
 } card_view_t;
@@ -239,6 +246,84 @@ static lv_obj_t *label(lv_obj_t *parent, int x, int y, int w, int h,
     lv_obj_set_user_data(obj, stored);
     lv_label_set_text(obj, value);
     return obj;
+}
+
+static void body_geometry(card_view_t *slot, int x, int y, int width, int height)
+{
+    lv_obj_set_pos(slot->body, x, y);
+    lv_obj_set_size(slot->body, width, height);
+    lv_obj_set_pos(slot->body_span, x, y);
+    lv_obj_set_size(slot->body_span, width, height);
+}
+
+static bool body_segment(lv_obj_t *group, const char *body, int start, int end, int style)
+{
+    if (end <= start) return true;
+    /* LVGL copies each segment. The scratch buffer stays off callback stacks. */
+    static char segment[STATUS_NOTIF_BODY_MAX];
+    memcpy(segment, body + start, end - start);
+    segment[end - start] = '\0';
+    lv_span_t *span = lv_spangroup_add_span(group);
+    if (span == NULL) return false;
+    lv_span_set_text(span, segment);
+    const char *stored = lv_span_get_text(span);
+    if (stored == NULL || strcmp(stored, segment) != 0) return false;
+    const lv_font_t *font = style == 1 ? &status_text_16_bold :
+        style == 2 ? &status_text_16_italic :
+        style == 3 ? &status_text_16_bold_italic : &status_text_16;
+    lv_style_set_text_font(lv_span_get_style(span), font);
+    lv_style_value_t value = {0};
+    return lv_style_get_prop(lv_span_get_style(span), LV_STYLE_TEXT_FONT, &value) ==
+        LV_STYLE_RES_FOUND && value.ptr == font;
+}
+
+static void body_text(card_view_t *slot, const status_notif_t *notif, bool history)
+{
+    const bool styled = history && notif->body_run_count > 0;
+    if (!styled) {
+        hide(slot->body, false);
+        hide(slot->body_span, true);
+        text(slot->body, notif->body);
+        return;
+    }
+    if (slot->styled_run_count == notif->body_run_count &&
+        strcmp(slot->styled_body, notif->body) == 0 &&
+        memcmp(slot->styled_runs, notif->body_runs,
+               notif->body_run_count * sizeof(status_body_run_t)) == 0) {
+        hide(slot->body, true);
+        hide(slot->body_span, false);
+        return;
+    }
+    lv_span_t *span;
+    while ((span = lv_spangroup_get_child(slot->body_span, 0)) != NULL)
+        lv_spangroup_delete_span(slot->body_span, span);
+    int end = 0;
+    bool complete = true;
+    for (int i = 0; i < notif->body_run_count; i++) {
+        const status_body_run_t *run = &notif->body_runs[i];
+        if (!body_segment(slot->body_span, notif->body, end, run->start, 0) ||
+            !body_segment(slot->body_span, notif->body, run->start, run->end, run->style)) {
+            complete = false;
+            break;
+        }
+        end = run->end;
+    }
+    if (complete) complete = body_segment(slot->body_span, notif->body, end, strlen(notif->body), 0);
+    if (!complete) {
+        while ((span = lv_spangroup_get_child(slot->body_span, 0)) != NULL)
+            lv_spangroup_delete_span(slot->body_span, span);
+        slot->styled_run_count = 0;
+        hide(slot->body_span, true);
+        hide(slot->body, false);
+        text(slot->body, notif->body);
+        return;
+    }
+    strlcpy(slot->styled_body, notif->body, sizeof(slot->styled_body));
+    memcpy(slot->styled_runs, notif->body_runs, sizeof(slot->styled_runs));
+    slot->styled_run_count = notif->body_run_count;
+    lv_spangroup_refresh(slot->body_span);
+    hide(slot->body, true);
+    hide(slot->body_span, false);
 }
 
 static void dismiss_geometry(lv_obj_t *button, int width, int height)
@@ -642,13 +727,11 @@ static void bind_cards(const snapshot_t *view)
         lv_obj_set_height(slot->accent, 136);
         lv_obj_set_y(slot->app, 6);
         lv_obj_set_y(slot->title, 28);
-        lv_obj_set_y(slot->body, 58);
-        lv_obj_set_height(slot->body, 78);
+        body_geometry(slot, 12, 58, width - 24, 78);
         lv_obj_set_y(slot->position, 140);
         lv_obj_set_width(slot->root, width);
         lv_obj_set_width(slot->app, width - DISMISS_WIDTH - 24);
         lv_obj_set_width(slot->title, width - DISMISS_WIDTH - 24);
-        lv_obj_set_width(slot->body, width - 24);
         lv_obj_set_width(slot->position, width - 24);
         lv_obj_set_pos(slot->dismiss, width - DISMISS_WIDTH, 0);
         dismiss_geometry(slot->dismiss, DISMISS_WIDTH, DISMISS_HEIGHT);
@@ -663,7 +746,7 @@ static void bind_cards(const snapshot_t *view)
         text(slot->app, n->app);
         text_color(slot->app, notification_app_color(n->urgency));
         text(slot->title, n->summary[0] ? n->summary : "Notification");
-        text(slot->body, n->body);
+        body_text(slot, n, false);
         position_text(slot, view->overflow, view);
     }
     position_cards(0);
@@ -1041,9 +1124,8 @@ static void grouped_bind_except(const snapshot_t *view, int frozen_slot)
         lv_obj_set_pos(slot->title, 12, 24); lv_obj_set_width(slot->title, header_width);
         lv_obj_set_style_text_font(slot->body,
             s_history_mode ? &status_text_16 : &status_text_20, 0);
-        lv_obj_set_pos(slot->body, 12, s_history_mode ? 56 : 52);
         const int body_width = s_history_mode && i == 1 ? header_width : 440;
-        lv_obj_set_size(slot->body, body_width, s_history_mode
+        body_geometry(slot, 12, s_history_mode ? 56 : 52, body_width, s_history_mode
             ? 66
             : (multiple ? 52 : view->overflow ? 72 : 84));
         lv_obj_set_pos(slot->position, 12,
@@ -1085,7 +1167,7 @@ static void grouped_bind_except(const snapshot_t *view, int frozen_slot)
         } else text(slot->app, i == 1 ? n->app : n->summary);
         grouped_title(slot, n->summary[0] ? n->summary : "Notification",
                       i == 1 && view->actions_enabled, header_width);
-        text(slot->body, n->body);
+        body_text(slot, n, s_history_mode);
         if (i == 1 && view->actions_enabled) {
             const bool pending = view->open_pending;
             const bool available = view->open_enabled || pending;
@@ -1584,6 +1666,18 @@ void ui_deck_init(lv_obj_t *parent, const lv_font_t *small, const lv_font_t *met
         slot->body = label(slot->root, 12, 58, 368, 78, &status_text_20,
                            UI_THEME_TEXT_BODY, "");
         lv_obj_set_style_text_line_space(slot->body, 0, 0);
+        slot->body_span = lv_spangroup_create(slot->root);
+        lv_obj_remove_style_all(slot->body_span);
+        lv_obj_remove_flag(slot->body_span, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_style_text_font(slot->body_span, &status_text_16, 0);
+        lv_obj_set_style_text_color(slot->body_span, lv_color_hex(UI_THEME_TEXT_BODY), 0);
+        lv_obj_set_style_text_line_space(slot->body_span, 0, 0);
+        /* Styled glyphs can overhang their advances by up to five pixels. */
+        lv_obj_set_style_pad_left(slot->body_span, 5, 0);
+        lv_obj_set_style_pad_right(slot->body_span, 5, 0);
+        lv_spangroup_set_overflow(slot->body_span, LV_SPAN_OVERFLOW_ELLIPSIS);
+        body_geometry(slot, 12, 58, 368, 78);
+        hide(slot->body_span, true);
         slot->position = label(slot->root, 12, 140, 368, 16, s_small,
                                UI_THEME_TEXT_SECONDARY, "");
         slot->dismiss = dismiss_button(slot->root, 392 - DISMISS_WIDTH);

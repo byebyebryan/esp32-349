@@ -52,6 +52,7 @@ void proto_send_hello(void)
         cJSON_AddItemToArray(cap, cJSON_CreateString("dashboard-v1"));
         cJSON_AddItemToArray(cap, cJSON_CreateString("grouped-ui-v1"));
         cJSON_AddItemToArray(cap, cJSON_CreateString("notification-history-v1"));
+        cJSON_AddItemToArray(cap, cJSON_CreateString("notification-body-style-v1"));
         cJSON_AddItemToArray(cap, cJSON_CreateString("notification-actions-v1"));
         cJSON_AddNumberToObject(obj, "cache_cards", state_card_sync_capacity());
     }

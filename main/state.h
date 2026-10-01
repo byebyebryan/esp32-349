@@ -31,6 +31,12 @@ typedef struct {
     bool has_color;
 } status_zone_t;
 
+#define STATUS_NOTIF_BODY_RUNS_MAX 16
+typedef struct {
+    uint16_t start, end;
+    uint32_t style; /* 1 bold, 2 italic, 3 both; UTF-8 byte offsets. */
+} status_body_run_t;
+
 typedef struct {
     bool valid;
     int64_t epoch; /* UTC seconds */
@@ -54,6 +60,8 @@ typedef struct {
     char app[STATUS_NOTIF_APP_MAX];
     char summary[STATUS_NOTIF_SUMMARY_MAX];
     char body[STATUS_NOTIF_BODY_MAX];
+    status_body_run_t body_runs[STATUS_NOTIF_BODY_RUNS_MAX];
+    uint8_t body_run_count;
     int urgency;
     int open_revision;
     bool open_ready;

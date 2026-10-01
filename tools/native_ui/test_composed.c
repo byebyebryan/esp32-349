@@ -6,6 +6,8 @@
 #include "link.h"
 #include "proto.h"
 
+#include <string.h>
+
 #define COMPOSED_OUTBOUND_CAPACITY 32
 #define COMPOSED_OUTBOUND_LENGTH 8192
 
@@ -36,6 +38,133 @@ static const char *composed_string(const cJSON *object, const char *name)
 {
     const cJSON *value = cJSON_GetObjectItemCaseSensitive(object, name);
     return cJSON_IsString(value) ? value->valuestring : NULL;
+}
+
+static const lv_font_t *composed_span_font(lv_span_t *span)
+{
+    lv_style_value_t value = {0};
+    if (lv_style_get_prop(lv_span_get_style(span), LV_STYLE_TEXT_FONT, &value) !=
+        LV_STYLE_RES_FOUND) return &status_text_16;
+    return value.ptr;
+}
+
+static int composed_span_style(lv_span_t *span)
+{
+    const lv_font_t *font = composed_span_font(span);
+    if (font == &status_text_16_bold) return 1;
+    if (font == &status_text_16_italic) return 2;
+    if (font == &status_text_16_bold_italic) return 3;
+    return 0;
+}
+
+static const char *composed_cjk_resolved_font(const lv_font_t *font, const char *text)
+{
+    bool saw_cjk = false;
+    const unsigned char *cursor = (const unsigned char *)text;
+    while (*cursor) {
+        uint32_t codepoint;
+        size_t step;
+        const size_t remaining = strlen((const char *)cursor);
+        if (*cursor < 0x80) {
+            codepoint = *cursor; step = 1;
+        } else if ((*cursor & 0xE0) == 0xC0) {
+            if (remaining < 2 || (cursor[1] & 0xC0) != 0x80) return "invalid";
+            codepoint = ((uint32_t)(cursor[0] & 0x1F) << 6) | (cursor[1] & 0x3F); step = 2;
+        } else if ((*cursor & 0xF0) == 0xE0) {
+            if (remaining < 3 || (cursor[1] & 0xC0) != 0x80 || (cursor[2] & 0xC0) != 0x80) return "invalid";
+            codepoint = ((uint32_t)(cursor[0] & 0x0F) << 12) |
+                ((uint32_t)(cursor[1] & 0x3F) << 6) | (cursor[2] & 0x3F); step = 3;
+        } else if ((*cursor & 0xF8) == 0xF0) {
+            if (remaining < 4 || (cursor[1] & 0xC0) != 0x80 ||
+                (cursor[2] & 0xC0) != 0x80 || (cursor[3] & 0xC0) != 0x80) return "invalid";
+            codepoint = ((uint32_t)(cursor[0] & 0x07) << 18) |
+                ((uint32_t)(cursor[1] & 0x3F) << 12) |
+                ((uint32_t)(cursor[2] & 0x3F) << 6) | (cursor[3] & 0x3F); step = 4;
+        } else {
+            cursor++;
+            continue;
+        }
+        if (codepoint == 0x6771 || codepoint == 0x4EAC) {
+            lv_font_glyph_dsc_t glyph = {0};
+            if (!lv_font_get_glyph_dsc(font, &glyph, codepoint, 0)) return "missing";
+            if (glyph.resolved_font != &status_text_16) return "other";
+            saw_cjk = true;
+        }
+        cursor += step;
+    }
+    return saw_cjk ? "status_text_16" : "none";
+}
+
+static void composed_add_rect(cJSON *parent, const char *key, const lv_obj_t *obj)
+{
+    cJSON *rect = cJSON_AddObjectToObject(parent, key);
+    cJSON_AddNumberToObject(rect, "x", lv_obj_get_x(obj));
+    cJSON_AddNumberToObject(rect, "y", lv_obj_get_y(obj));
+    cJSON_AddNumberToObject(rect, "width", lv_obj_get_width(obj));
+    cJSON_AddNumberToObject(rect, "height", lv_obj_get_height(obj));
+}
+
+static void composed_add_body_readback(cJSON *out)
+{
+    cJSON *cards = cJSON_AddArrayToObject(out, "rendered_cards");
+    for (int i = 0; i < 3; i++) {
+        const card_view_t *slot = &s_cards[i];
+        const bool span_visible = !lv_obj_has_flag(slot->body_span, LV_OBJ_FLAG_HIDDEN);
+        cJSON *card = cJSON_CreateObject();
+        cJSON_AddNumberToObject(card, "slot", i);
+        cJSON_AddBoolToObject(card, "valid", slot->valid);
+        cJSON_AddNumberToObject(card, "id", slot->valid ? slot->id : 0);
+        cJSON_AddBoolToObject(card, "span_visible", span_visible);
+        char object_id[32];
+        snprintf(object_id, sizeof(object_id), "%p", (const void *)slot->body_span);
+        cJSON_AddStringToObject(card, "span_object_id", object_id);
+        const char *plain_text = lv_obj_get_user_data(slot->body);
+        cJSON_AddStringToObject(card, "body_text",
+            span_visible ? slot->styled_body : (plain_text == NULL ? "" : plain_text));
+        cJSON_AddNumberToObject(card, "cached_run_count", slot->styled_run_count);
+        cJSON_AddNumberToObject(card, "span_overflow",
+            lv_spangroup_get_overflow(slot->body_span));
+        composed_add_rect(card, "body_rect", slot->body);
+        composed_add_rect(card, "span_rect", slot->body_span);
+
+        cJSON *runs = cJSON_AddArrayToObject(card, "body_runs");
+        cJSON *cached_runs = cJSON_AddArrayToObject(card, "cached_body_runs");
+        for (int run_index = 0; run_index < slot->styled_run_count; run_index++) {
+            const status_body_run_t *run = &slot->styled_runs[run_index];
+            cJSON *item = cJSON_CreateObject();
+            cJSON_AddNumberToObject(item, "start", run->start);
+            cJSON_AddNumberToObject(item, "end", run->end);
+            cJSON_AddNumberToObject(item, "style", run->style);
+            cJSON_AddItemToArray(cached_runs, item);
+            if (span_visible) {
+                cJSON *visible_run = cJSON_CreateObject();
+                cJSON_AddNumberToObject(visible_run, "start", run->start);
+                cJSON_AddNumberToObject(visible_run, "end", run->end);
+                cJSON_AddNumberToObject(visible_run, "style", run->style);
+                cJSON_AddItemToArray(runs, visible_run);
+            }
+        }
+
+        cJSON *segments = cJSON_AddArrayToObject(card, "span_segments");
+        const uint32_t span_count = lv_spangroup_get_span_count(slot->body_span);
+        for (uint32_t segment_index = 0; segment_index < span_count; segment_index++) {
+            lv_span_t *span = lv_spangroup_get_child(slot->body_span, (int32_t)segment_index);
+            if (span == NULL) continue;
+            cJSON *segment = cJSON_CreateObject();
+            const char *segment_text = lv_span_get_text(span);
+            snprintf(object_id, sizeof(object_id), "%p", (const void *)span);
+            cJSON_AddStringToObject(segment, "id", object_id);
+            cJSON_AddStringToObject(segment, "text", segment_text);
+            cJSON_AddNumberToObject(segment, "style", composed_span_style(span));
+            const char *resolved_font = composed_cjk_resolved_font(
+                composed_span_font(span), segment_text);
+            cJSON_AddStringToObject(segment, "cjk_resolved_font", resolved_font);
+            cJSON_AddBoolToObject(segment, "cjk_fallback_regular",
+                strcmp(resolved_font, "status_text_16") == 0);
+            cJSON_AddItemToArray(segments, segment);
+        }
+        cJSON_AddItemToArray(cards, card);
+    }
 }
 
 static const char *input_state_name_for_grouped(void);
@@ -119,6 +248,7 @@ static cJSON *composed_readback(void)
         ? input_state_name_for_grouped() : input_state_name());
     cJSON_AddNumberToObject(out, "frame_width", DISPLAY_WIDTH);
     cJSON_AddNumberToObject(out, "frame_height", DISPLAY_HEIGHT);
+    composed_add_body_readback(out);
     return out;
 }
 
