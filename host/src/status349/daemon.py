@@ -133,6 +133,10 @@ class Daemon:
         self._next_local_notification_id = 100000
         self._injected_expiry: dict[int, float] = {}
         self._ipc = IpcServer(self._ipc_handler)
+        self._active_port: str | None = None
+        self._link_wakeup = asyncio.Event()
+        self._link_port_generation = 0
+        self._link_settings_generation = 0
 
     def _allocate_local_notification_id(self) -> int:
         """Allocate a daemon-unique positive 31-bit notification ID."""
@@ -158,9 +162,13 @@ class Daemon:
             await self.send(proto.card_action(self.grouped_session, local_id, entry.revision, entry.state))
 
     async def run(self) -> None:
+        notifications_start_attempted = False
         try:
-            await self.notifications.start()
+            # Claim the runtime directory before starting any workers or
+            # touching the serial device. A rejected second daemon stays inert.
             await self._ipc.start()
+            notifications_start_attempted = True
+            await self.notifications.start()
             workers = {
                 asyncio.create_task(self._link_loop(), name="link"),
                 asyncio.create_task(self._tick_loop(), name="tick"),
@@ -183,14 +191,17 @@ class Daemon:
                     task.cancel()
                 await asyncio.gather(*workers, stop_waiter, notification_failure, return_exceptions=True)
         finally:
-            for task in tuple(self._action_tasks):
-                task.cancel()
-            if self._action_tasks:
-                await asyncio.gather(*self._action_tasks, return_exceptions=True)
-            if self._writer is not None:
-                self._writer.close()
-            await self.notifications.stop()
-            await self._ipc.stop()
+            try:
+                for task in tuple(self._action_tasks):
+                    task.cancel()
+                if self._action_tasks:
+                    await asyncio.gather(*self._action_tasks, return_exceptions=True)
+                if self._writer is not None:
+                    self._writer.close()
+                if notifications_start_attempted:
+                    await self.notifications.stop()
+            finally:
+                await self._ipc.stop()
 
     async def _device_notify(self, message: dict) -> None:
         local_id = int(message["id"])
@@ -663,98 +674,176 @@ class Daemon:
                 if not await self._write_message(message):
                     break
 
+    def _link_backoff_bounds(self) -> tuple[float, float]:
+        minimum = max(0.05, float(self.cfg.link.reconnect_min_s))
+        return minimum, max(minimum, float(self.cfg.link.reconnect_max_s))
+
+    async def _wait_link_wakeup(self, timeout: float) -> bool:
+        try:
+            await asyncio.wait_for(self._link_wakeup.wait(), timeout=timeout)
+        except TimeoutError:
+            return False
+        self._link_wakeup.clear()
+        return True
+
+    async def _read_until_link_change(
+        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter, port_generation: int
+    ) -> None:
+        read_task = asyncio.create_task(self._read_loop(reader), name="serial-reader")
+        wake_task: asyncio.Task | None = None
+        try:
+            while True:
+                wake_task = asyncio.create_task(self._link_wakeup.wait(), name="link-reconfigure")
+                done, _ = await asyncio.wait({read_task, wake_task}, return_when=asyncio.FIRST_COMPLETED)
+                if read_task in done:
+                    wake_task.cancel()
+                    await asyncio.gather(wake_task, return_exceptions=True)
+                    wake_task = None
+                    await read_task
+                    return
+
+                wake_task = None
+                self._link_wakeup.clear()
+                if self._link_port_generation != port_generation or pause_path().exists():
+                    writer.close()
+                    read_task.cancel()
+                    await asyncio.gather(read_task, return_exceptions=True)
+                    return
+        finally:
+            if wake_task is not None:
+                if not wake_task.done():
+                    wake_task.cancel()
+                await asyncio.gather(wake_task, return_exceptions=True)
+            if not read_task.done():
+                read_task.cancel()
+            await asyncio.gather(read_task, return_exceptions=True)
+
     async def _link_loop(self) -> None:
-        min_backoff = max(0.05, float(self.cfg.link.reconnect_min_s))
-        max_backoff = max(min_backoff, float(self.cfg.link.reconnect_max_s))
+        min_backoff, max_backoff = self._link_backoff_bounds()
         backoff = min_backoff
+        observed_settings_generation = self._link_settings_generation
 
         while not self.stop.is_set():
+            if observed_settings_generation != self._link_settings_generation:
+                observed_settings_generation = self._link_settings_generation
+                min_backoff, max_backoff = self._link_backoff_bounds()
+                backoff = min_backoff
+            # Generations carry the setting changes; clearing here consumes a
+            # wakeup left by an open attempt that already noticed it was stale.
+            self._link_wakeup.clear()
+
             if pause_path().exists():
                 if self._writer is not None:
                     self._writer.close()
                 backoff = min_backoff
-                await asyncio.sleep(0.5)
+                await self._wait_link_wakeup(0.5)
                 continue
 
+            port_generation = self._link_port_generation
+            settings_generation = self._link_settings_generation
             path = self.cfg.link.port
             if path is None:
                 try:
                     path = find_port()
                 except LinkError as exc:
                     log.debug("no device: %s", exc)
-                    # Device discovery is cheap; do not let open-error backoff
-                    # delay a replug after the by-id path reappears.
+                    # Discovery is cheap; config changes wake the bounded scan.
                     backoff = min_backoff
-                    await asyncio.sleep(PORT_SCAN_INTERVAL_S)
+                    await self._wait_link_wakeup(PORT_SCAN_INTERVAL_S)
                     continue
 
             try:
                 reader, writer = await serial_asyncio.open_serial_connection(url=path, baudrate=BAUDRATE)
             except Exception as exc:  # serial.SerialException and friends
+                if settings_generation != self._link_settings_generation:
+                    continue
                 log.warning("open %s failed: %s", path, exc)
-                await asyncio.sleep(backoff)
+                if await self._wait_link_wakeup(backoff):
+                    continue
+                min_backoff, max_backoff = self._link_backoff_bounds()
                 backoff = min(backoff * 2, max_backoff)
                 continue
 
-            log.info("link up on %s", path)
-            backoff = min_backoff
-            async with self._state_lock:
-                self._grouped_enabled = False
-                self._history_enabled = False
-                self._body_style_enabled = False
-                self._actions_capable = False
-                self._actions_negotiated = False
-                self._device_expected_generation = 0
-                self._pending_present_id = None
-                self._pending_present_due = None
-                await self._end_presentation_locked(send_end=False)
-                self._grouped_group = "home"
-                self._manual_notifications = False
-                self._writer = writer
-                self._card_sync_capacity = None
-                self._dashboard_capable = False
-                self._sync_tx = 0
-                self._device_boot_id = None
-            # Opening the port resets the chip, but the kernel's DTR/RTS raise
-            # can land it in download mode; force a normal boot, then the
-            # device announces itself.
-            serial_port = getattr(writer.transport, "serial", None)
-            if serial_port is not None:
-                await reset_to_normal_boot_async(serial_port)
-            await self.send(proto.hello())
-            await self.send({"t": "ping", "ts": int(time.time())})
-
+            installed = False
             try:
-                await self._read_loop(reader)
+                async with self._state_lock:
+                    if (
+                        port_generation == self._link_port_generation
+                        and not pause_path().exists()
+                        and not self.stop.is_set()
+                    ):
+                        self._grouped_enabled = False
+                        self._history_enabled = False
+                        self._body_style_enabled = False
+                        self._actions_capable = False
+                        self._actions_negotiated = False
+                        self._device_expected_generation = 0
+                        self._pending_present_id = None
+                        self._pending_present_due = None
+                        await self._end_presentation_locked(send_end=False)
+                        self._grouped_group = "home"
+                        self._manual_notifications = False
+                        self._writer = writer
+                        self._active_port = path
+                        self._card_sync_capacity = None
+                        self._dashboard_capable = False
+                        self._sync_tx = 0
+                        self._device_boot_id = None
+                        installed = True
+                if not installed:
+                    continue
+
+                log.info("link up on %s", path)
+                backoff = min_backoff
+                # Opening the port resets the chip, but DTR/RTS can land it in
+                # download mode; force a normal boot before the device hello.
+                serial_port = getattr(writer.transport, "serial", None)
+                if serial_port is not None:
+                    await reset_to_normal_boot_async(serial_port)
+                if port_generation != self._link_port_generation or pause_path().exists():
+                    continue
+                await self.send(proto.hello())
+                await self.send({"t": "ping", "ts": int(time.time())})
+                await self._read_until_link_change(reader, writer, port_generation)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
                 log.warning("link error: %s", exc)
             finally:
-                async with self._state_lock:
-                    self._writer = None
-                    self._grouped_enabled = False
-                    self._history_enabled = False
-                    self._body_style_enabled = False
-                    self._actions_capable = False
-                    self._actions_negotiated = False
-                    self.action_manager.invalidate_for_link_reset()
-                    if self._action_pending is not None and not self._action_pending.get("started"):
-                        self._action_pending["cancelled"] = True
-                    self._pending_present_id = None
-                    self._pending_present_due = None
-                    await self._end_presentation_locked(send_end=False)
-                    self._grouped_group = "home"
-                    self._manual_notifications = False
+                if installed:
+                    async with self._state_lock:
+                        if self._writer is writer:
+                            self._writer = None
+                            self._active_port = None
+                            self._grouped_enabled = False
+                            self._history_enabled = False
+                            self._body_style_enabled = False
+                            self._actions_capable = False
+                            self._actions_negotiated = False
+                            self.action_manager.invalidate_for_link_reset()
+                            if self._action_pending is not None and not self._action_pending.get("started"):
+                                self._action_pending["cancelled"] = True
+                            self._pending_present_id = None
+                            self._pending_present_due = None
+                            await self._end_presentation_locked(send_end=False)
+                            self._grouped_group = "home"
+                            self._manual_notifications = False
                 writer.close()
                 try:
                     await writer.wait_closed()
                 except Exception:
                     pass
 
-            if not self.stop.is_set():
-                log.info("link down, retrying")
-                await asyncio.sleep(backoff)
+            if self.stop.is_set() or pause_path().exists():
+                continue
+            if port_generation != self._link_port_generation:
+                continue
+            if observed_settings_generation != self._link_settings_generation:
+                observed_settings_generation = self._link_settings_generation
+                min_backoff, max_backoff = self._link_backoff_bounds()
+                backoff = min_backoff
+            log.info("link down, retrying")
+            await self._wait_link_wakeup(backoff)
 
     async def _read_loop(self, reader: asyncio.StreamReader) -> None:
         buf = b""
@@ -1190,9 +1279,24 @@ class Daemon:
             log.error("config reload failed: %s", exc)
             return False
         async with self._state_lock:
+            old_link_settings = (
+                self.cfg.link.port,
+                self.cfg.link.reconnect_min_s,
+                self.cfg.link.reconnect_max_s,
+            )
             apply_config(self.cfg, new)
             if self._port_override is not None:
                 self.cfg.link.port = self._port_override
+            new_link_settings = (
+                self.cfg.link.port,
+                self.cfg.link.reconnect_min_s,
+                self.cfg.link.reconnect_max_s,
+            )
+            if old_link_settings != new_link_settings:
+                self._link_settings_generation += 1
+                self._link_wakeup.set()
+            if old_link_settings[0] != new_link_settings[0]:
+                self._link_port_generation += 1
             self.model.max_visible = self.cfg.notifications.max_visible
             self.model.cache_limit = self.cfg.notifications.cache_limit
             self.model.retention_s = self.cfg.notifications.retention_s
@@ -1210,6 +1314,7 @@ class Daemon:
 
     def pause(self) -> None:
         pause_path().touch()
+        self._link_wakeup.set()
         if self._writer is not None:
             self._writer.close()
         log.info("paused: serial port released for flashing")
@@ -1219,6 +1324,7 @@ class Daemon:
             pause_path().unlink()
         except FileNotFoundError:
             pass
+        self._link_wakeup.set()
         log.info("resumed")
 
     def _status(self) -> dict:
@@ -1238,6 +1344,7 @@ class Daemon:
             "paused": pause_path().exists(),
             "link": self._writer is not None,
             "port": self.cfg.link.port,
+            "active_port": self._active_port if self._writer is not None else None,
             "rev": self.model.rev,
             "notifs": len(self.model.notifs),
             "retained_notifs": len(self.model.retained_notifs),

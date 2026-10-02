@@ -1,12 +1,14 @@
 """The service must fail visibly and injected cards must expire."""
 
 import asyncio
+import gc
 import time
 
 import pytest
 
 from status349.config import default_config
 from status349.daemon import Daemon
+from status349.ipc import IpcServer
 from status349.link import LinkError
 
 
@@ -73,6 +75,71 @@ def test_failed_notification_worker_exits_daemon():
             await asyncio.wait_for(daemon.run(), 1)
         assert isinstance(daemon.notifications.failure, RuntimeError)
         assert str(daemon.notifications.failure) == "monitor failed"
+
+    asyncio.run(scenario())
+
+
+def test_ipc_ownership_releases_when_notification_shutdown_fails():
+    async def handler(_request):
+        return {"ok": True}
+
+    async def scenario():
+        stop = asyncio.Event()
+        stop.set()
+        daemon = Daemon(default_config(), stop)
+
+        async def ready():
+            pass
+
+        async def broken_stop():
+            raise RuntimeError("notification shutdown failed")
+
+        async def park():
+            await asyncio.Future()
+
+        daemon.notifications.start = ready
+        daemon.notifications.stop = broken_stop
+        daemon._link_loop = park
+        daemon._tick_loop = park
+        daemon._ping_loop = park
+
+        with pytest.raises(RuntimeError, match="notification shutdown failed"):
+            await asyncio.wait_for(daemon.run(), 1)
+
+        replacement = IpcServer(handler)
+        await replacement.start()
+        await replacement.stop()
+
+    asyncio.run(scenario())
+
+
+def test_cancelled_link_reader_consumes_completed_read_failure():
+    async def scenario():
+        daemon = Daemon(default_config(), asyncio.Event())
+        loop = asyncio.get_running_loop()
+        errors = []
+        previous_handler = loop.get_exception_handler()
+        loop.set_exception_handler(lambda _loop, context: errors.append(context["message"]))
+        parent = None
+
+        async def fail_read(_reader):
+            parent.cancel()
+            raise RuntimeError("serial read failed during shutdown")
+
+        daemon._read_loop = fail_read
+        try:
+            parent = asyncio.create_task(daemon._read_until_link_change(object(), object(), 0))
+            await asyncio.gather(parent, return_exceptions=True)
+            assert parent.cancelled()
+            # Drop the cancelled parent's traceback so uncollected child
+            # exceptions reach the loop handler within this test.
+            parent = None
+            for _ in range(3):
+                gc.collect()
+                await asyncio.sleep(0)
+            assert errors == []
+        finally:
+            loop.set_exception_handler(previous_handler)
 
     asyncio.run(scenario())
 

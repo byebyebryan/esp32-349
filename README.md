@@ -71,6 +71,11 @@ with `systemctl --user show-environment`).
 349ctl log [-n N]             recent device log lines
 ```
 
+Only one `349d` can own an `XDG_RUNTIME_DIR` at a time. `349ctl status` keeps
+`port` as the effective configured target and reports the open serial path as
+`active_port` (`null` while disconnected). Reloading a changed target reconnects
+and syncs retained in-memory cards; a daemon `--port` override stays in effect.
+
 Direct-to-device commands when the daemon is stopped: `349ctl --port /dev/ttyACM0
 hello|ping|text|listen`.
 

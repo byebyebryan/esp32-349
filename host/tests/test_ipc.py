@@ -2,7 +2,10 @@
 
 import asyncio
 import json
+import socket
 import time
+
+import pytest
 
 from status349 import ipc
 from status349.config import default_config
@@ -118,3 +121,109 @@ def test_ipc_commands_and_sticky_pause(tmp_path):
         asyncio.run(restarted())
     finally:
         fake.stop()
+
+
+def test_duplicate_ipc_start_and_stop_leave_owner_endpoint_intact():
+    async def handler(_request):
+        return {"ok": True, "owner": 1}
+
+    async def scenario():
+        owner = ipc.IpcServer(handler)
+        contender = ipc.IpcServer(handler)
+        await owner.start()
+        path = ipc.socket_path()
+        owner_identity = (path.stat().st_dev, path.stat().st_ino)
+
+        with pytest.raises(RuntimeError, match="already running"):
+            await contender.start()
+        await contender.stop()
+
+        assert (path.stat().st_dev, path.stat().st_ino) == owner_identity
+        assert await _ipc({"cmd": "status"}, path) == {"ok": True, "owner": 1}
+        await owner.stop()
+        assert not path.exists()
+
+    asyncio.run(scenario())
+
+
+def test_existing_lockless_listener_is_refused_without_unlinking_socket():
+    async def handler(reader, writer):
+        await reader.readline()
+        writer.write(b'{"ok":true}\n')
+        await writer.drain()
+        writer.close()
+        await writer.wait_closed()
+
+    async def scenario():
+        path = ipc.socket_path()
+        listener = await asyncio.start_unix_server(handler, path=str(path))
+        identity = (path.stat().st_dev, path.stat().st_ino)
+        contender = ipc.IpcServer(lambda _request: asyncio.sleep(0, result={"ok": True}))
+        try:
+            with pytest.raises(RuntimeError, match="listener already owns"):
+                await contender.start()
+            await contender.stop()
+            assert (path.stat().st_dev, path.stat().st_ino) == identity
+            assert await _ipc({"cmd": "status"}, path) == {"ok": True}
+        finally:
+            listener.close()
+            await listener.wait_closed()
+            path.unlink(missing_ok=True)
+
+    asyncio.run(scenario())
+
+
+def test_stale_socket_recovery_keeps_stable_lock_inode():
+    async def handler(_request):
+        return {"ok": True}
+
+    async def scenario():
+        path = ipc.socket_path()
+        stale = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        stale.bind(str(path))
+        stale.close()
+
+        first = ipc.IpcServer(handler)
+        await first.start()
+        lock_identity = (ipc.lock_path().stat().st_dev, ipc.lock_path().stat().st_ino)
+        await first.stop()
+        assert not path.exists()
+        assert (ipc.lock_path().stat().st_dev, ipc.lock_path().stat().st_ino) == lock_identity
+
+        second = ipc.IpcServer(handler)
+        await second.start()
+        assert (ipc.lock_path().stat().st_dev, ipc.lock_path().stat().st_ino) == lock_identity
+        await second.stop()
+
+    asyncio.run(scenario())
+
+
+def test_ipc_cleanup_preserves_replacement_socket_and_regular_file():
+    async def handler(_request):
+        return {"ok": True}
+
+    async def noop(_reader, writer):
+        writer.close()
+        await writer.wait_closed()
+
+    async def scenario():
+        path = ipc.socket_path()
+        owner = ipc.IpcServer(handler)
+        await owner.start()
+        path.unlink()
+        replacement = await asyncio.start_unix_server(noop, path=str(path))
+        replacement_identity = (path.stat().st_dev, path.stat().st_ino)
+        await owner.stop()
+        assert (path.stat().st_dev, path.stat().st_ino) == replacement_identity
+        replacement.close()
+        await replacement.wait_closed()
+        path.unlink(missing_ok=True)
+
+        path.write_text("ordinary file")
+        refused = ipc.IpcServer(handler)
+        with pytest.raises(RuntimeError, match="non-socket"):
+            await refused.start()
+        await refused.stop()
+        assert path.read_text() == "ordinary file"
+
+    asyncio.run(scenario())
