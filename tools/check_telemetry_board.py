@@ -165,7 +165,7 @@ def run(port: str, expected_build: str, samples: int, artifacts: Path,
                 for index in range(32):
                     model.retain_notification(proto.notify(10000 + index, "349 PROBE",
                         f"READBACK {index + 1:02}",
-                        "We've / we’ve 東京 が → ✓ " + "content " * 100
+                        "We've / we’ve 中文 与 → ✓ " + "content " * 100
                             if history_stress else "Controlled readback fixture", 1, 0,
                         int(time.time())))
                 model.set_dashboard(payload)

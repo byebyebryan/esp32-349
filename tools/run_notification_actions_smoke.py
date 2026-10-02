@@ -24,7 +24,7 @@ APP = '349-Snap-Acceptance'
 NAME = 'org.freedesktop.Notifications'
 INTERFACE = 'org.freedesktop.Notifications'
 FIXTURES = (
-    ('READY A — we’ve 東京 → ✓', ['default', 'Open test card']),
+    ('READY A — we’ve 中文 → ✓', ['default', 'Open test card']),
     ('DISABLED B — no default action', []),
     ('READY C — tap Open', ['reply', 'Reply (not default)', 'default', 'Open test card']),
 )
@@ -132,7 +132,7 @@ class Recorder:
                     raise RuntimeError('Owned fixture cleanup did not complete; see trace')
                 for summary, actions in FIXTURES:
                     nid = await asyncio.wait_for(notifications.call_notify(APP, 0, '', summary,
-                        "We've / we’ve 東京 が → ✓. Body taps stay inert; swipe to browse.", actions, {}, 0), 2)
+                        "We've / we’ve 中文 与 → ✓. Body taps stay inert; swipe to browse.", actions, {}, 0), 2)
                     self.owned.add(nid); self.active.add(nid)
                     self.record({'event': 'Notify', 'id': nid, 'summary': summary, 'expire_ms': 0,
                                  'has_default': 'default' in actions[::2]})

@@ -103,11 +103,11 @@ async def scenario(native: Native):
         native.command("release", x=x, y=y, ms=1)
         return await route()
 
-    async def notify(serial, *, replaces=0, actions=None, summary="We've / we’ve 東京 → ✓"):
+    async def notify(serial, *, replaces=0, actions=None, summary="We've / we’ve 中文 → ✓"):
         await source._handle(Message(
             destination=NOTIFICATIONS_NAME, path="/org/freedesktop/Notifications",
             interface=NOTIFICATIONS_NAME, member="Notify", signature="susssasa{sv}i",
-            body=["COMPOSED", replaces, "", summary, "Body tap is inert. 東京 が → ✓",
+            body=["COMPOSED", replaces, "", summary, "Body tap is inert. 中文 与 → ✓",
                   ["default", "Open"] if actions is None else actions, {}, 10000],
             sender=":1.50", serial=serial,
         ))
@@ -208,7 +208,7 @@ async def scenario(native: Native):
             member="NotificationClosed", signature="uu", body=[9, 2],
         ))
         assert closing_id not in native.status()["ids"]
-        survivor_id = await notify(4, summary="SURVIVOR 東京 → ✓")
+        survivor_id = await notify(4, summary="SURVIVOR 中文 → ✓")
         assert native.status()["actions"]["pending"]["id"] == closing_id
         # A result with another card's ID must not release this request.
         native.wire(proto.action_result(closing_request["session"], closing_request["boot_id"],

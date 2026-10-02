@@ -500,12 +500,34 @@ static void held_updates_and_removal(void)
     assert(s_group_home);
 }
 
+static void notification_font_coverage(void)
+{
+    /* These common Chinese glyphs were missing from the former repertoire.
+     * Check LVGL's actual cmaps, including the styled-body fallback. */
+    const uint32_t codepoints[] = {
+        0x6D4B, 0x8BD5, 0x7801, 0x7F16, 0x8BD1, 0x9519, 0x8BEF, 0x590D,
+        0x7F51, 0x7EDC, 0xFF01, 0xFF1A, 0x3010, 0x3011, 0x300A, 0x300B,
+    };
+    const lv_font_t *fonts[] = {
+        &status_text_16, &status_text_20, &status_text_22,
+        &status_text_16_bold, &status_text_16_italic, &status_text_16_bold_italic,
+    };
+    for (size_t font = 0; font < sizeof(fonts) / sizeof(fonts[0]); font++) {
+        for (size_t cp = 0; cp < sizeof(codepoints) / sizeof(codepoints[0]); cp++) {
+            lv_font_glyph_dsc_t glyph;
+            assert(lv_font_get_glyph_dsc(fonts[font], &glyph, codepoints[cp], 0));
+            assert(!glyph.is_placeholder);
+            assert(glyph.resolved_font == (font < 3 ? fonts[font] : &status_text_16));
+        }
+    }
+}
+
 static void counts_controls_and_text(void)
 {
     int ids[] = {1};
     groups_reset(ids, 1);
-    strcpy(s_notifs[0].summary, "We've / we’ve — 東京");
-    strcpy(s_notifs[0].body, "English notifications, 東京 が → ✓. A longer sentence wraps and truncates within the card.");
+    strcpy(s_notifs[0].summary, "We've / we’ve — 中文");
+    strcpy(s_notifs[0].body, "English notifications, 中文 与 → ✓. A longer sentence wraps and truncates within the card.");
     present(1, 1, 1, -1);
     assert(lv_obj_get_height(s_cards[1].body) == 84);
     assert(!s_cards[0].valid && !s_cards[2].valid);
@@ -526,12 +548,12 @@ static void counts_controls_and_text(void)
 
     int pair[] = {2, 1};
     groups_reset(pair, 2);
-    strcpy(s_notifs[0].summary, "東京 → ✓");
+    strcpy(s_notifs[0].summary, "中文 → ✓");
     strcpy(s_notifs[1].summary, "Build review is ready");
     strcpy(s_notifs[1].body, "We've reviewed the changes. Open the pull request for details and the next steps.");
     present(1, 2, 1, -1);
     lv_font_glyph_dsc_t glyph;
-    assert(lv_font_get_glyph_dsc(s_meta, &glyph, 0x6771, 0));
+    assert(lv_font_get_glyph_dsc(s_meta, &glyph, 0x4E2D, 0));
     assert(capture_frame("groups-long-two"));
 
     int many[32]; for (int i = 0; i < 32; i++) many[i] = 33 - i;
@@ -574,7 +596,7 @@ static void action_controls_and_capture(void)
     s_state.actions_enabled = true;
     set_open(2, 5, true);
     snprintf(s_notifs[1].summary, sizeof(s_notifs[1].summary),
-             "%s", "A very long English notification title with CJK 東京 → ✓");
+             "%s", "A very long English notification title with CJK 中文 → ✓");
     present(1, 2, 1, -1);
     assert(!s_group_home && s_group_auto);
     assert(!lv_obj_has_flag(s_cards[1].open, LV_OBJ_FLAG_HIDDEN));
@@ -622,12 +644,12 @@ static void action_controls_and_capture(void)
     assert(lv_obj_get_width(s_cards[0].title) == 440);
     assert(capture_frame("actions-ready-long-english-cjk"));
     snprintf(s_notifs[1].summary, sizeof(s_notifs[1].summary), "%s",
-             "東京で通知を確認するための長い見出し → ✓");
+             "通知：代码已修改，测试完成，等待确认 → ✓");
     ui_deck_tick(STATE_DIRTY_NOTIF);
     repaint();
     assert(capture_frame("actions-ready-cjk"));
     snprintf(s_notifs[1].summary, sizeof(s_notifs[1].summary),
-             "%s", "A very long English notification title with CJK 東京 → ✓");
+             "%s", "A very long English notification title with CJK 中文 → ✓");
     ui_deck_tick(STATE_DIRTY_NOTIF);
     repaint();
 
@@ -1018,11 +1040,11 @@ static void history_layout_and_navigation(void)
         } else {
             snprintf(n->app, sizeof(n->app), "Claude Code");
         }
-        snprintf(n->summary, sizeof(n->summary), "Review complete — 東京");
+        snprintf(n->summary, sizeof(n->summary), "Review complete — 中文");
         snprintf(n->body, sizeof(n->body),
             "We've reviewed the notification history and its retention policy. "
             "The smaller body font shows more of the original message, including "
-            "we’ve, 東京 が, arrows → and common symbols ✓. This is longer than "
+            "we’ve, 中文 与, arrows → and common symbols ✓. This is longer than "
             "the former 159-byte body buffer, so the third line should carry useful content.");
     }
     ui_deck_tick(STATE_DIRTY_NOTIF);
@@ -1129,7 +1151,7 @@ static void history_layout_and_navigation(void)
     snprintf(s_state.notifs[0].summary, sizeof(s_state.notifs[0].summary), "One recent notification");
     snprintf(s_state.notifs[0].body, sizeof(s_state.notifs[0].body),
         "We've completed the review and kept the smaller font's full repertoire: "
-        "we’ve, 東京 が, arrows → and check marks ✓. A single card keeps the same "
+        "we’ve, 中文 与, arrows → and check marks ✓. A single card keeps the same "
         "height and action targets as a stack, preserving the clock "
         "and telemetry on the left. Longer messages still end with a visible ellipsis.");
     ui_deck_tick(STATE_DIRTY_NOTIF);
@@ -1281,6 +1303,29 @@ static void history_age_progress(void)
         assert(lv_obj_has_flag(s_cards[i].age_bar, LV_OBJ_FLAG_HIDDEN));
 }
 
+static void simplified_chinese_capture(void)
+{
+    const int ids[] = {1};
+    groups_reset(ids, 1);
+    s_state.history_enabled = true;
+    status_notif_t *n = &s_state.notifs[0];
+    n->history_revision = 1;
+    n->history_updated_us = s_now_us;
+    n->history_deadline_us = s_now_us + 600000000;
+    snprintf(n->app, sizeof(n->app), "Codex");
+    snprintf(n->summary, sizeof(n->summary), "测试完成，代码已修改");
+    snprintf(n->body, sizeof(n->body),
+             "编译错误已修复！等待确认，连接网络。\n"
+             "中文标点：！？；（）【】《》“”\n"
+             "Claude / Codex → tests passed ✓");
+    ui_deck_tick(STATE_DIRTY_NOTIF);
+    group_finish();
+    assert(!s_group_home && s_history_mode);
+    assert(lv_obj_get_style_text_font(s_cards[1].title, 0) == &status_text_22);
+    assert(lv_obj_get_style_text_font(s_cards[1].body, 0) == &status_text_16);
+    assert(capture_frame("fonts-simplified-chinese"));
+}
+
 int main(int argc, char **argv)
 {
     s_artifact_dir = argc > 2 && strcmp(argv[1], "--artifacts") == 0
@@ -1292,6 +1337,7 @@ int main(int argc, char **argv)
     fixture_init(false);
     assert(s_label_count <= 40);
     s_test_clock_valid = true;
+    notification_font_coverage();
     navigation_and_geometry();
     rail_telemetry_captures();
     leases_and_manual();
@@ -1303,6 +1349,7 @@ int main(int argc, char **argv)
     lifecycle_concurrent_updates();
     history_layout_and_navigation();
     history_age_progress();
+    simplified_chinese_capture();
     fixture_shutdown();
     fclose(s_trace_file);
     puts("grouped production LVGL: passed");

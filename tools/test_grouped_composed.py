@@ -127,7 +127,7 @@ async def scenario(native: Native) -> None:
 
     async def notify(nid: int, urgency: int = 1, expire: int = 1000, summary: str | None = None):
         await daemon._device_notify(proto.notify(nid, "COMPOSED", summary or f"CARD {nid}",
-            "We've / we’ve 東京 が → ✓", urgency, expire, 1790411700))
+            "We've / we’ve 中文 与 → ✓", urgency, expire, 1790411700))
 
     def selected_text_pixels(name: str) -> bytes:
         # Selected card title/body during the +50 px captured drag, excluding cues.

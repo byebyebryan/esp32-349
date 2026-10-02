@@ -130,13 +130,17 @@ sending a frame the device cannot accept. Reload after editing with
 `349ctl reload` (or `systemctl --user reload 349d`).
 
 V1 uses Montserrat with a bundled Source Han Sans CJK fallback and a generated
-punctuation/symbol subset for bar and notification text. The subset covers
-typographic quotes (including `’`), arrows, math signs, shapes, and dingbats;
+punctuation/symbol subset for bar text. The generated notification fonts cover
+English and the 3,500 common Simplified Chinese characters in the first level
+of the 2013 通用规范汉字表, plus Chinese punctuation. Existing Latin and symbol
+coverage includes typographic quotes (including `’`), arrows, math signs,
+shapes, and dingbats;
 see [font sources and licenses](main/fonts/README.md). Latin accents become
 base letters, while nondecomposing Latin-1 and Latin Extended-A letters have
 glyphs. Glyphs outside the font set show a visible placeholder. The
-[coverage audit](PLAN.md) describes remaining script gaps. Nerd Font Private
-Use icons and color emoji are not included.
+[font coverage audit](tools/check_font_coverage.py) checks the selected repertoire.
+Kana, additional Han characters, Nerd Font Private Use icons and color emoji
+are outside the notification font selection.
 
 Firmware advertising `notification-history-v1` dedicates the right side to
 recent notifications. Empty means `No recent notifications`, with the clock

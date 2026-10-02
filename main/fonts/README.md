@@ -10,25 +10,50 @@ punctuation glyphs selected below and each falls back to `status_text_16` for
 CJK and the remaining symbols. All generated fonts use 4 bpp without
 compression or kerning.
 
-Each regular composite text font preserves the complete union of glyphs from
-the old 14 px and 16 px Montserrat, Source Han, and symbol font chains.
-Montserrat Medium supplies ASCII, Latin-1/Extended-A, and punctuation; DejaVu Sans supplies
-the existing arrow, math, technical, shape, and dingbat ranges. Source Han Sans
-supplies exactly the non-ASCII CJK repertoire identified by the `U+` comments
-in LVGL's `lv_font_source_han_sans_sc_16_cjk.c`. ASCII is omitted from that
-Source Han selection because Montserrat supplies it. The reference C file also
-contains 60 existing FontAwesome private-use glyphs, so those same codepoints
-are selected from LVGL's bundled FontAwesome WOFF as a fourth source. No other
-icon codepoints are added. Unsupported emoji continue to use LVGL's placeholder.
+Each regular composite text font contains 4,844 glyphs focused on English and
+Simplified Chinese notifications. Montserrat Medium supplies the existing
+ASCII, Latin-1/Extended-A, and punctuation coverage; DejaVu Sans supplies the
+existing arrow, math, technical, shape, and dingbat ranges. Source Han Sans SC
+supplies the 3,500 first-level characters of the 2013 通用规范汉字表, plus 20
+Chinese punctuation characters: `　、。，！？：；（）【】《》〈〉「」『』`.
+Typographic quotes and the ellipsis come from Montserrat. Kana and Han
+characters outside that Chinese table are omitted from these notification
+fonts. Shared Han characters naturally remain available in other languages.
+The 60 existing FontAwesome private-use glyphs are selected from LVGL's bundled
+WOFF as a fourth source. Unsupported emoji continue to use LVGL's placeholder.
+The bundled 14/16 px Source Han fallback chains used elsewhere in the UI retain
+their original repertoire.
+
+The checked-in [Chinese character list](repertoires/tgh-2013-level1.txt) is
+extracted from Unicode 17.0.0 [Unihan.zip](https://www.unicode.org/Public/17.0.0/ucd/Unihan.zip)
+using the [`kTGH` property](https://www.unicode.org/reports/tr38/tr38-40.html#kTGH):
+select `2013:1` through `2013:3500`, sort by table index, and write 100 characters
+per UTF-8 line with a final newline. `kTGHZ2013` contains dictionary readings
+and is not the table membership property. Regeneration uses the local list and
+does not download Unihan. The relevant SHA-256 values are:
+
+- Unicode 17.0.0 archive: `f7a48b2b545acfaa77b2d607ae28747404ce02baefee16396c5d2d7a8ef34b5e`
+- Extracted list: `4caca78057eb62257ed475e0a140b02a58c5907fd054613a93cfdec3a7df6320`
+
+The list is covered by [Unicode License V3](licenses/Unicode-LICENSE.txt).
 
 The generated text fonts have these measured metrics:
 
 | Font | Line height | Baseline | Bitmap data | C source |
 | --- | ---: | ---: | ---: | ---: |
-| `status_text_16` | 22 px | 5 px | 232,118 B | 1,732,525 B |
-| `status_text_20` | 26 px | 6 px | 355,688 B | 2,472,051 B |
-| `status_text_22` | 28 px | 6 px | 430,110 B | 2,913,398 B |
+| `status_text_16` | 22 px | 5 px | 500,991 B | 3,651,555 B |
+| `status_text_20` | 26 px | 6 px | 774,276 B | 5,294,429 B |
+| `status_text_22` | 28 px | 6 px | 939,182 B | 6,273,990 B |
 | `status_clock_80` | 58 px | 1 px | 12,486 B | 78,566 B |
+
+Including glyph descriptors and cmaps, the three regular notification fonts
+occupy 547,621 B, 820,906 B and 985,812 B of compiled ESP32-S3 flash data,
+respectively. All linked fonts, including body styles, clock and legacy UI
+fonts, contain 3,106,713 B (2.96 MiB) of const flash data, plus 48 B of initialized
+RAM descriptors in the legacy CJK fonts. The firmware built with this
+repertoire is 3,820,944 B (3.64 MiB), leaving 4.36 MiB in the current 8 MiB app partition.
+The bitmap and lookup tables are const flash data; their growth does not
+allocate an equivalent amount of heap RAM.
 
 The three 16 px body styles each contain 373 Montserrat glyphs, with
 `line_height=22` and `base_line=5` to match `status_text_16`. Their bitmap data
@@ -47,8 +72,8 @@ The widest valid 24-hour `HH:MM` string in `status_clock_80` is 233 px
 room within the 456 px clock area.
 
 The four source font files come from the LVGL component locked by
-`dependencies.lock`. Their SHA-256 values and the CJK repertoire reference
-hash are:
+`dependencies.lock`. Their SHA-256 values and the legacy CJK reference hash
+used to preserve existing Latin/symbol coverage and FontAwesome selections are:
 
 - Montserrat-Medium.ttf: `421f26b23e2be6b98373d32acd3cb2897b154d4bf0a77d26534ce476e4cbed53`
 - DejaVuSans.ttf: `3fdf69cabf06049ea70a00b5919340e2ce1e6d02b0cc3c4b44fb6801bd1e0d22`
@@ -70,9 +95,10 @@ The matching SIL Open Font License text is kept beside them in
 
 `licenses/` contains the applicable regular Montserrat, DejaVu Sans, Source Han
 Sans and FontAwesome license texts; the pinned Montserrat style license is alongside its source
-assets. The font generator verifies the pinned input hashes, derives the CJK
-and existing private-use selections from the reference glyph comments, and
-rejects output that differs from the old 14/16 glyph union. Body styles have a
+assets. The font generator verifies the pinned input hashes and Chinese list,
+preserves the old 14/16 union's Latin/symbol coverage, replaces its CJK selection
+with the Chinese table and punctuation, and rejects output that differs from
+that exact selection. Body styles have a
 separate mode so they can be regenerated without touching any existing regular
 composite font. It uses `lv_font_conv` 1.5.3:
 
@@ -82,10 +108,13 @@ python tools/generate_status_fonts.py --body-styles
 python tools/check_font_coverage.py
 ```
 
-The coverage audit checks the 14 px and 16 px chains, exact old-repertoire
-parity at 16 px, 20 px and 22 px, and required ASCII, Latin, punctuation/symbol,
-and `東京が日本語你好世界` samples. It also checks styled-font glyph coverage,
+The coverage audit checks the 14 px and 16 px legacy chains' Latin/symbol
+coverage, the exact English/Simplified Chinese selection at 16 px, 20 px and
+22 px, all 3,500 Chinese characters and 20 punctuation glyphs, and realistic
+English and Chinese notification samples. It also checks styled-font glyph coverage,
 the regular fallback pointer, matching body metrics, vertical ink bounds and
 horizontal overhang, plus that the 80 px clock has only digits, colon, and
 hyphen. The audit checks generated glyph metrics, not shaping or physical
-legibility.
+legibility. The native LVGL tests check actual glyph lookup for formerly
+missing Chinese characters, punctuation, and the styled-body fallback, and
+render mixed English/Simplified Chinese notification cards.

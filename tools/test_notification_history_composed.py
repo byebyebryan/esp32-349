@@ -97,7 +97,7 @@ async def scenario(native: Native) -> None:
             interface=NOTIFICATIONS_NAME,
             member="Notify",
             signature="susssasa{sv}i",
-            body=["COMPOSED", 0, "", summary, "Archived body 東京 / ✓",
+            body=["COMPOSED", 0, "", summary, "Archived body 中文 / ✓",
                   ["default", "Open"], {}, 10000],
             sender=":1.50",
             serial=current_serial,
@@ -146,12 +146,12 @@ async def scenario(native: Native) -> None:
 
         # A long UTF-8 body is extended for history while its legacy projection
         # remains bounded to 159 bytes.
-        long_body = ("We've reviewed 東京 が → ✓. " * 90)
+        long_body = ("We've reviewed 中文 与 → ✓. " * 90)
         await direct_notify(10, "LONG CJK BODY", long_body, expire=10000)
         sent = next(message for message in reversed(native.sent)
                     if message.get("t") == "notify" and message.get("id") == 10)
         assert len(sent["body"].encode("utf-8")) <= proto.NOTIFICATION_BODY_HISTORY_BYTES
-        assert sent["body"].endswith("…") and "東京" in sent["body"]
+        assert sent["body"].endswith("…") and "中文" in sent["body"]
         assert sent["history"]["age_ms"] == 0
         assert sent["history"]["remaining_ms"] == 600000
         legacy = daemon._notification_projection(

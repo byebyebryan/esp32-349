@@ -84,9 +84,10 @@ static const char *composed_cjk_resolved_font(const lv_font_t *font, const char 
             cursor++;
             continue;
         }
-        if (codepoint == 0x6771 || codepoint == 0x4EAC) {
+        if (codepoint >= 0x4E00 && codepoint <= 0x9FFF) {
             lv_font_glyph_dsc_t glyph = {0};
-            if (!lv_font_get_glyph_dsc(font, &glyph, codepoint, 0)) return "missing";
+            if (!lv_font_get_glyph_dsc(font, &glyph, codepoint, 0) || glyph.is_placeholder)
+                return "missing";
             if (glyph.resolved_font != &status_text_16) return "other";
             saw_cjk = true;
         }

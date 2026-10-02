@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Audit legacy font coverage and the generated 16 px/20 px/22 px composites."""
+"""Audit English/Simplified Chinese notification fonts and legacy UI chains."""
 
 from __future__ import annotations
 
@@ -7,6 +7,8 @@ import re
 import sys
 import unicodedata
 from pathlib import Path
+
+from status_font_repertoire import CHINESE_PUNCTUATION, simplified_chinese
 
 
 PROJECT = Path(__file__).resolve().parents[1]
@@ -103,14 +105,24 @@ REQUIRED = {
         ord(char)
         for char in "‘’“”–—…·•‰′″°±×÷−≈≠≤≥∞€£¥₹₽©®™§¶†‡←↑→↓↔✓✔✗✘✕★☆♥❤⚠⚙☑☒☐"
     },
-    "CJK smoke sample": {ord(char) for char in "東京が日本語你好世界"},
+}
+NOTIFICATION_SAMPLES = {
+    "English notification": {
+        ord(char) for char in "Claude / Codex: fixed → tests passed ✓ — no regressions…"
+    },
+    "Simplified Chinese notification": {
+        ord(char)
+        for char in "测试完成，代码已修改。编译错误已修复！任务通知：等待确认，连接网络失败。"
+    },
 }
 CLOCK_GLYPHS = {ord(char) for char in "0123456789:-"}
 
 
-def report_required(label: str, available: set[int]) -> bool:
+def report_required(
+    label: str, available: set[int], required_groups: dict[str, set[int]] = REQUIRED,
+) -> bool:
     failed = False
-    for name, required in REQUIRED.items():
+    for name, required in required_groups.items():
         missing = sorted(required - available)
         if missing:
             failed = True
@@ -128,37 +140,49 @@ def main() -> int:
     failed = False
     legacy = {size: legacy_repertoire(size) for size in (14, 16)}
     old_union = legacy[14] | legacy[16]
+    cjk_reference = glyphs(LVGL_FONTS / "lv_font_source_han_sans_sc_16_cjk.c")
+    old_cjk = cjk_reference - set(range(0x20, 0x80)) - set(range(0xE000, 0xF900))
+    chinese = simplified_chinese()
+    expected = (old_union - old_cjk) | chinese | CHINESE_PUNCTUATION
+    notification_required = {
+        **REQUIRED,
+        **NOTIFICATION_SAMPLES,
+        "Simplified Chinese level 1": chinese,
+        "Chinese punctuation": CHINESE_PUNCTUATION,
+    }
 
     for size in (14, 16):
         print(f"{size} px legacy font chain: {len(legacy[size])} distinct glyphs")
         failed |= report_required(f"{size} px", legacy[size])
-    print(f"14/16 px legacy repertoire union: {len(old_union)} distinct glyphs")
+    print(f"Notification selection: {len(chinese)} Han characters, "
+          f"{len(CHINESE_PUNCTUATION)} Chinese punctuation glyphs; "
+          "existing Latin and symbol coverage preserved")
 
     for size in (16, 20, 22):
         path = PROJECT / f"main/fonts/status_text_{size}.c"
         available = glyphs(path)
         print(f"{size} px generated composite: {len(available)} distinct glyphs")
 
-        missing = sorted(old_union - available)
-        extra = sorted(available - old_union)
+        missing = sorted(expected - available)
+        extra = sorted(available - expected)
         if missing:
             failed = True
             details = ", ".join(
                 f"U+{code:04X} {unicodedata.name(chr(code), '?')}"
                 for code in missing
             )
-            print(f"  old repertoire parity: missing {details}")
+            print(f"  notification repertoire: missing {details}")
         if extra:
             failed = True
             details = ", ".join(
                 f"U+{code:04X} {unicodedata.name(chr(code), '?')}"
                 for code in extra
             )
-            print(f"  old repertoire parity: unexpected new glyphs {details}")
+            print(f"  notification repertoire: unexpected glyphs {details}")
         if not missing and not extra:
-            print("  old repertoire parity: exact")
+            print("  English/Simplified Chinese repertoire: exact; no kana")
 
-        failed |= report_required(f"{size} px", available)
+        failed |= report_required(f"{size} px", available, notification_required)
 
     regular_source = (PROJECT / "main/fonts/status_text_16.c").read_text()
     regular_line_height = int(re.search(r"\.line_height = (\d+),", regular_source).group(1))

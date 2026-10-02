@@ -91,7 +91,7 @@ def run(port: str | None, artifacts: Path) -> None:
 
         for nid in range(1, 34):
             model.retain_notification(proto.notify(nid, "BOARD TEST", f"CARD {nid}",
-                "We've / we’ve 東京 → ✓", 1, 0, int(time.time())))
+                "We've / we’ve 中文 → ✓", 1, 0, int(time.time())))
         snapshot()
         initial = until(lambda s: s["count"] == 32 and s["grouped"]["group"] == "home")
         assert initial["ids"] == list(range(2, 34)) and initial["overflow"] == 0

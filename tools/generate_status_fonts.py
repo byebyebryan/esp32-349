@@ -10,6 +10,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from status_font_repertoire import CHINESE_PUNCTUATION, simplified_chinese
+
 
 PROJECT = Path(__file__).resolve().parents[1]
 LVGL = PROJECT / "managed_components/lvgl__lvgl"
@@ -323,21 +325,18 @@ def main() -> int:
         return 0
 
     cjk_reference = glyphs(PROJECT / SOURCE_CJK)
-    han_codepoints = cjk_reference - ASCII - set(PRIVATE_USE)
+    old_cjk = cjk_reference - ASCII - set(PRIVATE_USE)
+    han_codepoints = simplified_chinese() | CHINESE_PUNCTUATION
     fontawesome_codepoints = cjk_reference.intersection(PRIVATE_USE)
-    if not han_codepoints or not fontawesome_codepoints:
+    if not old_cjk or not fontawesome_codepoints:
         raise SystemExit("Source Han CJK reference no longer has the expected repertoire")
 
-    smoke_sample = {ord(char) for char in "東京が日本語你好世界"}
-    if not smoke_sample <= han_codepoints:
-        missing = ", ".join(f"U+{value:04X}" for value in sorted(smoke_sample - han_codepoints))
-        raise SystemExit(f"Source Han reference is missing smoke glyphs: {missing}")
-
-    old_repertoire = legacy_repertoire()
+    expected_repertoire = (legacy_repertoire() - old_cjk) | han_codepoints
     print(
-        f"Source selection: {len(han_codepoints)} Source Han CJK glyphs, "
+        f"Source selection: 3,500 Simplified Chinese characters, "
+        f"{len(CHINESE_PUNCTUATION)} Chinese punctuation glyphs, "
         f"{len(fontawesome_codepoints)} existing FontAwesome glyphs; "
-        f"legacy union {len(old_repertoire)} glyphs"
+        f"composite repertoire {len(expected_repertoire)} glyphs"
     )
 
     text_sizes = args.text_sizes if args.text_sizes is not None else (16, 20, 22)
@@ -363,11 +362,11 @@ def main() -> int:
         source = output.read_text().rstrip() + "\n"
         output.write_text(source)
         actual_glyphs = glyphs(output)
-        if actual_glyphs != old_repertoire:
-            missing = old_repertoire - actual_glyphs
-            extra = actual_glyphs - old_repertoire
+        if actual_glyphs != expected_repertoire:
+            missing = expected_repertoire - actual_glyphs
+            extra = actual_glyphs - expected_repertoire
             raise SystemExit(
-                f"{name} differs from the legacy 14/16 union: "
+                f"{name} differs from the English/Simplified Chinese selection: "
                 f"{len(missing)} missing, {len(extra)} extra"
             )
 

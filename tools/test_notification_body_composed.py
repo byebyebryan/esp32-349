@@ -125,7 +125,7 @@ async def scenario(native: Native) -> None:
         await daemon._on_line(proto.encode(hello).decode("utf-8").rstrip())
 
         raw_body = (
-            "<b>Bold</b> and <i>italic</i> and <b><i>both 東京</i></b><br>東/東京 • ✓"
+            "<b>Bold</b> and <i>italic</i> and <b><i>both 测试</i></b><br>测/测试 • ✓"
         )
         call_body = [
             "Desktop App",
@@ -157,7 +157,7 @@ async def scenario(native: Native) -> None:
             "body": raw_body,
             "default_label": "Open",
         }
-        expected_display = "Bold and italic and both 東京\n東/東京 • ✓"
+        expected_display = "Bold and italic and both 测试\n测/测试 • ✓"
         expected_runs = [
             {"start": 0, "end": 4, "style": 1},
             {"start": 9, "end": 15, "style": 2},
@@ -215,17 +215,17 @@ async def scenario(native: Native) -> None:
             (" and ", 0),
             ("italic", 2),
             (" and ", 0),
-            ("both 東京", 3),
-            ("\n東/東京 • ✓", 0),
+            ("both 测试", 3),
+            ("\n测/测试 • ✓", 0),
         ]
-        cjk_segment = next(segment for segment in segments if "東京" in segment["text"])
+        cjk_segment = next(segment for segment in segments if "测试" in segment["text"])
         assert cjk_segment["style"] == 3
         assert cjk_segment["cjk_resolved_font"] == "status_text_16"
         assert cjk_segment["cjk_fallback_regular"]
         regular_cjk_segment = next(
             segment
             for segment in segments
-            if segment["text"].startswith("\n") and "東京" in segment["text"]
+            if segment["text"].startswith("\n") and "测试" in segment["text"]
         )
         assert regular_cjk_segment["style"] == 0
         assert regular_cjk_segment["cjk_resolved_font"] == "status_text_16"
@@ -256,7 +256,7 @@ async def scenario(native: Native) -> None:
             segment["id"] for segment in during_pointer["span_segments"]
         ] == old_segments
 
-        replacement_body = "Replacement text\n東京"
+        replacement_body = "Replacement text\n中文"
         replacement_runs = [{"start": 12, "end": 16, "style": 1}]
         await direct_notify(local_id, replacement_body, replacement_runs)
         frozen = _card(native, local_id)
@@ -280,12 +280,12 @@ async def scenario(native: Native) -> None:
         assert [segment["text"] for segment in replaced["span_segments"]] == [
             "Replacement ",
             "text",
-            "\n東京",
+            "\n中文",
         ]
 
         # Replacement by plain text clears visible styles without losing the
         # notification or falling back to a truncated legacy body.
-        plain_body = "Plain replacement\n東京"
+        plain_body = "Plain replacement\n中文"
         await direct_notify(local_id, plain_body, None)
         plain = _card(native, local_id)
         assert plain["body_text"] == plain_body
@@ -295,7 +295,7 @@ async def scenario(native: Native) -> None:
         # Stage a second styled card in the production host cache without
         # delivering it incrementally. The native C cache and rendered cards
         # stay unchanged until sync_commit publishes the complete snapshot.
-        staged_body = "Committed together\n東京"
+        staged_body = "Committed together\n中文"
         staged_runs = [{"start": 10, "end": 18, "style": 1}]
         native_writer = daemon._write_message
 
@@ -303,7 +303,7 @@ async def scenario(native: Native) -> None:
             return True
 
         daemon._write_message = defer_wire
-        atomic_body = "Atomic snapshot\n東京"
+        atomic_body = "Atomic snapshot\n中文"
         atomic_runs = [{"start": 0, "end": 6, "style": 2}]
         await direct_notify(local_id, atomic_body, atomic_runs)
         await direct_notify(local_id + 1, staged_body, staged_runs)

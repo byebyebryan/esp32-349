@@ -50,7 +50,7 @@ class SmokeHost:
         for name in ("A", "B", "C"):
             nid = self.daemon._allocate_local_notification_id()
             self.daemon.model.retain_notification(proto.notify(nid, "SMOKE", f"CARD {name}",
-                "We've / we’ve 東京 が → ✓. " + (
+                "We've / we’ve 中文 与 → ✓. " + (
                     "The smaller body shows more content. Swipe vertically between recent notifications; "
                     "horizontal movement and body taps do nothing. Close with the large ×; "
                     "popup timeout keeps this card, with a ten-minute retention limit."
