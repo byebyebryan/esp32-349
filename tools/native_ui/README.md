@@ -2,10 +2,13 @@
 
 Run from the repository root after an IDF build has fetched the pinned LVGL
 dependency. Install CMake, a C compiler, pkg-config, SDL2 development headers,
-Python, uv and RTK (used by the check script). Load the IDF environment or supply its cJSON directory:
+Python, uv and RTK (used by the check script). Use a shell without EIM
+activation so host GCC selects the host assembler; EIM's `PATH` can select
+the ESP ULP assembler instead. Supply the SDK's cJSON directory directly:
 
 ```sh
-python tools/check_native_ui.py --cjson-include "$IDF_PATH/components/json/cJSON"
+native_idf_root="${EIM_ROOT:-$HOME/.espressif}/${IDF_VERSION:-v5.5.3}/esp-idf"
+python tools/check_native_ui.py --cjson-include "$native_idf_root/components/json/cJSON"
 ```
 
 This builds Debug and Release with assertions enabled and runs eleven CTests

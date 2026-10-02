@@ -338,17 +338,20 @@ Native LVGL/font checks, ESP-IDF builds and physical acceptance remain separate
 local gates; a green CI run does not establish device rendering or touch behavior.
 
 From this project directory, native checks execute the same deck policy and
-dashboard parser compiled into firmware (with the IDF environment loaded):
+dashboard parser compiled into firmware using the host toolchain. Run them
+in a shell without EIM activation: its `PATH` can select the ESP ULP assembler
+for host GCC. Set the SDK location for header access only:
 
 ```sh
+native_idf_root="${EIM_ROOT:-$HOME/.espressif}/${IDF_VERSION:-v5.5.3}/esp-idf"
 cc -std=c11 -Wall -Wextra -Werror -I main \
   main/deck.c tools/test_deck.c -o /tmp/349-deck-tests
 /tmp/349-deck-tests
 cc -std=c11 -Wall -Wextra -Werror -I main \
   main/deck.c main/deck_input.c tools/test_deck_input.c -o /tmp/349-deck-input-tests
 /tmp/349-deck-input-tests
-cc -std=c11 -Wall -Wextra -Werror -I main -I "$IDF_PATH/components/json/cJSON" \
-  main/dashboard.c tools/test_dashboard.c "$IDF_PATH/components/json/cJSON/cJSON.c" \
+cc -std=c11 -Wall -Wextra -Werror -I main -I "$native_idf_root/components/json/cJSON" \
+  main/dashboard.c tools/test_dashboard.c "$native_idf_root/components/json/cJSON/cJSON.c" \
   -lm -o /tmp/349-dashboard-tests
 /tmp/349-dashboard-tests
 python tools/check_font_coverage.py
@@ -361,10 +364,10 @@ cc -std=c11 -Wall -Wextra -Werror -I components/display_349 \
 The native LVGL fixture exercises the production deck through pointer input,
 including hit testing, animation, and cache changes during a gesture. It needs
 the managed LVGL dependency installed by the firmware build and ESP-IDF's
-cJSON headers (`IDF_PATH`, or `-DCJSON_INCLUDE_DIR=/path/to/cJSON`):
+cJSON headers. From the same host-toolchain shell:
 
 ```sh
-python tools/check_native_ui.py --cjson-include "$IDF_PATH/components/json/cJSON"
+python tools/check_native_ui.py --cjson-include "$native_idf_root/components/json/cJSON"
 # Optional desktop inspection of the same production UI:
 .cache/native-ui/debug/native_ui --viewer --grouped
 ```
