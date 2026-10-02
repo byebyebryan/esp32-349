@@ -23,6 +23,7 @@ import logging
 import os
 import time
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 
 from dbus_next import Message, MessageType, Variant
 from dbus_next.aio import MessageBus
@@ -53,6 +54,17 @@ PENDING_REPLY_LIMIT = 64
 MONITOR_QUEUE_LIMIT = 256
 OPEN_ACTION_PAIR_LIMIT = 64
 IDENTITY_QUERY_TIMEOUT_S = 0.5
+DISMISS_TIMEOUT_S = 0.5
+DISMISS_QUEUE_LIMIT = 32
+
+
+@dataclass(frozen=True, slots=True)
+class _PendingDismiss:
+    local_id: int
+    daemon_id: int
+    version: int
+    owner: str | None
+    control: object
 
 
 def parse_open_metadata(body: list) -> dict | None:
@@ -158,6 +170,8 @@ class NotificationSource:
         self._monitor_task: asyncio.Task | None = None
         self._process_task: asyncio.Task | None = None
         self._send_task: asyncio.Task | None = None
+        self._dismiss_task: asyncio.Task | None = None
+        self._dismiss_queue: asyncio.Queue[_PendingDismiss] = asyncio.Queue(maxsize=DISMISS_QUEUE_LIMIT)
 
         self._next_id = 1
         self._by_serial: dict[tuple[str, int], tuple[int, int]] = {}
@@ -215,13 +229,18 @@ class NotificationSource:
         self._process_task = self._watch_task(asyncio.create_task(self._process_loop(), name="notifications"))
         self._send_task = self._watch_task(asyncio.create_task(self._send_loop(), name="notify-send"))
         self._monitor_task = self._watch_task(asyncio.create_task(self._monitor_loop(), name="notify-monitor"))
+        self._ensure_dismiss_worker()
 
     async def stop(self) -> None:
-        tasks = tuple(task for task in (self._monitor_task, self._process_task, self._send_task) if task is not None)
+        tasks = tuple(
+            task for task in (self._monitor_task, self._process_task, self._send_task, self._dismiss_task)
+            if task is not None
+        )
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
-        self._monitor_task = self._process_task = self._send_task = None
+        self._monitor_task = self._process_task = self._send_task = self._dismiss_task = None
+        self._discard_dismissals()
         await self._teardown()
 
     async def _close_mirrored_notifications(self) -> None:
@@ -383,22 +402,104 @@ class NotificationSource:
         if self.cfg.device_dismiss != "propagate":
             log.debug("dismiss %d is local-only", local_id)
             return
-        if daemon_id is None or self._control is None or self._daemon_to_local.get(daemon_id) != local_id:
+        control = self._control
+        info = self._open_info.get(local_id)
+        version = info.get("version") if info is not None else None
+        if (
+            daemon_id is None or control is None
+            or self._daemon_to_local.get(daemon_id) != local_id
+            or self._local_to_daemon.get(local_id) != daemon_id
+            or not isinstance(version, int)
+        ):
             log.debug("dismiss %d has no daemon id to propagate", local_id)
             return
+        pending = _PendingDismiss(local_id, daemon_id, version, self._server_owner, control)
+        self._ensure_dismiss_worker()
         try:
-            await self._control.call(
-                Message(
-                    destination=NOTIFICATIONS_NAME,
+            self._dismiss_queue.put_nowait(pending)
+        except asyncio.QueueFull:
+            log.warning("CloseNotification(%d) queue full; dropping dismissal", daemon_id)
+
+    def _ensure_dismiss_worker(self) -> None:
+        if self._dismiss_task is None:
+            self._dismiss_task = self._watch_task(
+                asyncio.create_task(self._dismiss_loop(), name="notify-dismiss")
+            )
+
+    def _discard_dismissals(self) -> None:
+        while True:
+            try:
+                self._dismiss_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                return
+            else:
+                self._dismiss_queue.task_done()
+
+    def _dismiss_is_current(self, pending: _PendingDismiss) -> bool:
+        info = self._open_info.get(pending.local_id)
+        return bool(
+            self.cfg.device_dismiss == "propagate"
+            and self._control is pending.control
+            and self._server_owner == pending.owner
+            and self._action_daemon_id.get(pending.local_id) == pending.daemon_id
+            and self._local_to_daemon.get(pending.local_id) == pending.daemon_id
+            and self._daemon_to_local.get(pending.daemon_id) == pending.local_id
+            and pending.local_id in self._mirrored_local_ids
+            and info is not None and info.get("version") == pending.version
+        )
+
+    async def _dispatch_dismiss(self, pending: _PendingDismiss, message: Message) -> bool:
+        # Check immediately before MessageBus.call sends, even if a caller
+        # has yielded since dequeueing this request.
+        if not self._dismiss_is_current(pending):
+            return False
+        await pending.control.call(message)
+        return True
+
+    @staticmethod
+    def _discard_cancelled_call(control: object, message: Message) -> None:
+        """Release dbus-next's waiter entry when cancellation cannot do so."""
+        serial = message.serial
+        handlers = getattr(control, "_method_return_handlers", None)
+        if isinstance(serial, int) and serial > 0 and isinstance(handlers, dict):
+            handlers.pop(serial, None)
+
+    async def _dismiss_loop(self) -> None:
+        while True:
+            pending = await self._dismiss_queue.get()
+            try:
+                if not self._dismiss_is_current(pending):
+                    continue
+                message = Message(
+                    # Pin the request to the captured service owner when the
+                    # monitor knows it. Unknown identity retains the existing
+                    # well-known-name behavior.
+                    destination=pending.owner or NOTIFICATIONS_NAME,
                     path=NOTIFICATIONS_PATH,
                     interface=NOTIFICATIONS_NAME,
                     member="CloseNotification",
                     signature="u",
-                    body=[daemon_id],
+                    body=[pending.daemon_id],
                 )
-            )
-        except Exception as exc:
-            log.warning("CloseNotification(%d) failed: %s", daemon_id, exc)
+                try:
+                    # Keep cancellation in the worker task; Python 3.11's
+                    # wait_for can lose it when a reply completes concurrently.
+                    async with asyncio.timeout(DISMISS_TIMEOUT_S):
+                        await self._dispatch_dismiss(pending, message)
+                except asyncio.CancelledError:
+                    self._discard_cancelled_call(pending.control, message)
+                    raise
+                except TimeoutError:
+                    self._discard_cancelled_call(pending.control, message)
+                    log.warning(
+                        "CloseNotification(%d) timed out after %.1fs",
+                        pending.daemon_id,
+                        DISMISS_TIMEOUT_S,
+                    )
+                except Exception as exc:
+                    log.warning("CloseNotification(%d) failed: %s", pending.daemon_id, exc)
+            finally:
+                self._dismiss_queue.task_done()
 
     async def _monitor_loop(self) -> None:
         backoff = 1.0
@@ -440,6 +541,7 @@ class NotificationSource:
         log.info("notification mirror active")
 
     async def _teardown(self) -> None:
+        self._discard_dismissals()
         for bus in (self._monitor, self._control):
             if bus is not None:
                 try:

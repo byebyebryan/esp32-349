@@ -7,11 +7,13 @@ from dbus_next import Message, MessageType, Variant
 from dbus_next.aio import MessageBus
 from dbus_next.constants import BusType
 
+from status349 import proto
 from status349.config import default_config
 from status349.daemon import Daemon
 from status349.fake import FakeDevice
 from status349.sources.notifications import (
     ASSOCIATION_LIMIT,
+    DISMISS_QUEUE_LIMIT,
     MONITOR_QUEUE_LIMIT,
     NOTIFY_OUTBOX_LIMIT,
     PENDING_REPLY_LIMIT,
@@ -256,11 +258,243 @@ def test_grouped_reason_one_disables_propagation_and_reused_id_belongs_to_new_ca
         await source._handle(_notify_reply(":1.93", 2, 777))
         await source.dismiss(1)
         await source.dismiss(2)
+        await source._dismiss_queue.join()
         assert control.closed == [777]
         assert source._daemon_to_local == {777: 2}
         assert source._action_daemon_id == {2: 777}
+        await source.stop()
 
     asyncio.run(scenario())
+
+
+def test_propagated_dismiss_does_not_hold_serial_reader_or_delay_local_close():
+    async def scenario():
+        cfg = default_config()
+        cfg.notifications.device_dismiss = "propagate"
+        daemon = Daemon(cfg, asyncio.Event())
+        daemon._grouped_enabled = True
+        daemon._grouped_mode = True
+        daemon._card_sync_capacity = 32
+        local_id, daemon_id = 7, 777
+        daemon.model.retain_notification(proto.notify(local_id, "app", "summary", "body", 1, -1, 1))
+
+        source = daemon.notifications
+        entered = asyncio.Event()
+        release = asyncio.Event()
+
+        class Control:
+            async def call(self, _message):
+                entered.set()
+                await release.wait()
+
+        source._control = Control()
+        source._server_owner = ":1.95"
+        source._daemon_to_local = {daemon_id: local_id}
+        source._local_to_daemon = {local_id: daemon_id}
+        source._action_daemon_id = {local_id: daemon_id}
+        source._open_info = {local_id: {"version": 3}}
+        source._mirrored_local_ids.add(local_id)
+        sent = []
+
+        async def capture(message):
+            sent.append(message)
+            return True
+
+        daemon.send = capture
+
+        class Reader:
+            async def __aiter__(self):
+                yield proto.encode({
+                    "t": "input", "action": "dismiss", "session": daemon.grouped_session,
+                    "generation": daemon._device_expected_generation, "id": local_id,
+                }) + b"reader-progress-marker\n"
+
+        try:
+            await asyncio.wait_for(daemon._read_loop(Reader()), timeout=1)
+            await asyncio.wait_for(entered.wait(), timeout=1)
+            assert not release.is_set()
+            assert "reader-progress-marker" in daemon._devlog
+            assert local_id not in daemon.model.retained_notifs
+            assert any(message.get("t") == "close" and message.get("id") == local_id for message in sent)
+        finally:
+            release.set()
+            await source.stop()
+
+    asyncio.run(scenario())
+
+
+def test_propagated_dismiss_timeout_cleans_pinned_dbus_reply_handler(monkeypatch):
+    async def scenario():
+        cfg = default_config().notifications
+        cfg.device_dismiss = "propagate"
+        source = NotificationSource(cfg, lambda _message: asyncio.sleep(0), lambda _local_id: asyncio.sleep(0))
+
+        # Exercise the pinned dbus-next MessageBus.call implementation without
+        # connecting to a live session bus. _call only needs these fields and a
+        # send method that records the outgoing message.
+        from dbus_next.aio import MessageBus
+
+        control = object.__new__(MessageBus)
+        control._loop = asyncio.get_running_loop()
+        control._serial = 0
+        control._method_return_handlers = {}
+        control._name_owners = {}
+        sent = []
+        control.send = lambda message: sent.append(message)
+
+        source._control = control
+        source._server_owner = ":1.96"
+        source._daemon_to_local = {778: 8}
+        source._local_to_daemon = {8: 778}
+        source._action_daemon_id = {8: 778}
+        source._open_info = {8: {"version": 4}}
+        source._mirrored_local_ids.add(8)
+        monkeypatch.setattr("status349.sources.notifications.DISMISS_TIMEOUT_S", 0.02)
+
+        await source.dismiss(8)
+        await asyncio.wait_for(source._dismiss_queue.join(), timeout=1)
+        assert len(sent) == 1
+        assert sent[0].destination == ":1.96"
+        assert control._method_return_handlers == {}
+        await asyncio.sleep(0.04)
+        assert len(sent) == 1  # A timeout is handled once and never retried.
+        await source.stop()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("invalidation", ["replacement", "owner", "mode"])
+def test_dismiss_dispatch_revalidates_immediately_before_call(invalidation):
+    async def scenario():
+        cfg = default_config().notifications
+        cfg.device_dismiss = "propagate"
+        source = NotificationSource(cfg, lambda _message: asyncio.sleep(0), lambda _local_id: asyncio.sleep(0))
+        sent = []
+
+        class Control:
+            async def call(self, message):
+                sent.append(message)
+
+        control = Control()
+        source._control = control
+        source._server_owner = ":1.97"
+        source._daemon_to_local = {779: 9}
+        source._local_to_daemon = {9: 779}
+        source._action_daemon_id = {9: 779}
+        source._open_info = {9: {"version": 5}}
+        source._mirrored_local_ids.add(9)
+        dispatch_started = asyncio.Event()
+        release_dispatch = asyncio.Event()
+        original_dispatch = source._dispatch_dismiss
+
+        def invalidate():
+            if invalidation == "replacement":
+                source._open_info[9] = {"version": 6}
+            elif invalidation == "owner":
+                source._server_owner = ":1.98"
+            else:
+                source.cfg.device_dismiss = "local"
+
+        async def delay_dispatch(pending, message):
+            dispatch_started.set()
+            await release_dispatch.wait()
+            return await original_dispatch(pending, message)
+
+        source._dispatch_dismiss = delay_dispatch
+        await source.dismiss(9)
+        await asyncio.wait_for(dispatch_started.wait(), timeout=1)
+        # The queue worker already validated at dequeue; hold dispatch before
+        # its final identity check to exercise replacement during that gap.
+        invalidate()
+        release_dispatch.set()
+        await asyncio.wait_for(source._dismiss_queue.join(), timeout=1)
+        assert sent == []
+        await source.stop()
+
+    asyncio.run(scenario())
+
+
+def test_dismiss_shutdown_cancels_inflight_call_and_drains_bounded_queue(monkeypatch):
+    async def scenario():
+        cfg = default_config().notifications
+        cfg.device_dismiss = "propagate"
+        source = NotificationSource(cfg, lambda _message: asyncio.sleep(0), lambda _local_id: asyncio.sleep(0))
+
+        from dbus_next.aio import MessageBus
+
+        control = object.__new__(MessageBus)
+        control._loop = asyncio.get_running_loop()
+        control._serial = 0
+        control._method_return_handlers = {}
+        control._name_owners = {}
+        sent = []
+        control.send = lambda message: sent.append(message)
+        source._control = control
+        source._server_owner = ":1.99"
+        source._daemon_to_local = {780: 11}
+        source._local_to_daemon = {11: 780}
+        source._action_daemon_id = {11: 780}
+        source._open_info = {11: {"version": 7}}
+        source._mirrored_local_ids.add(11)
+        monkeypatch.setattr("status349.sources.notifications.DISMISS_TIMEOUT_S", 5.0)
+
+        for _ in range(DISMISS_QUEUE_LIMIT + 4):
+            await source.dismiss(11)
+        await asyncio.wait_for(
+            _wait_for_notification(lambda: bool(control._method_return_handlers)), timeout=1
+        )
+        assert source._dismiss_queue.qsize() == DISMISS_QUEUE_LIMIT - 1
+        assert len(sent) == 1
+
+        await source.stop()
+        assert source._dismiss_queue.empty()
+        await asyncio.wait_for(source._dismiss_queue.join(), timeout=1)
+        assert control._method_return_handlers == {}
+        assert len(sent) == 1
+
+    asyncio.run(scenario())
+
+
+def test_dismiss_worker_preserves_cancellation_when_reply_completes():
+    async def scenario():
+        cfg = default_config().notifications
+        cfg.device_dismiss = "propagate"
+        source = NotificationSource(cfg, lambda _message: asyncio.sleep(0), lambda _local_id: asyncio.sleep(0))
+        entered = asyncio.Event()
+        reply = asyncio.Event()
+
+        class Control:
+            async def call(self, _message):
+                entered.set()
+                await reply.wait()
+                # Cancellation arrives while the reply has completed, before
+                # a nested wait_for could resume its parent queue worker.
+                asyncio.get_running_loop().call_soon(source._dismiss_task.cancel)
+
+        source._control = Control()
+        source._server_owner = ":1.100"
+        source._daemon_to_local = {781: 12}
+        source._local_to_daemon = {12: 781}
+        source._action_daemon_id = {12: 781}
+        source._open_info = {12: {"version": 8}}
+        source._mirrored_local_ids.add(12)
+        try:
+            await source.dismiss(12)
+            await asyncio.wait_for(entered.wait(), timeout=1)
+            reply.set()
+            with pytest.raises(asyncio.CancelledError):
+                await asyncio.wait_for(asyncio.shield(source._dismiss_task), timeout=1)
+            await asyncio.wait_for(source._dismiss_queue.join(), timeout=1)
+        finally:
+            await source.stop()
+
+    asyncio.run(scenario())
+
+
+async def _wait_for_notification(predicate):
+    async with asyncio.timeout(1):
+        while not predicate():
+            await asyncio.sleep(0.001)
 
 
 def test_grouped_source_expiry_only_removes_legacy_active_projection():

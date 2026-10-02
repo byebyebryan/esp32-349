@@ -2,6 +2,7 @@
 
 import asyncio
 import gc
+import threading
 import time
 
 import pytest
@@ -45,6 +46,55 @@ def test_failed_tick_exits_daemon_and_cleans_up():
         with pytest.raises(RuntimeError, match="tick failed"):
             await asyncio.wait_for(daemon.run(), 1)
         assert cleaned == ["notifications", "ipc"]
+
+    asyncio.run(scenario())
+
+
+def test_shutdown_drains_the_uncancellable_telemetry_thread():
+    async def scenario():
+        cfg = default_config()
+        cfg.notifications.mode = "off"
+        stop = asyncio.Event()
+        daemon = Daemon(cfg, stop)
+        entered = threading.Event()
+        release = threading.Event()
+
+        def slow_sample():
+            entered.set()
+            release.wait(2)
+            return {"cpu": 0.5}
+
+        daemon._sample = slow_sample
+
+        async def ready():
+            pass
+
+        async def park():
+            await asyncio.Future()
+
+        daemon._ipc.start = ready
+        daemon._ipc.stop = ready
+        daemon.notifications.start = ready
+        daemon.notifications.stop = ready
+        daemon._link_loop = park
+        daemon._ping_loop = park
+        task = asyncio.create_task(daemon.run())
+        try:
+            async with asyncio.timeout(1):
+                while not entered.is_set():
+                    await asyncio.sleep(0.001)
+            stop.set()
+            await asyncio.sleep(0.01)
+            assert not task.done()
+            release.set()
+            await asyncio.wait_for(task, timeout=1)
+            assert daemon._sample_task is None
+            assert not daemon._sample_thread_lock.locked()
+        finally:
+            release.set()
+            if not task.done():
+                task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
 
     asyncio.run(scenario())
 

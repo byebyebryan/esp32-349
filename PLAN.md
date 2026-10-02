@@ -155,8 +155,12 @@ Host/native gates, ESP-IDF build and real USB telemetry readback pass. The
 resumed Starship check exposed a readback stack overflow in `9c1e6a770`; the
 corrected `4c9005831` passes full-cache numeric readback with measured stack
 headroom and Starship's brief physical rail check. Normal mirroring is restored.
-Snap remains on the earlier candidate and needs the follow-up. See the
-[acceptance record](design/telemetry-rail-acceptance.md). Additional groups,
+At that checkpoint, Snap still needed the follow-up. Its later rail rollout
+and panel acceptance are recorded in the
+[number/unit refinement](design/rail-number-unit-pass.md), followed by the
+[two-host body-formatting rollout](design/notification-body-acceptance.md).
+See the original [rail acceptance record](design/telemetry-rail-acceptance.md)
+for that checkpoint's evidence. Additional groups,
 body-text scrolling and broader visual polish remain later work.
 
 ### On-device v1 acceptance loop

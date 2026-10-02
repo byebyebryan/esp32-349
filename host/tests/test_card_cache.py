@@ -274,7 +274,7 @@ def test_overflow_close_coalesces_a_full_refill_sync():
             await asyncio.wait_for(refill_committed.wait(), 1)
         finally:
             tick.cancel()
-            await asyncio.gather(tick, return_exceptions=True)
+            await asyncio.wait_for(asyncio.gather(tick, return_exceptions=True), timeout=1)
 
         begins = [message for message in sent if message["t"] == "sync_begin"]
         assert len(begins) == 1

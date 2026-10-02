@@ -1,12 +1,34 @@
 """Dashboard telemetry contract, sanitization, and smoothing tests."""
 
 import asyncio
+import threading
 
 import pytest
 
 from status349 import proto
 from status349.config import default_config
-from status349.daemon import Daemon
+from status349.daemon import Daemon, _TelemetrySample
+
+
+async def _wait_until(predicate, timeout=2.0):
+    async with asyncio.timeout(timeout):
+        while not predicate():
+            await asyncio.sleep(0.001)
+
+
+def test_sample_generation_rejects_delayed_older_result_at_equal_time():
+    async def scenario():
+        daemon = Daemon(default_config(), asyncio.Event())
+        newer = _TelemetrySample(2, {"mem": 0.75}, 10.0)
+        older = _TelemetrySample(1, {"mem": 0.25}, 10.0)
+        async with daemon._state_lock:
+            assert daemon._publish_sample_locked(newer)
+            assert not daemon._publish_sample_locked(older)
+        assert daemon._latest_sample == {"mem": 0.75}
+        assert daemon._latest_sample_result is newer
+        assert daemon._next_sample_mono == 10.0 + daemon.cfg.daemon.tick_s
+
+    asyncio.run(scenario())
 
 
 def test_dashboard_payload_has_nullable_finite_identifier_free_fields():
@@ -163,33 +185,42 @@ def test_tick_sampling_deadline_ignores_event_and_full_sync_wakeups(monkeypatch)
         daemon._sample = sample
         task = asyncio.create_task(daemon._tick_loop())
 
-        async def settle():
-            for _ in range(4):
-                await asyncio.sleep(0)
-
-        async def wake(at):
+        async def wake(at, generation):
             now[0] = at
             daemon._tick_wakeup.set()
-            await settle()
+            await _wait_until(lambda: not daemon._tick_wakeup.is_set())
+            if daemon._needs_sync:
+                await _wait_until(lambda: not daemon._needs_sync)
+            if generation is not None:
+                await _wait_until(
+                    lambda: daemon._latest_sample_result is not None
+                    and daemon._latest_sample_result.generation == generation
+                    and daemon._sample_task is None
+                )
 
         try:
-            await settle()
+            await _wait_until(
+                lambda: daemon._latest_sample_result is not None
+                and daemon._latest_sample_result.generation == 1
+                and daemon._sample_task is None
+                and not daemon._needs_sync
+            )
             assert samples == [0.0]  # Startup full sync establishes one baseline.
             assert daemon._next_sample_mono == 1.0
 
-            await wake(0.2)
-            await wake(0.65)
+            await wake(0.2, None)
+            await wake(0.65, None)
             assert samples == [0.0]
             await daemon._send_sync()  # A non-periodic sync reuses the latest sample.
             assert samples == [0.0]
             assert daemon._next_sample_mono == 1.0
 
-            await wake(0.999)
+            await wake(0.999, None)
             assert samples == [0.0]
-            await wake(1.0)
+            await wake(1.0, 2)
             assert samples == [0.0, 1.0]
 
-            await wake(4.5)  # A delayed tick takes one sample, with no catch-up burst.
+            await wake(4.5, 3)  # A delayed tick takes one sample, with no catch-up burst.
             assert samples == [0.0, 1.0, 4.5]
             assert daemon._next_sample_mono == 5.5
         finally:
@@ -198,6 +229,92 @@ def test_tick_sampling_deadline_ignores_event_and_full_sync_wakeups(monkeypatch)
                 await task
             except asyncio.CancelledError:
                 pass
+
+    asyncio.run(scenario())
+
+
+def test_sampling_runs_off_loop_and_leaves_state_and_ipc_responsive():
+    async def scenario():
+        daemon = Daemon(default_config(), asyncio.Event())
+        entered = threading.Event()
+        release = threading.Event()
+        calls = []
+
+        def slow_sample():
+            calls.append(threading.get_ident())
+            entered.set()
+            release.wait(2)
+            return {"cpu": 0.5, "mem": 0.25}
+
+        daemon._sample = slow_sample
+        tick = asyncio.create_task(daemon._tick_loop())
+        try:
+            await _wait_until(entered.is_set)
+            status = await asyncio.wait_for(daemon._ipc_handler({"cmd": "status"}), timeout=0.2)
+            assert status["ok"]
+            await asyncio.wait_for(
+                daemon._device_notify(proto.notify(1, "test", "while sampling", "body", 1, -1, 1)),
+                timeout=0.2,
+            )
+            assert 1 in daemon.model.notifs
+            await asyncio.wait_for(asyncio.sleep(0.01), timeout=0.2)
+            assert len(calls) == 1
+        finally:
+            release.set()
+            tick.cancel()
+            await asyncio.gather(tick, return_exceptions=True)
+            await daemon._drain_sample_worker()
+
+    asyncio.run(scenario())
+
+
+def test_cancelled_sample_waiter_reuses_one_uncancellable_collection():
+    async def scenario():
+        daemon = Daemon(default_config(), asyncio.Event())
+        entered = threading.Event()
+        release = threading.Event()
+        active = 0
+        max_active = 0
+        calls = 0
+
+        def slow_sample():
+            nonlocal active, max_active, calls
+            calls += 1
+            active += 1
+            max_active = max(max_active, active)
+            entered.set()
+            try:
+                release.wait(2)
+                return {"cpu": 0.25}
+            finally:
+                active -= 1
+
+        daemon._sample = slow_sample
+        first = asyncio.create_task(daemon._collect_sample())
+        try:
+            await _wait_until(entered.is_set)
+            first.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await first
+
+            second = asyncio.create_task(daemon._collect_sample())
+            await asyncio.sleep(0.01)
+            assert calls == 1
+            assert max_active == 1
+            release.set()
+            sample = await asyncio.wait_for(second, timeout=1)
+            async with daemon._state_lock:
+                assert daemon._publish_sample_locked(sample)
+                daemon._finish_sample_locked(sample)
+            assert sample.values == {"cpu": 0.25}
+            assert daemon._sample_task is None
+            assert calls == max_active == 1
+        finally:
+            release.set()
+            if not first.done():
+                first.cancel()
+            await asyncio.gather(first, return_exceptions=True)
+            await daemon._drain_sample_worker()
 
     asyncio.run(scenario())
 
@@ -243,13 +360,19 @@ def test_slow_sample_does_not_trigger_an_immediate_second_refresh(monkeypatch):
         daemon._sample = sample
         task = asyncio.create_task(daemon._tick_loop())
         try:
-            for _ in range(8):
-                await asyncio.sleep(0)
+            await _wait_until(
+                lambda: daemon._latest_sample_result is not None
+                and daemon._latest_sample_result.generation == 1
+                and daemon._sample_task is None
+            )
             assert samples == [0.0]
             now[0] = 1.0
             daemon._tick_wakeup.set()
-            for _ in range(8):
-                await asyncio.sleep(0)
+            await _wait_until(
+                lambda: daemon._latest_sample_result is not None
+                and daemon._latest_sample_result.generation == 2
+                and daemon._sample_task is None
+            )
             assert samples == [0.0, 1.0]
             assert daemon._next_sample_mono == 4.5
         finally:
@@ -277,27 +400,34 @@ def test_interval_changes_do_not_resample_on_full_sync(monkeypatch):
         daemon._sample = sample
         task = asyncio.create_task(daemon._tick_loop())
 
-        async def wake(at):
+        async def wake(at, generation):
             now[0] = at
             daemon._tick_wakeup.set()
-            for _ in range(8):
-                await asyncio.sleep(0)
+            await _wait_until(lambda: not daemon._tick_wakeup.is_set())
+            if daemon._needs_sync:
+                await _wait_until(lambda: not daemon._needs_sync)
+            if generation is not None:
+                await _wait_until(
+                    lambda: daemon._latest_sample_result is not None
+                    and daemon._latest_sample_result.generation == generation
+                    and daemon._sample_task is None
+                )
 
         try:
-            await wake(0.0)
+            await wake(0.0, 1)
             assert samples == [0.0]
             daemon.cfg.daemon.sync_interval_s = 30.0
             daemon._needs_sync = True
-            await wake(0.2)
+            await wake(0.2, None)
             assert daemon._next_sample_mono == 1.0
             daemon.cfg.daemon.tick_s = 2.0
             daemon._needs_sync = True
-            await wake(0.3)
+            await wake(0.3, None)
             assert samples == [0.0]
             assert daemon._next_sample_mono == 2.3
-            await wake(1.0)
+            await wake(1.0, None)
             assert samples == [0.0]
-            await wake(2.3)
+            await wake(2.3, 2)
             assert samples == [0.0, 2.3]
             assert daemon._next_sample_mono == 4.3
         finally:
@@ -319,15 +449,27 @@ def test_queued_sync_cannot_mix_new_zones_with_old_dashboard(monkeypatch):
         now = [0.0]
         sent = []
         queued = []
+        sample_started = threading.Event()
+        release_sample = threading.Event()
+        first_sync = asyncio.Event()
         monkeypatch.setattr(daemon, "_monotonic", lambda: now[0])
-        daemon._sample = lambda: {
-            "cpu": 0.5, "cpu_freq_mhz": 800.0 if now[0] < 1 else 3600.0,
-            "mem": 0.25 if now[0] < 1 else 0.75,
-            "mem_used_bytes": (8 if now[0] < 1 else 24) * 1024**3,
-        }
+
+        def sample():
+            if now[0] >= 1:
+                sample_started.set()
+                release_sample.wait(2)
+            return {
+                "cpu": 0.5, "cpu_freq_mhz": 800.0 if now[0] < 1 else 3600.0,
+                "mem": 0.25 if now[0] < 1 else 0.75,
+                "mem_used_bytes": (8 if now[0] < 1 else 24) * 1024**3,
+            }
+
+        daemon._sample = sample
 
         async def capture(message):
             sent.append(message)
+            if message["t"] == "sync_commit":
+                first_sync.set()
             return True
 
         async def queue_sync(_now):
@@ -339,20 +481,38 @@ def test_queued_sync_cannot_mix_new_zones_with_old_dashboard(monkeypatch):
         daemon._expire_presentation_locked = queue_sync
         task = asyncio.create_task(daemon._tick_loop())
         try:
-            for _ in range(8):
-                await asyncio.sleep(0)
+            await asyncio.wait_for(first_sync.wait(), timeout=2)
+            await _wait_until(lambda: daemon._next_sample_mono == 1.0)
+            assert daemon.model.dashboard["mem"] == 0.25
+            assert next(zone["value"] for zone in daemon.model.zones if zone["id"] == "mem") == 0.25
+
             now[0] = 1.0
             daemon._tick_wakeup.set()
-            for _ in range(8):
-                await asyncio.sleep(0)
+            await _wait_until(sample_started.is_set)
+            await _wait_until(lambda: len(queued) == 1)
+            await asyncio.wait_for(queued[0], timeout=2)
+            assert not release_sample.is_set()
+
+            old_begin = [message for message in sent if message["t"] == "sync_begin"][-1]
+            old_zone = next(zone for zone in old_begin["bar"]["zones"] if zone["id"] == "mem")
+            assert old_begin["dashboard"]["mem"] == old_zone["value"] == 0.25
+
+            release_sample.set()
+            await _wait_until(
+                lambda: daemon.model.dashboard["mem"] == 0.75
+                and next(zone["value"] for zone in daemon.model.zones if zone["id"] == "mem") == 0.75
+            )
+            assert daemon._next_sample_mono == 2.0
+
+            await daemon._send_sync()
             assert len(queued) == 1
-            await queued[0]
             begin = [message for message in sent if message["t"] == "sync_begin"][-1]
             mem_zone = next(zone for zone in begin["bar"]["zones"] if zone["id"] == "mem")
             assert begin["dashboard"]["mem"] == mem_zone["value"] == 0.75
             assert begin["dashboard"]["mem_used_bytes"] == 24 * 1024**3
             assert begin["dashboard"]["cpu_freq_mhz"] == 3600.0
         finally:
+            release_sample.set()
             task.cancel()
             try:
                 await task

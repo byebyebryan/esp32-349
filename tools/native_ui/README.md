@@ -8,10 +8,13 @@ Python, uv and RTK (used by the check script). Load the IDF environment or suppl
 python tools/check_native_ui.py --cjson-include "$IDF_PATH/components/json/cJSON"
 ```
 
-This builds Debug and Release with assertions enabled and runs ten CTests
+This builds Debug and Release with assertions enabled and runs eleven CTests
 per configuration. Override `--debug-build-dir` and `--release-build-dir` to choose
 build/artifact directories. The default directories are
-`/tmp/349-native-ui-build` and `/tmp/349-native-ui-release`.
+the checkout's ignored `.cache/native-ui/debug` and `.cache/native-ui/release`
+directories, independently of the current working directory. An override that
+contains a CMake cache from another checkout is rejected before either build.
+The cache is preserved; choose fresh override paths to continue.
 
 ## Targets and evidence
 
@@ -24,10 +27,12 @@ build/artifact directories. The default directories are
 | `host_composed` CTest | Real Python daemon/protocol → production parser/state → LVGL → daemon input | Controlled host clock and transport to `native_ui_composed` |
 | `host_actions_composed` CTest | Notification source → daemon/provider action request → production parser/state/LVGL → correlated host result | Controlled source/provider adapter and native transport; no desktop IPC |
 | `host_history_composed` CTest | Negotiated 10-minute history → production parser/state/LVGL → host browse/idle/dismiss input | Virtual time and transport; popup/archive, body limits, no-renewal sync/reconnect and replacement renewal |
+| `host_body_composed` CTest | Host conversion/projection → parser/state → production-font LVGL spans | Synthetic text and virtual transport; bounded styles, fallback, ellipsis and replacement/gesture coherence |
 | `smoke_recorder` CTest | Isolated production host policy → parser/state/LVGL, actual × round trip, timed retention and fresh process recovery | Native transport; fake IPC checks finish/error/pause ownership cleanup |
 
 CTest also runs serialized replay and an SDL dummy-driver smoke. If uv is
-unavailable, `host_composed`, `host_actions_composed`, `host_history_composed` and `smoke_recorder` are explicitly skipped; such a run does not satisfy
+unavailable, `host_composed`, `host_actions_composed`, `host_history_composed`,
+`host_body_composed` and `smoke_recorder` are explicitly skipped; such a run does not satisfy
 the composed acceptance gate. These programs do not test ESP32 scheduling,
 capacitive touch, RTC peripherals, DMA or panel performance.
 
@@ -50,7 +55,7 @@ The history scenario uses the complete hello.
 ## Inspect the shared UI
 
 ```sh
-/tmp/349-native-ui-build/native_ui --viewer --grouped
+.cache/native-ui/debug/native_ui --viewer --grouped
 ```
 
 Mouse input supplies the same LVGL pointer path as replay. Window performance
@@ -60,16 +65,16 @@ without `--grouped`.
 ## Replay and round trips
 
 ```sh
-/tmp/349-native-ui-build/native_ui \
+.cache/native-ui/debug/native_ui \
   --replay tools/native_ui/replay_smoke.json --artifacts /tmp/349-ui-replay
 uv run --project host --frozen python tools/test_grouped_composed.py \
-  --native /tmp/349-native-ui-build/native_ui_composed \
+  --native .cache/native-ui/debug/native_ui_composed \
   --artifacts /tmp/349-host-composed
 uv run --project host --frozen python tools/test_notification_actions_composed.py \
-  --native /tmp/349-native-ui-build/native_ui_composed \
+  --native .cache/native-ui/debug/native_ui_composed \
   --artifacts /tmp/349-host-actions-composed
 uv run --project host --frozen python tools/test_notification_history_composed.py \
-  --native /tmp/349-native-ui-build/native_ui_composed \
+  --native .cache/native-ui/debug/native_ui_composed \
   --artifacts /tmp/349-host-history-composed
 ```
 

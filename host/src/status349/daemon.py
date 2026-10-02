@@ -15,8 +15,10 @@ import math
 import os
 import secrets
 import signal
+import threading
 import time
 from collections import OrderedDict, deque
+from dataclasses import dataclass
 
 import serial_asyncio
 
@@ -47,6 +49,13 @@ SESSION_MAX = proto.IDENTITY_MAX
 ACTION_RESULT_LIMIT = 64
 
 
+@dataclass(frozen=True, slots=True)
+class _TelemetrySample:
+    generation: int
+    values: dict
+    completed_mono: float
+
+
 class Daemon:
     def __init__(
         self, cfg: Config, stop: asyncio.Event, cfg_path: str | None = None, port_override: str | None = None
@@ -72,7 +81,12 @@ class Daemon:
         self._cpu_ema: float | None = None
         self._cpu_ema_mono: float | None = None
         self._latest_sample: dict | None = None
+        self._latest_sample_mono: float | None = None
+        self._latest_sample_result: _TelemetrySample | None = None
         self._next_sample_mono: float | None = None
+        self._sample_thread_lock = threading.Lock()
+        self._sample_task: asyncio.Task[_TelemetrySample] | None = None
+        self._sample_generation = 0
         self.notifications = NotificationSource(
             cfg.notifications,
             self._device_notify,
@@ -192,6 +206,7 @@ class Daemon:
                 await asyncio.gather(*workers, stop_waiter, notification_failure, return_exceptions=True)
         finally:
             try:
+                await self._drain_sample_worker()
                 for task in tuple(self._action_tasks):
                     task.cancel()
                 if self._action_tasks:
@@ -553,16 +568,82 @@ class Daemon:
     def _monotonic(self) -> float:
         return time.monotonic()
 
-    def _sample_locked(self) -> dict:
-        """Collect and cache telemetry while holding ``_state_lock``.
+    def _sample_serialized(self) -> dict:
+        # Shielded collection survives cancellation of a tick or link task.
+        # Keep the lock at the thread boundary as a final guard against source
+        # overlap while an executor call is still finishing.
+        with self._sample_thread_lock:
+            return self._sample()
 
-        Schedule from completion so a slow source cannot trigger catch-up
-        samples. Callers publish dashboard and zones before releasing the lock.
-        """
-        values = self._sample()
-        self._latest_sample = values
-        self._next_sample_mono = self._monotonic() + float(self.cfg.daemon.tick_s)
-        return values
+    async def _collect_sample_worker(self, generation: int) -> _TelemetrySample:
+        values = await asyncio.to_thread(self._sample_serialized)
+        return _TelemetrySample(generation, values, self._monotonic())
+
+    async def _collect_sample(self) -> _TelemetrySample:
+        """Return one shared in-flight sample without blocking the event loop."""
+        task = self._sample_task
+        if task is None:
+            self._sample_generation += 1
+            task = asyncio.create_task(
+                self._collect_sample_worker(self._sample_generation), name="telemetry-sample"
+            )
+            self._sample_task = task
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            # The executor thread cannot be stopped. Keep its task published so
+            # a later caller waits for this same collection instead of starting
+            # another one over stateful sources.
+            raise
+        except Exception:
+            if self._sample_task is task:
+                self._sample_task = None
+            raise
+
+    def _publish_sample_locked(self, sample: _TelemetrySample) -> bool:
+        """Atomically install one completed sample and its next deadline."""
+        previous = self._latest_sample_result
+        if previous is sample or (previous is not None and sample.generation <= previous.generation):
+            return False
+        self._latest_sample_result = sample
+        self._latest_sample = sample.values
+        self._latest_sample_mono = sample.completed_mono
+        self._next_sample_mono = sample.completed_mono + float(self.cfg.daemon.tick_s)
+        return True
+
+    def _finish_sample_locked(self, sample: _TelemetrySample) -> None:
+        task = self._sample_task
+        if task is not None and task.done() and not task.cancelled() and task.exception() is None:
+            if task.result() is sample:
+                self._sample_task = None
+
+    async def _prime_sample(self) -> None:
+        """Establish the first shared sample before callers take state lock."""
+        async with self._state_lock:
+            if self._latest_sample is not None:
+                return
+        sample = await self._collect_sample()
+        async with self._state_lock:
+            if self._latest_sample is None and self._publish_sample_locked(sample):
+                await self._update_dashboard_locked(
+                    sample.values, sampled_mono=sample.completed_mono, emit_delta=False
+                )
+                self._finish_sample_locked(sample)
+
+    async def _drain_sample_worker(self) -> None:
+        """Wait for the uncancellable source thread before daemon teardown."""
+        task = self._sample_task
+        if task is None:
+            return
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("telemetry sampling failed during shutdown")
+        finally:
+            if self._sample_task is task:
+                self._sample_task = None
 
     @staticmethod
     def _ratio(value: object) -> float | None:
@@ -576,8 +657,8 @@ class Daemon:
             return None
         return max(0.0, min(1.0, numeric))
 
-    def _dashboard_payload(self, values: dict) -> dict:
-        now = time.monotonic()
+    def _dashboard_payload(self, values: dict, *, sampled_mono: float | None = None) -> dict:
+        now = time.monotonic() if sampled_mono is None else sampled_mono
         cpu = self._ratio(values.get("cpu"))
         if cpu is None:
             self._cpu_ema = None
@@ -617,14 +698,17 @@ class Daemon:
             "bluetooth": values.get("bluetooth"),
         }
 
-    async def _update_dashboard_locked(self, values: dict, *, emit_delta: bool = True) -> bool:
+    async def _update_dashboard_locked(
+        self, values: dict, *, sampled_mono: float | None = None, emit_delta: bool = True
+    ) -> bool:
         """Update dashboard state while holding ``_state_lock``."""
-        changed = self.model.set_dashboard(self._dashboard_payload(values))
+        changed = self.model.set_dashboard(self._dashboard_payload(values, sampled_mono=sampled_mono))
         if changed and emit_delta and self._dashboard_capable:
             await self.send(proto.dashboard_message(self.model.dashboard))
         return changed
 
     async def _send_sync(self) -> None:
+        await self._prime_sample()
         async with self._state_lock:
             self._needs_sync = False
             await self._send_sync_locked()
@@ -633,11 +717,9 @@ class Daemon:
         await self._expire_history_locked(self._monotonic())
         epoch, offset = self.clock.read()
         self.model.set_clock(epoch, offset)
-        if self._latest_sample is None:
-            values = self._sample_locked()
-            await self._update_dashboard_locked(values, emit_delta=False)
-        else:
-            values = self._latest_sample
+        values = self._latest_sample
+        if values is None:
+            raise RuntimeError("full sync requested before telemetry was sampled")
         self.model.set_zones(build_zones(self.cfg.bar.preset, values))
         if self._card_sync_capacity is None:
             messages = [self.model.snapshot()]
@@ -872,6 +954,7 @@ class Daemon:
 
         kind = message.get("t")
         if kind == "hello":
+            await self._prime_sample()
             boot_id = message.get("boot_id")
             if isinstance(boot_id, bool) or not isinstance(boot_id, int) or not 1 <= boot_id <= 0xFFFFFFFF:
                 boot_id = None
@@ -1441,7 +1524,10 @@ class Daemon:
             if attention_deadlines:
                 wait_s = min(wait_s, max(0.0, min(attention_deadlines) - now))
             try:
-                await asyncio.wait_for(self._tick_wakeup.wait(), timeout=wait_s)
+                # Await in this task so a concurrent wakeup cannot swallow an
+                # external cancellation (wait_for can do that on Python 3.11).
+                async with asyncio.timeout(wait_s):
+                    await self._tick_wakeup.wait()
             except asyncio.TimeoutError:
                 pass
             else:
@@ -1478,18 +1564,27 @@ class Daemon:
                 if self._pending_present_due is not None and self._pending_present_due <= attention_now:
                     await self._publish_pending_presentation_locked(attention_now)
 
-                now = self._monotonic()
-                if self._next_sample_mono is not None and now >= self._next_sample_mono:
-                    values = self._sample_locked()
-                    epoch, offset = self.clock.read()
-                    if offset != last_offset:
-                        self.model.set_clock(epoch, offset)
-                        await self.send(proto.clock(epoch, offset))
-                        last_offset = offset
+            now = self._monotonic()
+            if self._next_sample_mono is not None and now >= self._next_sample_mono:
+                try:
+                    sample = await self._collect_sample()
+                except asyncio.CancelledError:
+                    await self._drain_sample_worker()
+                    raise
+                async with self._state_lock:
+                    if self._publish_sample_locked(sample):
+                        epoch, offset = self.clock.read()
+                        if offset != last_offset:
+                            self.model.set_clock(epoch, offset)
+                            await self.send(proto.clock(epoch, offset))
+                            last_offset = offset
 
-                    await self._update_dashboard_locked(values)
-                    if self.model.set_zones(build_zones(self.cfg.bar.preset, values)):
-                        await self.send(proto.bar(self.model.zones, self.model.rev))
+                        await self._update_dashboard_locked(
+                            sample.values, sampled_mono=sample.completed_mono
+                        )
+                        if self.model.set_zones(build_zones(self.cfg.bar.preset, sample.values)):
+                            await self.send(proto.bar(self.model.zones, self.model.rev))
+                        self._finish_sample_locked(sample)
 
             now = self._monotonic()
             if now >= next_sync:

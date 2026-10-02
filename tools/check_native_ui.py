@@ -20,14 +20,30 @@ def cached_cjson(build_dir: Path) -> str | None:
     return None
 
 
+def check_cache_source(build_dir: Path, source: Path) -> None:
+    cache = build_dir / "CMakeCache.txt"
+    if not cache.is_file():
+        return
+    for line in cache.read_text(encoding="utf-8").splitlines():
+        if line.startswith("CMAKE_HOME_DIRECTORY:INTERNAL="):
+            cached_source = Path(line.split("=", 1)[1]).resolve()
+            if cached_source != source.resolve():
+                raise ValueError(
+                    f"{build_dir} belongs to {cached_source}; choose fresh "
+                    "--debug-build-dir and --release-build-dir paths. "
+                    "The existing cache has been left intact."
+                )
+            return
+
+
 def main() -> int:
     repo = Path(__file__).resolve().parents[1]
     source = repo / "tools/native_ui"
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--debug-build-dir", type=Path,
-                        default=Path("/tmp/349-native-ui-build"))
+                        default=repo / ".cache/native-ui/debug")
     parser.add_argument("--release-build-dir", type=Path,
-                        default=Path("/tmp/349-native-ui-release"))
+                        default=repo / ".cache/native-ui/release")
     parser.add_argument("--cjson-include", type=Path)
     args = parser.parse_args()
 
@@ -35,6 +51,14 @@ def main() -> int:
     configured_cjson = args.cjson_include
     if configured_cjson is None and idf_path:
         configured_cjson = Path(idf_path) / "components/json/cJSON"
+
+    # Validate both directories before configuring either one. Overrides may
+    # point at caches from another checkout; never remove those automatically.
+    for build_dir in (args.debug_build_dir, args.release_build_dir):
+        try:
+            check_cache_source(build_dir.resolve(), source)
+        except ValueError as exc:
+            parser.error(str(exc))
 
     for configuration, build_dir in (
         ("Debug", args.debug_build_dir),

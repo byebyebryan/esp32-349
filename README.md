@@ -27,6 +27,10 @@ idf.py build
 idf.py -p /dev/ttyACM0 flash
 ```
 
+Activation puts ESP-IDF's executable tools on `PATH` as well as loading EIM's
+shell functions, so subprocess invocations such as `rtk proxy idf.py build`
+work in the same shell.
+
 Existing local `sdkconfig` files created before the CJK fallback need the
 Source Han Sans 14/16 px font options enabled; `sdkconfig.defaults` selects
 them for a fresh configuration. The new rail also requires Montserrat 40 px.
@@ -35,7 +39,7 @@ The generated 16/20/22 px text and 80 px clock fonts are checked in.
 ## Host setup
 
 ```sh
-uv sync --project host   # installs pyserial(-asyncio), dbus-next
+uv sync --project host --frozen   # installs the locked host and test dependencies
 ```
 
 ## Running
@@ -161,6 +165,11 @@ an ellipsis; older peers keep the 159-byte projection. See the
 [notification-only plan](design/notification-history-plan.md) and
 [acceptance record](design/notification-history-acceptance.md).
 
+With `device_dismiss = "propagate"`, × removes the local card immediately and
+queues the desktop close. Each attempt times out after half a second; queued
+requests recheck the server and notification identity before dispatch, so a
+replacement is not closed by a stale dismissal.
+
 Notification bodies are converted on the host before clipping: supported
 desktop markup becomes readable text, links retain their labels, and Kitty's
 plain-text guards are removed. Markdown is interpreted only for identified
@@ -230,9 +239,11 @@ about 16–20 updates/s; the user reports clean, responsive motion. The initial
 recorded in [ACCEPTANCE.md](ACCEPTANCE.md).
 
 Rail telemetry uses a shared one-second sampling cadence, separate from
-notification/action wakeups. The next sample is due one tick after collection
-finishes, so a slow source cannot cause back-to-back refreshes. Full sync reuses
-the latest coherent sample. CPU retains its three-second smoothing; traffic
+notification/action wakeups. Slow source commands run in the background and
+leave notification, touch and control processing responsive. The next sample
+is due one tick after collection finishes, so a slow source cannot cause
+back-to-back refreshes. Full sync reuses the latest coherent sample. CPU
+retains its three-second smoothing; traffic
 uses a short two-second counter window and actual monotonic elapsed time.
 Each active physical interface named by IPv4/IPv6 default routes is counted
 once. Ethernet and Wi-Fi can both contribute; their virtual VPN/container
@@ -312,11 +323,19 @@ idf.py -p /dev/ttyACM0 flash
 ## Tests
 
 ```sh
-uv run --project host --frozen pytest -q host/tests
+env -u DBUS_SESSION_BUS_ADDRESS uv run --project host --frozen pytest -q host/tests tools/tests
 ```
 
 Covers framing, protocol, state, composition, sources, notification handling,
-and daemon/IPC integration against a pty fake device.
+and daemon/IPC integration against a pty fake device. Clearing the desktop bus
+address skips the three live D-Bus tests; omit `env -u DBUS_SESSION_BUS_ADDRESS`
+only when desktop notification tests are intended. Tooling tests also verify
+that native checks preserve caches belonging to other checkouts.
+
+The [CI workflow](.github/workflows/checks.yml) runs these isolated host/tooling
+tests on Python 3.11 and 3.14, plus the JavaScript desktop-action provider tests.
+Native LVGL/font checks, ESP-IDF builds and physical acceptance remain separate
+local gates; a green CI run does not establish device rendering or touch behavior.
 
 From this project directory, native checks execute the same deck policy and
 dashboard parser compiled into firmware (with the IDF environment loaded):
@@ -347,13 +366,17 @@ cJSON headers (`IDF_PATH`, or `-DCJSON_INCLUDE_DIR=/path/to/cJSON`):
 ```sh
 python tools/check_native_ui.py --cjson-include "$IDF_PATH/components/json/cJSON"
 # Optional desktop inspection of the same production UI:
-/tmp/349-native-ui-build/native_ui --viewer --grouped
+.cache/native-ui/debug/native_ui --viewer --grouped
 ```
 
 The runner builds Debug and Release with assertions enabled, then runs the
 legacy UI, grouped gestures, serialized replay, production parser/state, SDL
 smoke, and composed host → parser/state → LVGL → host-input checks. Captures
-and traces live under each build's `artifacts/` directory. Platform adapters
-substitute allocation, mutexes, RTC time, USB transport and device identity;
-they do not emulate ESP32 task scheduling, touch hardware or panel transfer.
+and traces live under each build's `artifacts/` directory. Defaults are the
+checkout's ignored `.cache/native-ui/debug` and `.cache/native-ui/release`
+directories. Overrides with a cache from another checkout are rejected before
+either build; choose fresh paths rather than removing an unknown cache.
+Platform adapters substitute allocation, mutexes, RTC time, USB transport and
+device identity; they do not emulate ESP32 task scheduling, touch hardware or
+panel transfer.
 See [the native test guide](tools/native_ui/README.md) for individual runners.
