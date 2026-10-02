@@ -30,17 +30,17 @@ def find_port() -> str:
 
 
 def reset_to_normal_boot(port: serial.Serial) -> None:
-    """Force a normal boot after the port-open reset.
+    """Request a normal reboot using USB Serial/JTAG control lines.
 
-    The kernel raises DTR/RTS together on open; depending on when GPIO0 is
-    sampled the chip can land in download mode instead. Pulse EN with GPIO0
-    high so it always boots the application.
+    Reset is explicit: opening with both DTR and RTS asserted need not reset
+    the S3. RTS asserted with DTR deasserted requests reset; deasserting both
+    clears the download mode flag (ESP32-S3 TRM Table 33.3-2).
     """
     try:
-        port.dtr = False  # GPIO0 high
-        port.rts = True  # EN low, chip in reset
+        port.dtr = False
+        port.rts = True  # RTS asserted / DTR deasserted: reset
         time.sleep(0.1)
-        port.rts = False  # EN high, normal boot
+        port.rts = False  # Both deasserted: clear download mode flag
         time.sleep(0.05)
         port.dtr = False
     except (OSError, serial.SerialException):
@@ -60,10 +60,10 @@ async def reset_to_normal_boot_async(port: serial.Serial) -> None:
 
 
 def open_port(path: str | None = None) -> serial.Serial:
-    # The kernel raises DTR/RTS on every tty open, which the ESP32-S3
-    # USB-Serial-JTAG turns into a chip reset (cannot be disabled on the S3).
-    # Pre-setting both lines low does not prevent that, but keeps them
-    # de-asserted for the rest of the session.
+    # This direct-command path deliberately resets the target after opening.
+    # Deasserting the lines on open can also pass through the S3 reset
+    # combination as PySerial updates DTR before RTS. A discovery probe should
+    # keep both asserted and avoid resetting an unverified candidate.
     port = serial.Serial(port=None, baudrate=115200, timeout=0.2)
     port.dtr = False
     port.rts = False

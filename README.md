@@ -83,6 +83,52 @@ and syncs retained in-memory cards; a daemon `--port` override stays in effect.
 Direct-to-device commands when the daemon is stopped: `349ctl --port /dev/ttyACM0
 hello|ping|text|listen`.
 
+## Serial discovery
+
+Current automatic selection takes the first matching Espressif USB Serial/JTAG
+path; it does not identify the display before opening and resetting it. With
+another ESP32 connected, configure `[link].port` using the 349's stable
+`/dev/serial/by-id/` path. The generic USB product, VID/PID and MAC address prefix
+do not distinguish a 349 from other ESP32-S3 boards. Automatic handshake
+selection is still pending implementation.
+
+Hardware validation on 2026-10-02 confirmed that the existing transport can
+identify these displays without changing USB stacks or adding pairing:
+
+| Target | Firmware build | Successful connections | Final hello + pong exchange |
+| --- | --- | --- | --- |
+| Snap 349 | `d6e782b-dirty` (`9188da1dc`) | 4 | 2.0 ms |
+| Starship 349 | `a80e0b6` (`1275d47ee`) | 4 | 2.1 ms |
+
+The probe preconfigured DTR and RTS asserted before opening and never invoked
+the reset helper. Three consecutive opens on each 349 returned the same
+`boot_id`; opening does not inherently require a reset. This matches the
+no-action control-line combination in the
+[ESP32-S3 TRM, Table 33.3-2](https://documentation.espressif.com/esp32-s3_technical_reference_manual_en.pdf).
+The existing daemon deliberately resets its known target when resuming, so
+this result applies to probe opens, not daemon resume boundaries.
+
+The probe sent `@349 {"t":"hello"}` followed by a newline, required protocol
+version 1, a firmware string and `link`/`bar` capabilities, then required a
+fresh numeric `ping.ts` echoed by `pong.ts`. Nine hello-validation cases and
+six simulated exchanges covered valid replies, malformed fields, echoed
+requests, incompatible protocol versions, wrong/missing pong and silence.
+
+Starship's RLCD was rejected in five trials while its 50 fps benchmark
+continued. Its firmware has no serial command reader: the single hello write
+timed out after 0.5 seconds, and ordinary cleanup added about 30 seconds.
+Discarding queued output with `reset_output_buffer()` before closing reduced
+measured cleanup to 1.7 ms. Future discovery must bound the entire port
+lifecycle and discard unsent output on rejection; PySerial-asyncio also flushes
+output during connection cleanup.
+
+Discovery should skip occupied ports, validate hello and a fresh ping/pong
+before reporting the link ready, and retain the verified connection. The
+prototype and raw captures remain ignored local artifacts under
+`.cache/handshake-validation/` on Snap and Starship. Both daemons were restored
+to their configured displays without a service restart. Other firmware,
+hotplug races and a hub power-cycle test remain outside this validation.
+
 ## Config
 
 `~/.config/349d/config.toml` (or `349d --config FILE`):

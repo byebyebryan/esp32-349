@@ -877,8 +877,9 @@ class Daemon:
 
                 log.info("link up on %s", path)
                 backoff = min_backoff
-                # Opening the port resets the chip, but DTR/RTS can land it in
-                # download mode; force a normal boot before the device hello.
+                # This connection path deliberately resets before hello.
+                # Opening with both DTR/RTS asserted need not reset the chip;
+                # future discovery must identify a candidate without resetting it.
                 serial_port = getattr(writer.transport, "serial", None)
                 if serial_port is not None:
                     await reset_to_normal_boot_async(serial_port)
