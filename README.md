@@ -116,6 +116,8 @@ the pin and reload. Initial pairing reuses the verified session and confirms
 a fresh pong. PTY targets remain supported for development but require USB
 metadata to become a persistent binding. The [implementation plan](design/usb-discovery-plan.md)
 records the ownership and rollout contract.
+The [pairing acceptance record](design/usb-pairing-acceptance.md) separates
+automated checks, deployed host behavior and physical recovery gates.
 
 Hardware validation on 2026-10-02 confirmed that the existing transport can
 identify these displays without changing USB stacks or adding pairing:
@@ -151,7 +153,8 @@ closing; the adopted transport suppresses PySerial-asyncio's cleanup flush.
 The prototype and raw captures remain ignored local artifacts under
 `.cache/handshake-validation/` on Snap and Starship. Both daemons were restored
 to their configured displays without a service restart. Other firmware,
-hotplug races and a hub power-cycle test remain outside this validation.
+hotplug races and a hub power-cycle test remain outside this prototype
+validation; deployment results are recorded separately above.
 
 ## Config
 
