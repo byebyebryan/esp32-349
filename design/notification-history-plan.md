@@ -56,6 +56,13 @@ peers. Existing framing, chunk limits, session/action identity checks, atomic
 publication and generation-scoped attention remain in use. A presentation in
 history mode selects eligible content but never returns to a clock on timeout.
 
+Before the first device hello, startup cards and desktop associations use the
+same 32-record bound. A replacement refreshes association order as well as
+retained-card order. After an older peer selects the legacy mode, its full
+active collection and overflow count remain supported; retained-history
+eviction must preserve desktop close/popup-expiry tracking and injected-card
+expiry until the legacy active card itself closes.
+
 ## Acceptance
 
 1. Deterministic host tests prove 10-minute expiry, replacement renewal,

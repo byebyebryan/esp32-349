@@ -25,6 +25,13 @@ equal ranges and keeps clipping ellipses regular. Normalization precedes range
 calculation; the existing 511-byte history body limit includes line breaks and
 any text ellipsis. Formatting metadata does not reduce that text budget.
 
+Host display conversion processes at most 8,192 Unicode code points from a
+body before HTML/Markdown parsing or Unicode/style normalization. Longer
+sources keep a bounded prefix and a regular ellipsis, including when markup
+or whitespace removal leaves a short visible body. This processing bound is
+separate from the final 511-byte display limit and does not alter the original
+D-Bus strings used for Open validation.
+
 Missing, empty, malformed or excessive ranges clear styling and retain the
 valid plain notification. Firmware validates all ranges before using any.
 Replacing a styled card with a plain card removes old styling. Metadata travels

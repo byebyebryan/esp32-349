@@ -242,12 +242,20 @@ an ellipsis; older peers keep the 159-byte projection. See the
 [notification-only plan](design/notification-history-plan.md) and
 [acceptance record](design/notification-history-acceptance.md).
 
+Before the first device hello, notification cards and desktop associations
+are bounded to the newest 32 arrivals or replacements. Once an older peer
+selects legacy mode, its full active collection and overflow count remain
+supported, with close and popup-expiry tracking preserved after history
+eviction.
+
 With `device_dismiss = "propagate"`, × removes the local card immediately and
 queues the desktop close. Each attempt times out after half a second; queued
 requests recheck the server and notification identity before dispatch, so a
 replacement is not closed by a stale dismissal.
 
-Notification bodies are converted on the host before clipping: supported
+Notification bodies use an 8,192-code-point processing budget before parsing
+or normalization; longer sources retain a prefix and a regular ellipsis.
+Within that budget, bodies are converted on the host before clipping: supported
 desktop markup becomes readable text, links retain their labels, and Kitty's
 plain-text guards are removed. Markdown is interpreted only for identified
 Codex terminal notifications; other terminal messages keep literal markers.

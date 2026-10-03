@@ -1,5 +1,6 @@
 from dbus_next import Variant
 
+from status349 import notification_text
 from status349.notification_text import convert_body, normalize_body, project_body
 from status349.sources.notifications import parse_notify_body, parse_open_metadata
 
@@ -187,3 +188,126 @@ def test_notify_display_conversion_does_not_change_raw_open_metadata():
         "body": raw_body,
         "default_label": "Open",
     }
+
+
+def test_oversized_plain_body_is_bounded_before_normalization(monkeypatch):
+    observed_sizes = []
+    normalize = notification_text._normalized_chars
+
+    def record_and_normalize(text):
+        observed_sizes.append(len(text))
+        return normalize(text)
+
+    monkeypatch.setattr(notification_text, "_normalized_chars", record_and_normalize)
+    body, runs = convert_body(
+        "kitty", "Shell", "é" * (notification_text.MAX_BODY_INPUT_CODEPOINTS * 100), {}
+    )
+
+    assert observed_sizes and max(observed_sizes) <= notification_text.MAX_BODY_INPUT_CODEPOINTS
+    assert body.endswith("…")
+    assert len(body.encode("utf-8")) == notification_text.DEFAULT_BODY_BYTES
+    assert runs == []
+
+
+def test_oversized_codex_markdown_is_bounded_and_keeps_unicode_style(monkeypatch):
+    parsed_sizes = []
+    parse = notification_text._MARKDOWN.parse
+
+    def record_and_parse(text, *args, **kwargs):
+        parsed_sizes.append(len(text))
+        return parse(text, *args, **kwargs)
+
+    monkeypatch.setattr(notification_text._MARKDOWN, "parse", record_and_parse)
+    styled = "**é東京**"
+    source = styled + " " * (notification_text.MAX_BODY_INPUT_CODEPOINTS - len(styled)) + "hidden"
+
+    body, runs = convert_body("kitty", "Codex", source, {})
+
+    assert parsed_sizes and max(parsed_sizes) <= notification_text.MAX_BODY_INPUT_CODEPOINTS
+    # The existing display policy reduces Latin accents after normalization.
+    assert body == "e東京…"
+    assert [(_run_text(body, run), run["style"]) for run in runs] == [("e東京", 1)]
+
+
+def test_oversized_html_with_hidden_leading_markup_is_bounded_and_marked(monkeypatch):
+    parser_inputs = []
+    feed = notification_text.HTMLParser.feed
+
+    def record_and_feed(parser, source):
+        parser_inputs.append(source)
+        return feed(parser, source)
+
+    monkeypatch.setattr(notification_text.HTMLParser, "feed", record_and_feed)
+    source = "<b></b>" * 1170 + "Visible"
+
+    body, runs = convert_body("browser", "Message", source, {})
+
+    assert parser_inputs == [source[: notification_text.MAX_BODY_INPUT_CODEPOINTS - 1]]
+    assert body == "V…"
+    assert runs == []
+
+
+def test_project_body_bounds_validation_and_normalization_and_marks_truncation(monkeypatch):
+    observed_validation_sizes = []
+    observed_normalization_sizes = []
+    validate = notification_text._validated_runs
+    normalize = notification_text._normalized_chars
+
+    def record_and_validate(text, runs):
+        observed_validation_sizes.append(len(text))
+        return validate(text, runs)
+
+    def record_and_normalize(text):
+        observed_normalization_sizes.append(len(text))
+        return normalize(text)
+
+    monkeypatch.setattr(notification_text, "_validated_runs", record_and_validate)
+    monkeypatch.setattr(notification_text, "_normalized_chars", record_and_normalize)
+
+    body, runs = project_body(" \t" * (notification_text.MAX_BODY_INPUT_CODEPOINTS * 100), None)
+
+    assert observed_validation_sizes == [notification_text.MAX_BODY_INPUT_CODEPOINTS - 1]
+    assert observed_normalization_sizes == [notification_text.MAX_BODY_INPUT_CODEPOINTS - 1]
+    assert body == "…"
+    assert runs == []
+
+
+def test_project_body_drops_a_run_crossing_the_processing_boundary():
+    source = " " * (notification_text.MAX_BODY_INPUT_CODEPOINTS + 5)
+    # This ends at the display marker's offset if it is appended before range
+    # validation, but reaches beyond the original bounded source prefix.
+    runs = [{"start": 0, "end": notification_text.MAX_BODY_INPUT_CODEPOINTS + 2, "style": 1}]
+
+    body, projected_runs = project_body(source, runs)
+
+    assert body == "…"
+    assert projected_runs == []
+
+
+def test_project_body_keeps_a_short_style_before_the_processing_boundary():
+    source = "東京" + " " * (notification_text.MAX_BODY_INPUT_CODEPOINTS * 2)
+
+    body, runs = project_body(source, [{"start": 0, "end": 6, "style": 1}])
+
+    assert body == "東京…"
+    assert runs == [{"start": 0, "end": 6, "style": 1}]
+    assert body.encode("utf-8")[runs[0]["end"] :] == "…".encode("utf-8")
+
+
+def test_bounded_project_body_does_not_split_a_surrogate_pair(monkeypatch):
+    observed = []
+    normalize = notification_text._normalized_chars
+
+    def record_and_normalize(text):
+        observed.append(text)
+        return normalize(text)
+
+    monkeypatch.setattr(notification_text, "_normalized_chars", record_and_normalize)
+    source = "A" * (notification_text.MAX_BODY_INPUT_CODEPOINTS - 2) + "\ud83d\ude00tail"
+
+    body, runs = project_body(source, None)
+
+    assert observed == ["A" * (notification_text.MAX_BODY_INPUT_CODEPOINTS - 2)]
+    assert body == "A" * (notification_text.DEFAULT_BODY_BYTES - len("…".encode("utf-8"))) + "…"
+    assert body.encode("utf-8").decode("utf-8") == body
+    assert runs == []

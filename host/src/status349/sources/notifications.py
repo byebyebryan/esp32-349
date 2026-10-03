@@ -86,6 +86,8 @@ def parse_open_metadata(body: list) -> dict | None:
     expected = {"app": app, "summary": summary, "body": text, "default_label": defaults[0]}
     # Leave room for the bridge's bounded identity/envelope fields. Do not keep
     # image hints or a second unbounded copy of the notification's body.
+    if any(len(value) > proto.LINE_MAX - 1024 for value in expected.values()):
+        return None
     try:
         size = len(json.dumps(expected, ensure_ascii=False, separators=(",", ":")).encode())
     except UnicodeError:
@@ -151,6 +153,7 @@ class NotificationSource:
         on_expire: Callable[[int], Awaitable[None]] | None = None,
         on_monitor_reset: Callable[[list[int]], Awaitable[None]] | None = None,
         grouped_mode: Callable[[], bool] | None = None,
+        bounded_mode: Callable[[], bool] | None = None,
         allocate_local_id: Callable[[], int] | None = None,
     ):
         self.cfg = cfg
@@ -160,6 +163,7 @@ class NotificationSource:
         self._on_expire = on_expire or self._noop_expire
         self._on_monitor_reset = on_monitor_reset or self._noop_monitor_reset
         self._grouped_mode = grouped_mode or (lambda: False)
+        self._bounded_mode = bounded_mode or self._grouped_mode
         self._allocate_local_id = allocate_local_id
 
         self._monitor: MessageBus | None = None
@@ -304,7 +308,7 @@ class NotificationSource:
 
     def _trim_associations(self) -> list[int]:
         trimmed: list[int] = []
-        if not self._grouped_mode():
+        if not self._bounded_mode():
             return trimmed
         while len(self._local_to_daemon) > ASSOCIATION_LIMIT:
             oldest = next(iter(self._local_to_daemon))
@@ -700,11 +704,11 @@ class NotificationSource:
     async def _handle_notify(self, message: Message) -> None:
         if self.cfg.mode != "mirror":
             return
+        if len(message.body) >= 8 and is_ignored(str(message.body[0]), self.cfg.ignore_apps):
+            log.debug("ignoring notification from %r", message.body[0])
+            return
         parsed = parse_notify_body(message.body)
         if parsed is None:
-            return
-        if is_ignored(parsed["app"], self.cfg.ignore_apps):
-            log.debug("ignoring notification from %r", parsed["app"])
             return
         received_mono = time.monotonic()
 
@@ -723,6 +727,9 @@ class NotificationSource:
                 # replaces_id, and that returned ID is authoritative.
                 self._daemon_to_local[replaces] = local_id
         self._mirrored_local_ids.add(local_id)
+        # Match retained-card ordering: a genuine replacement is a new arrival.
+        association = self._local_to_daemon.pop(local_id)
+        self._local_to_daemon[local_id] = association
         self._locally_removed.pop(local_id, None)
         self._attention_expired.pop(local_id, None)
         self._forgotten_local_ids.pop(local_id, None)

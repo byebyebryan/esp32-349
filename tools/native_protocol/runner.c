@@ -14,6 +14,7 @@
 #include "link.h"
 #include "native_platform.h"
 #include "proto.h"
+#include "rtc.h"
 #include "state.h"
 
 #define OUTBOUND_CAPACITY 32
@@ -106,6 +107,191 @@ static const char *string(const cJSON *object, const char *name)
     const cJSON *value = field(object, name);
     CHECK(cJSON_IsString(value));
     return value->valuestring;
+}
+
+static int clock_rtc_set_count(void)
+{
+    int count = -1;
+    CHECK(native_protocol_rtc_last_set(NULL, NULL, &count));
+    return count;
+}
+
+static void expect_clock_and_rtc(int64_t epoch, int offset)
+{
+    state_lock();
+    const status_clock_t clock = state_get()->clock;
+    state_unlock();
+    CHECK(clock.valid && clock.epoch == epoch && clock.offset == offset);
+
+    int64_t rtc_epoch = 0;
+    int rtc_offset = 0;
+    CHECK(native_protocol_rtc_last_set(&rtc_epoch, &rtc_offset, NULL));
+    CHECK(rtc_epoch == epoch && rtc_offset == offset);
+}
+
+static void expect_last_good_clock(int64_t epoch, int offset, int set_count)
+{
+    expect_clock_and_rtc(epoch, offset);
+    CHECK(clock_rtc_set_count() == set_count);
+}
+
+static void expect_nonfinite_clock_rejected(double epoch_value, double offset_value)
+{
+    cJSON epoch_item = {0};
+    epoch_item.type = cJSON_Number;
+    epoch_item.valuedouble = epoch_value;
+    epoch_item.string = (char *)"epoch";
+
+    cJSON offset_item = {0};
+    offset_item.type = cJSON_Number;
+    offset_item.valuedouble = offset_value;
+    offset_item.string = (char *)"offset";
+
+    epoch_item.next = &offset_item;
+    cJSON object = {0};
+    object.type = cJSON_Object;
+    object.child = &epoch_item;
+
+    int64_t parsed_epoch = 1;
+    int parsed_offset = 2;
+    CHECK(!state_apply_clock(&object, &parsed_epoch, &parsed_offset));
+    CHECK(parsed_epoch == 1 && parsed_offset == 2);
+}
+
+static void sync_begin_clock(int tx, const char *clock_field)
+{
+    char message[1024];
+    snprintf(message, sizeof(message),
+        "{\"t\":\"sync_begin\",\"tx\":%d,\"count\":0,\"limit\":0,"
+        "\"overflow\":0,\"bar\":{\"zones\":[]},\"dashboard\":{}%s}",
+        tx, clock_field != NULL ? clock_field : "");
+    CHECK(send_wire(message) == NULL);
+}
+
+static void commit_clock_sync(int tx)
+{
+    char message[96];
+    snprintf(message, sizeof(message), "{\"t\":\"sync_commit\",\"tx\":%d}", tx);
+    CHECK(send_wire(message) == NULL);
+}
+
+static void test_clock_validation_and_atomicity(void)
+{
+    state_init();
+
+    /* Omitted offsets default to UTC; both supported offset endpoints and the
+     * calendar-year endpoints remain valid when the local date also fits. */
+    CHECK(send_wire("{\"t\":\"clock\",\"epoch\":0}") == NULL);
+    expect_clock_and_rtc(0, 0);
+    int set_count = clock_rtc_set_count();
+
+    CHECK(send_wire("{\"t\":\"clock\",\"epoch\":0,\"offset\":86400}") == NULL);
+    expect_clock_and_rtc(0, 86400);
+    CHECK(clock_rtc_set_count() == ++set_count);
+    CHECK(send_wire("{\"t\":\"clock\",\"epoch\":0,\"offset\":-86400}") == NULL);
+    expect_clock_and_rtc(0, -86400);
+    CHECK(clock_rtc_set_count() == ++set_count);
+    CHECK(send_wire(
+        "{\"t\":\"clock\",\"epoch\":-62135596800,\"offset\":86400}") == NULL);
+    expect_clock_and_rtc(RTC_CLOCK_MIN_EPOCH_UTC, RTC_CLOCK_MAX_OFFSET_SEC);
+    CHECK(clock_rtc_set_count() == ++set_count);
+    CHECK(send_wire(
+        "{\"t\":\"clock\",\"epoch\":253402300799,\"offset\":-86400}") == NULL);
+    expect_clock_and_rtc(RTC_CLOCK_MAX_EPOCH_UTC, -RTC_CLOCK_MAX_OFFSET_SEC);
+    CHECK(clock_rtc_set_count() == ++set_count);
+    CHECK(send_wire("{\"t\":\"clock\",\"epoch\":-62135596800}") == NULL);
+    expect_clock_and_rtc(RTC_CLOCK_MIN_EPOCH_UTC, 0);
+    CHECK(clock_rtc_set_count() == ++set_count);
+    CHECK(send_wire("{\"t\":\"clock\",\"epoch\":253402300799}") == NULL);
+    expect_clock_and_rtc(RTC_CLOCK_MAX_EPOCH_UTC, 0);
+    CHECK(clock_rtc_set_count() == ++set_count);
+
+    /* Save a normal last-good date before exercising rejected wire values. */
+    const int64_t last_good_epoch = INT64_C(1735689600);
+    const int last_good_offset = -28800;
+    CHECK(send_wire(
+        "{\"t\":\"clock\",\"epoch\":1735689600,\"offset\":-28800}") == NULL);
+    expect_clock_and_rtc(last_good_epoch, last_good_offset);
+    set_count = clock_rtc_set_count();
+
+    static const char *const invalid_delta[] = {
+        "{\"t\":\"clock\",\"epoch\":1e100,\"offset\":0}",
+        "{\"t\":\"clock\",\"epoch\":1e999,\"offset\":0}",
+        "{\"t\":\"clock\",\"epoch\":-1e999,\"offset\":0}",
+        "{\"t\":\"clock\",\"epoch\":0,\"offset\":1e999}",
+        "{\"t\":\"clock\",\"epoch\":1.5,\"offset\":0}",
+        "{\"t\":\"clock\",\"epoch\":true,\"offset\":0}",
+        "{\"t\":\"clock\",\"epoch\":-62135596801,\"offset\":0}",
+        "{\"t\":\"clock\",\"epoch\":253402300800,\"offset\":0}",
+        "{\"t\":\"clock\",\"epoch\":-62135596800,\"offset\":-1}",
+        "{\"t\":\"clock\",\"epoch\":253402300799,\"offset\":1}",
+        "{\"t\":\"clock\",\"epoch\":0,\"offset\":86401}",
+        "{\"t\":\"clock\",\"epoch\":0,\"offset\":-86401}",
+        "{\"t\":\"clock\",\"epoch\":0,\"offset\":1.5}",
+        "{\"t\":\"clock\",\"epoch\":0,\"offset\":true}",
+        "{\"t\":\"clock\",\"epoch\":0,\"offset\":null}",
+        "{\"t\":\"clock\",\"epoch\":0,\"offset\":\"0\"}",
+    };
+    for (size_t i = 0; i < sizeof(invalid_delta) / sizeof(invalid_delta[0]); i++) {
+        CHECK(send_wire(invalid_delta[i]) == NULL);
+        expect_last_good_clock(last_good_epoch, last_good_offset, set_count);
+    }
+    expect_nonfinite_clock_rejected(INFINITY, 0);
+    expect_last_good_clock(last_good_epoch, last_good_offset, set_count);
+    expect_nonfinite_clock_rejected(NAN, 0);
+    expect_last_good_clock(last_good_epoch, last_good_offset, set_count);
+    expect_nonfinite_clock_rejected(0, -INFINITY);
+    expect_last_good_clock(last_good_epoch, last_good_offset, set_count);
+    CHECK(rtc_pcf_set(RTC_CLOCK_MAX_EPOCH_UTC + 1, 0) == ESP_ERR_INVALID_ARG);
+    expect_last_good_clock(last_good_epoch, last_good_offset, set_count);
+
+    /* The legacy one-shot sync may update its other snapshot fields, but an
+     * invalid embedded clock leaves both the committed clock and RTC intact. */
+    CHECK(send_wire(
+        "{\"t\":\"sync\",\"clock\":{\"epoch\":1e100,\"offset\":0},"
+        "\"bar\":{\"zones\":[]},\"notifs\":[]}") == NULL);
+    expect_last_good_clock(last_good_epoch, last_good_offset, set_count);
+
+    cJSON *response = send_wire(
+        "{\"t\":\"sync_begin\",\"tx\":70,\"count\":0,\"limit\":0,"
+        "\"overflow\":0,\"clock\":{\"epoch\":1e999,\"offset\":0},"
+        "\"bar\":{\"zones\":[]},\"dashboard\":{}}");
+    CHECK(response != NULL && strcmp(string(response, "t"), "resync") == 0);
+    CHECK(strcmp(string(response, "reason"), "sync_begin_invalid") == 0);
+    cJSON_Delete(response);
+    CHECK(!state_sync_pending());
+    expect_last_good_clock(last_good_epoch, last_good_offset, set_count);
+
+    /* A valid staged clock is invisible until atomic commit. */
+    sync_begin_clock(71, ",\"clock\":{\"epoch\":86400,\"offset\":-3600}");
+    CHECK(state_sync_pending());
+    expect_last_good_clock(last_good_epoch, last_good_offset, set_count);
+    commit_clock_sync(71);
+    const int64_t staged_epoch = 86400;
+    const int staged_offset = -3600;
+    expect_clock_and_rtc(staged_epoch, staged_offset);
+    set_count = clock_rtc_set_count();
+
+    /* Missing and null staged clocks remain legal and do not call the RTC. */
+    sync_begin_clock(72, NULL);
+    commit_clock_sync(72);
+    state_lock();
+    CHECK(!state_get()->clock.valid);
+    state_unlock();
+    int64_t rtc_epoch = 0;
+    int rtc_offset = 0;
+    CHECK(native_protocol_rtc_last_set(&rtc_epoch, &rtc_offset, NULL));
+    CHECK(rtc_epoch == staged_epoch && rtc_offset == staged_offset);
+    CHECK(clock_rtc_set_count() == set_count);
+
+    sync_begin_clock(73, ",\"clock\":null");
+    commit_clock_sync(73);
+    state_lock();
+    CHECK(!state_get()->clock.valid);
+    state_unlock();
+    CHECK(native_protocol_rtc_last_set(&rtc_epoch, &rtc_offset, NULL));
+    CHECK(rtc_epoch == staged_epoch && rtc_offset == staged_offset);
+    CHECK(clock_rtc_set_count() == set_count);
 }
 
 static void sync_grouped(int session, const char *records)
@@ -1080,6 +1266,11 @@ int main(int argc, char **argv)
     if (argc == 2 && strcmp(argv[1], "--line-json") == 0) {
         return run_line_json();
     }
+    if (argc == 2 && strcmp(argv[1], "--clock-self-test") == 0) {
+        test_clock_validation_and_atomicity();
+        printf("native clock protocol: %d checks passed\n", s_checks);
+        return 0;
+    }
     if (argc == 2 && strcmp(argv[1], "--self-test") == 0) {
         test_staged_validation_and_deltas();
         test_presentation_and_session_reset();
@@ -1089,9 +1280,10 @@ int main(int argc, char **argv)
         test_legacy_compatibility();
         test_history_deadlines_and_projection();
         test_notification_body_style_ranges();
+        test_clock_validation_and_atomicity();
         printf("native protocol: %d checks passed\n", s_checks);
         return 0;
     }
-    fprintf(stderr, "usage: %s --self-test | --line-json\n", argv[0]);
+    fprintf(stderr, "usage: %s --self-test | --clock-self-test | --line-json\n", argv[0]);
     return 2;
 }

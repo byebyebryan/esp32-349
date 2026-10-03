@@ -88,6 +88,7 @@ class Daemon:
         self._sample_thread_lock = threading.Lock()
         self._sample_task: asyncio.Task[_TelemetrySample] | None = None
         self._sample_generation = 0
+        self._notification_peer_known = False
         self.notifications = NotificationSource(
             cfg.notifications,
             self._device_notify,
@@ -96,6 +97,7 @@ class Daemon:
             on_expire=self._device_expire,
             on_monitor_reset=self._device_monitor_reset,
             grouped_mode=lambda: self._grouped_mode,
+            bounded_mode=self._notification_bounds_required,
             allocate_local_id=self._allocate_local_notification_id,
         )
         self._actions_capable = False
@@ -173,6 +175,10 @@ class Daemon:
         self._pair_operation = secrets.randbits(52)
         self._pair_result: dict | None = None
         self._pair_scanning = False
+
+    def _notification_bounds_required(self) -> bool:
+        """Bound startup buffering until a peer selects its notification mode."""
+        return not self._notification_peer_known or self._grouped_mode
 
     def _allocate_local_notification_id(self) -> int:
         """Allocate a daemon-unique positive 31-bit notification ID."""
@@ -282,9 +288,9 @@ class Daemon:
                 self.model.rev += 1
             for evicted_id in evicted:
                 self._cancel_unsent_action(evicted_id)
-                self.notifications.forget(evicted_id)
-                self._injected_expiry.pop(evicted_id, None)
-                if self._grouped_mode:
+                if self._notification_bounds_required():
+                    self.notifications.forget(evicted_id)
+                    self._injected_expiry.pop(evicted_id, None)
                     self.model.close_active_notification(evicted_id)
 
             update = self._notification_projection(
@@ -1282,6 +1288,7 @@ class Daemon:
         self._dashboard_capable = new_dashboard
         self._grouped_enabled = new_grouped
         self._grouped_mode = new_grouped
+        self._notification_peer_known = True
         self._history_enabled = new_history
         self._history_mode = new_history
         self._body_style_enabled = new_body_style

@@ -87,6 +87,20 @@ esp_err_t rtc_pcf_init(void)
 
 esp_err_t rtc_pcf_set(int64_t epoch_utc, int offset_sec)
 {
+    if (!rtc_clock_valid(epoch_utc, offset_sec)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    const int64_t local_seconds = epoch_utc + (int64_t)offset_sec;
+    const time_t local = (time_t)local_seconds;
+    if ((int64_t)local != local_seconds) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    struct tm tm;
+    if (gmtime_r(&local, &tm) == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
     s_fallback_epoch = epoch_utc;
     s_fallback_offset = offset_sec;
     s_fallback_us = esp_timer_get_time();
@@ -96,9 +110,12 @@ esp_err_t rtc_pcf_set(int64_t epoch_utc, int offset_sec)
         return ESP_ERR_INVALID_STATE;
     }
 
-    const time_t local = (time_t)(epoch_utc + offset_sec);
-    struct tm tm;
-    gmtime_r(&local, &tm);
+    const int year = tm.tm_year + 1900;
+    if (year < 2000 || year > 2099) {
+        /* The PCF85063 only stores two year digits for its 2000-based era. */
+        s_hw_ok = false;
+        return ESP_OK;
+    }
 
     const uint8_t buf[7] = {
         (uint8_t)(dec2bcd((uint8_t)tm.tm_sec) & 0x7F),
@@ -107,8 +124,9 @@ esp_err_t rtc_pcf_set(int64_t epoch_utc, int offset_sec)
         dec2bcd((uint8_t)tm.tm_mday),
         (uint8_t)(tm.tm_wday + 1), /* 1..7, informational only */
         dec2bcd((uint8_t)(tm.tm_mon + 1)),
-        dec2bcd((uint8_t)(tm.tm_year % 100)),
+        dec2bcd((uint8_t)(year % 100)),
     };
+    s_hw_ok = false;
     const esp_err_t err = write_regs(PCF85063_SEC, buf, sizeof(buf));
     if (err == ESP_OK) {
         s_hw_ok = true;
@@ -118,6 +136,9 @@ esp_err_t rtc_pcf_set(int64_t epoch_utc, int offset_sec)
 
 rtc_source_t rtc_pcf_get_local(struct tm *out)
 {
+    if (out == NULL) {
+        return RTC_SOURCE_NONE;
+    }
     if (s_dev != NULL && s_hw_ok) {
         uint8_t buf[7];
         if (read_regs(PCF85063_SEC, buf, sizeof(buf)) == ESP_OK) {
@@ -140,9 +161,24 @@ rtc_source_t rtc_pcf_get_local(struct tm *out)
     }
 
     if (s_fallback_valid) {
-        const time_t local =
-            (time_t)(s_fallback_epoch + s_fallback_offset + (esp_timer_get_time() - s_fallback_us) / 1000000);
-        gmtime_r(&local, out);
+        const int64_t now_us = esp_timer_get_time();
+        if (now_us < s_fallback_us) {
+            return RTC_SOURCE_NONE;
+        }
+        const int64_t elapsed = (now_us - s_fallback_us) / 1000000;
+        const int64_t base = s_fallback_epoch + (int64_t)s_fallback_offset;
+        if (elapsed > RTC_CLOCK_MAX_EPOCH_UTC - base) {
+            return RTC_SOURCE_NONE;
+        }
+        const int64_t local_seconds = base + elapsed;
+        if (local_seconds < RTC_CLOCK_MIN_EPOCH_UTC ||
+            local_seconds > RTC_CLOCK_MAX_EPOCH_UTC) {
+            return RTC_SOURCE_NONE;
+        }
+        const time_t local = (time_t)local_seconds;
+        if ((int64_t)local != local_seconds || gmtime_r(&local, out) == NULL) {
+            return RTC_SOURCE_NONE;
+        }
         return RTC_SOURCE_FALLBACK;
     }
     return RTC_SOURCE_NONE;

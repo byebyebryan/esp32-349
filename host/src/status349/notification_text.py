@@ -18,6 +18,7 @@ from markdown_it import MarkdownIt
 
 DEFAULT_BODY_BYTES = 511
 MAX_BODY_RUNS = 16
+MAX_BODY_INPUT_CODEPOINTS = 8192
 ELLIPSIS = "…"
 
 _MARKDOWN = MarkdownIt("commonmark", {"html": False, "typographer": False})
@@ -218,6 +219,23 @@ def _normalized_chars(text: str) -> list[_MappedChar]:
     return result
 
 
+def _bounded_source(text: str) -> tuple[str, bool]:
+    """Keep body processing bounded, reserving space for a truncation marker."""
+    if len(text) <= MAX_BODY_INPUT_CODEPOINTS:
+        return text, False
+
+    # Leave one code point for the regular ellipsis appended by the caller.
+    end = MAX_BODY_INPUT_CODEPOINTS - len(ELLIPSIS)
+    # Python strings can contain explicit UTF-16 surrogate pairs. Do not leave
+    # half of such a pair at the end of the bounded prefix.
+    if end and end < len(text):
+        previous = ord(text[end - 1])
+        following = ord(text[end])
+        if 0xD800 <= previous <= 0xDBFF and 0xDC00 <= following <= 0xDFFF:
+            end -= 1
+    return text[:end], True
+
+
 def normalize_body(text: str) -> str:
     """Normalize body Unicode and whitespace while keeping useful LF breaks."""
     if not isinstance(text, str):
@@ -358,12 +376,17 @@ def project_body(
         return "", []
     if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes < 0:
         raise ValueError("max_bytes must be a nonnegative integer")
+    text, truncated = _bounded_source(text)
     source_runs, valid = _validated_runs(text, runs)
     mapped_text = _normalized_chars(text)
     normalized = "".join(mapped.value for mapped in mapped_text)
     mapped_runs = _project_runs(mapped_text, source_runs) if valid else []
     if len(mapped_runs) > MAX_BODY_RUNS:
         mapped_runs = []
+    if truncated:
+        # Append after range projection so a source range crossing the bounded
+        # prefix can never style this synthetic display character.
+        normalized += ELLIPSIS
     return _clip_body(normalized, mapped_runs, max_bytes)
 
 
@@ -646,6 +669,7 @@ def convert_body(app: str, summary: str, body: str, hints: object) -> tuple[str,
     """Convert one desktop body according to its positively identified source."""
     if not isinstance(body, str):
         body = str(body)
+    body, truncated = _bounded_source(body)
     terminal, kitty = _is_terminal(str(app), hints)
     if kitty:
         body = _remove_kitty_guards(body)
@@ -657,4 +681,8 @@ def convert_body(app: str, summary: str, body: str, hints: object) -> tuple[str,
             text, runs = body, []
     else:
         text, runs = _desktop_markup_text(body)
+    if truncated:
+        # The marker is added after parsing so even hidden leading markup and
+        # whitespace cannot make a clipped source look like a complete body.
+        text += ELLIPSIS
     return project_body(text, runs)

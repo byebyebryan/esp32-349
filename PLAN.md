@@ -231,6 +231,13 @@ v1 (types in parentheses):
 | d→h | `resync` | `reason` (`rx_overflow\|parse_error`) |
 | d→h | `ack` | `v` (debug echo; not required in v1 flow) |
 
+Clock updates require finite integral Unix seconds and an integral offset
+between -86,400 and +86,400 seconds (zero when omitted). Both UTC and local
+time must fit calendar years 1–9999. Invalid updates preserve the last valid
+clock; an invalid clock in staged sync rejects the transaction. Valid local
+dates outside the PCF85063's 2000–2099 range use the timer fallback instead
+of wrapping the hardware's two-digit year.
+
 The active-card cache extension is capability-gated and leaves these v1
 messages available for older hosts and firmware. See
 [the cache plan](design/card-cache-plan.md) for `sync_begin`, `sync_cards`,

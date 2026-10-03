@@ -9,6 +9,7 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "rtc.h"
 
 static status_state_t s_state;
 static status_notif_t s_legacy_notifs[STATUS_LEGACY_NOTIFS];
@@ -109,17 +110,46 @@ static int parse_zones(const cJSON *zones, status_zone_t *out, bool strict)
     return size;
 }
 
-static status_clock_t parse_clock(const cJSON *obj)
+static bool clock_integer(const cJSON *item, double min, double max, double *out)
+{
+    if (!cJSON_IsNumber(item) || !isfinite(item->valuedouble) ||
+        trunc(item->valuedouble) != item->valuedouble ||
+        item->valuedouble < min || item->valuedouble > max) {
+        return false;
+    }
+    *out = item->valuedouble;
+    return true;
+}
+
+static bool parse_clock(const cJSON *obj, status_clock_t *out)
 {
     status_clock_t clock = {0};
+    if (obj == NULL || cJSON_IsNull(obj)) {
+        *out = clock;
+        return true;
+    }
+    if (!cJSON_IsObject(obj)) {
+        return false;
+    }
+
     const cJSON *e = cJSON_GetObjectItemCaseSensitive(obj, "epoch");
     const cJSON *o = cJSON_GetObjectItemCaseSensitive(obj, "offset");
-    if (cJSON_IsNumber(e)) {
-        clock.valid = true;
-        clock.epoch = (int64_t)e->valuedouble;
-        clock.offset = cJSON_IsNumber(o) ? o->valueint : 0;
+    double epoch_value, offset_value = 0;
+    if (!clock_integer(e, (double)RTC_CLOCK_MIN_EPOCH_UTC,
+                       (double)RTC_CLOCK_MAX_EPOCH_UTC, &epoch_value) ||
+        (o != NULL && !clock_integer(o, -RTC_CLOCK_MAX_OFFSET_SEC,
+                                     RTC_CLOCK_MAX_OFFSET_SEC, &offset_value))) {
+        return false;
     }
-    return clock;
+
+    clock.epoch = (int64_t)epoch_value;
+    clock.offset = (int)offset_value;
+    if (!rtc_clock_valid(clock.epoch, clock.offset)) {
+        return false;
+    }
+    clock.valid = true;
+    *out = clock;
+    return true;
 }
 
 static status_media_t parse_media(const cJSON *obj)
@@ -335,23 +365,20 @@ void state_apply_bar(const cJSON *obj)
 
 bool state_apply_clock(const cJSON *obj, int64_t *epoch, int *offset)
 {
-    const cJSON *e = cJSON_GetObjectItemCaseSensitive(obj, "epoch");
-    const cJSON *o = cJSON_GetObjectItemCaseSensitive(obj, "offset");
-    if (!cJSON_IsNumber(e)) {
+    status_clock_t clock;
+    if (!parse_clock(obj, &clock) || !clock.valid) {
         return false;
     }
 
     state_lock();
-    s_state.clock.valid = true;
-    s_state.clock.epoch = (int64_t)e->valuedouble;
-    s_state.clock.offset = cJSON_IsNumber(o) ? o->valueint : 0;
+    s_state.clock = clock;
     state_unlock();
 
     if (epoch) {
-        *epoch = (int64_t)e->valuedouble;
+        *epoch = clock.epoch;
     }
     if (offset) {
-        *offset = cJSON_IsNumber(o) ? o->valueint : 0;
+        *offset = clock.offset;
     }
     return true;
 }
@@ -1147,10 +1174,15 @@ bool state_sync_begin(const cJSON *obj)
     const cJSON *grouped = cJSON_GetObjectItemCaseSensitive(obj, "grouped");
     const cJSON *dashboard = cJSON_GetObjectItemCaseSensitive(obj, "dashboard");
     const cJSON *actions = cJSON_GetObjectItemCaseSensitive(obj, "actions");
+    const cJSON *clock_obj = cJSON_GetObjectItemCaseSensitive(obj, "clock");
+    status_clock_t staged_clock;
     bool grouped_enabled = false;
     bool history_enabled = false;
     bool actions_enabled = false;
     int grouped_session = 0;
+    if (!parse_clock(clock_obj, &staged_clock)) {
+        return false;
+    }
     if (grouped != NULL) {
         const cJSON *history = cJSON_GetObjectItemCaseSensitive(grouped, "history");
         if (!cJSON_IsObject(grouped) ||
@@ -1185,7 +1217,7 @@ bool state_sync_begin(const cJSON *obj)
         return false;
     }
     s_stage.zone_count = zone_count;
-    s_stage.clock = parse_clock(cJSON_GetObjectItemCaseSensitive(obj, "clock"));
+    s_stage.clock = staged_clock;
     s_stage.media = parse_media(cJSON_GetObjectItemCaseSensitive(obj, "media"));
     if (!dashboard_parse(dashboard, &s_stage.dashboard)) {
         return false;
