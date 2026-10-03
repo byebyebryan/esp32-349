@@ -47,6 +47,7 @@ uv sync --project host --frozen   # installs the locked host and test dependenci
 ```sh
 uv run --project host 349d -v           # foreground, debug logging
 uv run --project host 349ctl status     # talk to the running daemon
+uv run --project host 349ctl pair       # one-time setup; needs a running daemon
 ```
 
 As a user service:
@@ -67,6 +68,8 @@ with `systemctl --user show-environment`).
 
 ```
 349ctl status                 daemon/link state, revision, notification count
+349ctl pair                   discover and save the display's USB identity once
+349ctl pair --replace         explicitly discover and save a replacement
 349ctl device-cards           device cache and optional deck focus readback
 349ctl text "hello"           send a text message to the device
 349ctl notify "summary" [body]  inject a test notification
@@ -85,12 +88,34 @@ hello|ping|text|listen`.
 
 ## Serial discovery
 
-Current automatic selection takes the first matching Espressif USB Serial/JTAG
-path; it does not identify the display before opening and resetting it. With
-another ESP32 connected, configure `[link].port` using the 349's stable
-`/dev/serial/by-id/` path. The generic USB product, VID/PID and MAC address prefix
-do not distinguish a 349 from other ESP32-S3 boards. Automatic handshake
-selection is still pending implementation.
+Run `349ctl pair` once with the daemon running and the display connected. Setup
+enumerates Espressif native USB Serial/JTAG interfaces with VID/PID `303a:1001`,
+then requires a compatible hello and a fresh ping/pong response. It skips busy
+ports and tries each eligible device once. It saves the verified USB serial to
+`$XDG_STATE_HOME/349d/device.json` (default `~/.local/state/349d/device.json`).
+The generic USB product, VID/PID and MAC address prefix cannot distinguish the
+349 from another ESP32-S3 board; the handshake makes that distinction.
+
+Boot and reconnect resolve only the saved serial, verify it again and sync
+retained host state through the same open handle. They do not reset the board
+or probe other devices. An absent paired display stays disconnected until it
+returns. With no saved binding, the daemon waits for explicit setup.
+`349ctl status` reports the pairing state, saved serial, last setup result and
+link errors; `active_port` remains null until verification succeeds.
+
+Repeating `349ctl pair` with a valid binding is idempotent, including when the
+display is absent. Use `349ctl pair --replace` to search again. Failed setup
+keeps the old binding; an invalid state file requires explicit replacement.
+Pairing is rejected while paused. A CLI wait timeout leaves the daemon's setup
+operation running; inspect status or pause to cancel it.
+
+An explicit `[link].port` or daemon `--port` overrides the saved binding and
+validates only that target, with no fallback. To migrate an existing pin, run
+`349ctl pair` while connected, verify the saved serial in status, then remove
+the pin and reload. Initial pairing reuses the verified session and confirms
+a fresh pong. PTY targets remain supported for development but require USB
+metadata to become a persistent binding. The [implementation plan](design/usb-discovery-plan.md)
+records the ownership and rollout contract.
 
 Hardware validation on 2026-10-02 confirmed that the existing transport can
 identify these displays without changing USB stacks or adding pairing:
@@ -105,8 +130,9 @@ the reset helper. Three consecutive opens on each 349 returned the same
 `boot_id`; opening does not inherently require a reset. This matches the
 no-action control-line combination in the
 [ESP32-S3 TRM, Table 33.3-2](https://documentation.espressif.com/esp32-s3_technical_reference_manual_en.pdf).
-The existing daemon deliberately resets its known target when resuming, so
-this result applies to probe opens, not daemon resume boundaries.
+The daemon in use during that validation deliberately reset its known target
+on resume. The persistent-pairing implementation also uses these asserted
+control lines for startup, reconnect and resume.
 
 The probe sent `@349 {"t":"hello"}` followed by a newline, required protocol
 version 1, a firmware string and `link`/`bar` capabilities, then required a
@@ -118,13 +144,11 @@ Starship's RLCD was rejected in five trials while its 50 fps benchmark
 continued. Its firmware has no serial command reader: the single hello write
 timed out after 0.5 seconds, and ordinary cleanup added about 30 seconds.
 Discarding queued output with `reset_output_buffer()` before closing reduced
-measured cleanup to 1.7 ms. Future discovery must bound the entire port
-lifecycle and discard unsent output on rejection; PySerial-asyncio also flushes
-output during connection cleanup.
+measured cleanup to 1.7 ms. Discovery bounds reads, writes and the handshake
+off the event loop. Rejection and disconnect discard unsent output before
+closing; the adopted transport suppresses PySerial-asyncio's cleanup flush.
 
-Discovery should skip occupied ports, validate hello and a fresh ping/pong
-before reporting the link ready, and retain the verified connection. The
-prototype and raw captures remain ignored local artifacts under
+The prototype and raw captures remain ignored local artifacts under
 `.cache/handshake-validation/` on Snap and Starship. Both daemons were restored
 to their configured displays without a service restart. Other firmware,
 hotplug races and a hub power-cycle test remain outside this validation.
@@ -135,7 +159,7 @@ hotplug races and a hub power-cycle test remain outside this validation.
 
 ```toml
 [link]
-# port = "/dev/serial/by-id/..."   # default: auto-detect
+# port = "/dev/serial/by-id/..."   # optional override; default: saved pairing
 
 [daemon]
 tick_s = 1.0
@@ -361,13 +385,13 @@ right content area for that message.
 
 ## Flashing while the daemon runs
 
-The daemon holds the serial port, and opening it resets the chip anyway. Use the
+The daemon holds the serial port. Flashing resets the chip; use the
 sticky pause so a `Restart=always` unit cannot grab the port mid-flash:
 
 ```sh
 349ctl pause          # releases the tty (flag file survives daemon restarts)
 idf.py -p /dev/ttyACM0 flash
-349ctl resume         # reconnects; costs one device reset
+349ctl resume         # verifies and reconnects without an extra device reset
 ```
 
 ## Tests

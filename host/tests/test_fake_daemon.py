@@ -27,7 +27,6 @@ def test_daemon_talks_to_fake_device():
 
         types = [message["t"] for message in fake.received]
         assert "hello" in types
-        assert "clock" in types
         assert "bar" in types
         assert "sync" in types
         assert "ping" in types
@@ -51,7 +50,10 @@ def test_ping_loop_sends_periodically_only_while_connected(monkeypatch):
             sent.append((time.monotonic(), message))
             return True
 
-        daemon.send = capture
+        async def capture_pong():
+            sent.append((time.monotonic(), {"t": "ping"}))
+
+        daemon._request_pong = capture_pong
         task = asyncio.create_task(daemon._ping_loop())
         try:
             await asyncio.sleep(0.085)

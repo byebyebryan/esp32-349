@@ -27,7 +27,7 @@ def test_hello_capability_selects_chunked_transfer_and_old_hello_keeps_legacy_sy
         for nid in range(35):
             daemon.model.add_notification(_card(nid))
 
-        hello = {"t": "hello", "proto": 1, "cap": ["link", "bar", "card-sync-v1"], "cache_cards": 32}
+        hello = {"t": "hello", "proto": 1, "fw": "test", "cap": ["link", "bar", "card-sync-v1"], "cache_cards": 32}
         await daemon._on_line("@349 " + json.dumps(hello))
         assert sent[0]["t"] == "sync_begin"
         assert sent[0]["count"] == 32
@@ -40,6 +40,7 @@ def test_hello_capability_selects_chunked_transfer_and_old_hello_keeps_legacy_sy
         dashboard_hello = {
             "t": "hello",
             "proto": 1,
+            "fw": "test",
             "cap": ["link", "bar", "card-sync-v1", "dashboard-v1"],
             "cache_cards": 32,
         }
@@ -59,7 +60,7 @@ def test_hello_capability_selects_chunked_transfer_and_old_hello_keeps_legacy_sy
         }
 
         sent.clear()
-        old_hello = {"t": "hello", "proto": 1, "cap": ["link", "bar"]}
+        old_hello = {"t": "hello", "proto": 1, "fw": "test", "cap": ["link", "bar"]}
         await daemon._on_line("@349 " + json.dumps(old_hello))
         await daemon._on_line("@349 " + json.dumps(old_hello))
         assert [message["t"] for message in sent] == ["sync", "sync"]
@@ -67,7 +68,7 @@ def test_hello_capability_selects_chunked_transfer_and_old_hello_keeps_legacy_sy
         assert all("dashboard" not in message for message in sent)
 
         sent.clear()
-        dashboard_only = {"t": "hello", "proto": 1, "cap": ["link", "dashboard-v1"]}
+        dashboard_only = {"t": "hello", "proto": 1, "fw": "test", "cap": ["link", "bar", "dashboard-v1"]}
         await daemon._on_line("@349 " + json.dumps(dashboard_only))
         assert sent[0]["t"] == "sync"
         assert "dashboard" not in sent[0]
@@ -89,6 +90,7 @@ def test_hello_deduplicates_same_boot_and_syncs_after_firmware_restart():
         hello = {
             "t": "hello",
             "proto": 1,
+            "fw": "test",
             "cap": ["link", "bar", "card-sync-v1"],
             "cache_cards": 32,
             "boot_id": 1042,
@@ -108,6 +110,27 @@ def test_hello_deduplicates_same_boot_and_syncs_after_firmware_restart():
 
 
 def test_new_serial_connection_forgets_previous_boot_id_and_tx(monkeypatch):
+    class ProbeResult:
+        path = "/dev/fake-349"
+        identity = None
+        hello = {"t": "hello", "proto": 1, "fw": "test", "cap": ["link", "bar"]}
+        buffered = b""
+
+        async def close(self):
+            pass
+
+    class Session:
+        def __init__(self, reader, writer):
+            self.path = ProbeResult.path
+            self.identity = None
+            self.hello = ProbeResult.hello
+            self.reader = reader
+            self.writer = writer
+
+        async def close(self):
+            self.writer.close()
+            await self.writer.wait_closed()
+
     class Writer:
         def __init__(self):
             self.transport = SimpleNamespace(serial=None)
@@ -135,9 +158,15 @@ def test_new_serial_connection_forgets_previous_boot_id_and_tx(monkeypatch):
         daemon._sync_tx = 99
         daemon._card_sync_capacity = 32
         writer = Writer()
+        result = ProbeResult()
 
-        async def open_connection(**_kwargs):
-            return object(), writer
+        async def probe_connection(path, identity=None):
+            assert path == result.path
+            assert identity is None
+            return result
+
+        async def adopt_connection(_result):
+            return Session(object(), writer)
 
         async def read_connection(_reader):
             assert daemon._device_boot_id is None
@@ -145,7 +174,8 @@ def test_new_serial_connection_forgets_previous_boot_id_and_tx(monkeypatch):
             assert daemon._card_sync_capacity is None
             stop.set()
 
-        monkeypatch.setattr("status349.daemon.serial_asyncio.open_serial_connection", open_connection)
+        monkeypatch.setattr("status349.daemon.discovery.probe", probe_connection)
+        monkeypatch.setattr("status349.daemon.discovery.adopt", adopt_connection)
         daemon._read_loop = read_connection
         await daemon._link_loop()
 

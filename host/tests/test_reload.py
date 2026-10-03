@@ -11,6 +11,32 @@ from status349 import proto
 from status349.fake import FakeDevice
 
 
+class _ProbeResult:
+    hello = {"t": "hello", "proto": 1, "fw": "test", "cap": ["link", "bar"]}
+    identity = None
+    buffered = b""
+
+    def __init__(self, path):
+        self.path = path
+        self.closed = False
+
+    async def close(self):
+        self.closed = True
+
+
+class _Session:
+    def __init__(self, path, reader, writer):
+        self.path = path
+        self.identity = None
+        self.hello = _ProbeResult.hello
+        self.reader = reader
+        self.writer = writer
+
+    async def close(self):
+        self.writer.close()
+        await self.writer.wait_closed()
+
+
 def _wait_for(predicate, timeout=3.0):
     async def wait():
         deadline = time.monotonic() + timeout
@@ -187,7 +213,7 @@ def _write_link_config(path, port, *, minimum=0.05, maximum=0.1):
 
 def test_port_reload_reconnects_and_restores_retained_card(tmp_path):
     hello = {
-        "t": "hello", "proto": 1,
+        "t": "hello", "proto": 1, "fw": "test",
         "cap": [
             "link", "bar", "card-sync-v1", "dashboard-v1", "grouped-ui-v1",
             "notification-history-v1",
@@ -391,17 +417,22 @@ def test_retry_timing_reload_does_not_reconnect_healthy_link_and_applies_after_l
 
         writer = Writer()
 
-        async def open_connection(**_kwargs):
+        async def probe_connection(path, identity=None):
+            assert identity is None
             opened.append(time.monotonic())
             if len(opened) == 1:
-                return object(), writer
+                return _ProbeResult(path)
             stop.set()
             raise OSError("fake open failure")
+
+        async def adopt_connection(result):
+            return _Session(result.path, object(), writer)
 
         async def read_connection(_reader):
             await disconnected.wait()
 
-        monkeypatch.setattr("status349.daemon.serial_asyncio.open_serial_connection", open_connection)
+        monkeypatch.setattr("status349.daemon.discovery.probe", probe_connection)
+        monkeypatch.setattr("status349.daemon.discovery.adopt", adopt_connection)
         daemon._read_loop = read_connection
         task = asyncio.create_task(daemon._link_loop())
         try:
@@ -460,21 +491,37 @@ def test_reconfiguration_while_opening_never_installs_stale_port(tmp_path, monke
             async def wait_closed(self):
                 pass
 
-        reader_a, reader_b = Reader(), Reader()
-        writer_a, writer_b = Writer(reader_a), Writer(reader_b)
+        reader_b = Reader()
+        writer_b = Writer(reader_b)
+        stale_results = []
+        adopted = []
 
-        async def open_connection(*, url, **_kwargs):
-            opened.append(url)
-            if url == "/device-a":
+        async def probe_connection(path, identity=None):
+            assert identity is None
+            opened.append(path)
+            if path == "/device-a":
                 opening_a.set()
-                await release_a.wait()
-                return reader_a, writer_a
-            return reader_b, writer_b
+                try:
+                    await release_a.wait()
+                except asyncio.CancelledError:
+                    # Model a worker that completes a successful probe just
+                    # as the target generation changes; its handle is stale.
+                    await release_a.wait()
+                result = _ProbeResult(path)
+                stale_results.append(result)
+                return result
+            return _ProbeResult(path)
+
+        async def adopt_connection(result):
+            assert result.path == "/device-b"
+            adopted.append(result.path)
+            return _Session(result.path, reader_b, writer_b)
 
         async def read_connection(reader):
             await reader.closed.wait()
 
-        monkeypatch.setattr("status349.daemon.serial_asyncio.open_serial_connection", open_connection)
+        monkeypatch.setattr("status349.daemon.discovery.probe", probe_connection)
+        monkeypatch.setattr("status349.daemon.discovery.adopt", adopt_connection)
         daemon._read_loop = read_connection
         task = asyncio.create_task(daemon._link_loop())
         try:
@@ -485,8 +532,8 @@ def test_reconfiguration_while_opening_never_installs_stale_port(tmp_path, monke
 
             await _wait_for(lambda: daemon._active_port == "/device-b")
             assert opened[:2] == ["/device-a", "/device-b"]
-            assert writer_a.closed
-            assert not writer_a.messages
+            assert stale_results and stale_results[0].closed
+            assert adopted == ["/device-b"]
             assert writer_b.messages
         finally:
             task.cancel()

@@ -226,9 +226,9 @@ def test_same_boot_reconnect_preserves_ledger_and_new_boot_resets_it():
         daemon._grouped_enabled = False
         manager.invalidate_for_link_reset()
         hello = {
-            "t": "hello", "proto": 1, "boot_id": 9, "cache_cards": 32,
+            "t": "hello", "proto": 1, "fw": "test", "boot_id": 9, "cache_cards": 32,
             "cap": [
-                "card-sync-v1", "dashboard-v1", "grouped-ui-v1", "notification-actions-v1",
+                "link", "bar", "card-sync-v1", "dashboard-v1", "grouped-ui-v1", "notification-actions-v1",
             ],
         }
         await daemon._on_line(proto.PREFIX + json.dumps(hello))

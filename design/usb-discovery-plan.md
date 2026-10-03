@@ -1,7 +1,8 @@
 # Persistent USB pairing for the 349 display
 
-Draft implementation plan, 2026-10-02. This is a planning checkpoint; the
-daemon still uses its existing first-match discovery and explicit port pins.
+Implementation and acceptance plan, 2026-10-02. The host implementation now
+passes automated acceptance. Deployment and physical gates are recorded
+separately; the plan below remains the behavior and ownership contract.
 
 During setup, the host should discover a compatible 349 and save its stable
 USB identity. Subsequent boots and reconnects should open only that paired
@@ -20,11 +21,11 @@ asserted. Starship's RLCD did not answer the protocol and continued its
 benchmark. Discarding pending output before closing avoided the roughly
 30-second cleanup stall observed after its write timeout.
 
-`link.py` currently selects the first matching by-id path. `_link_loop()`
-publishes its writer and active port before it receives hello, and then
-deliberately resets the device. `_on_line()` negotiates capabilities and
-sends a full sync as soon as hello arrives. These behaviors must be reordered
-so an unverified candidate receives only the identification exchange.
+Before this implementation, `link.py` selected the first matching by-id path.
+The daemon published its writer and active port before hello and deliberately
+reset the device. The verified-session path now publishes a writer only after
+identification and reuses the existing capability negotiation and full sync.
+`link.py` retains the deliberately resetting direct diagnostic path.
 
 PySerial-asyncio flushes output in its connection-loss callback. Wrapping
 `wait_closed()` in an asyncio timeout cannot interrupt a synchronous flush
@@ -152,7 +153,7 @@ incompatible hello must not renegotiate an active link.
 
 ## Timing and resource ownership
 
-Proposed initial constants, to be checked against cold-start hardware:
+Initial constants, with cold-start hardware acceptance recorded separately:
 
 | Operation | Proposed bound or cadence |
 | --- | --- |
@@ -163,6 +164,7 @@ Proposed initial constants, to be checked against cold-start hardware:
 | Waiting for the saved USB serial to appear | Existing 0.5-second metadata scan cadence |
 | Retrying a failed handshake with the selected target | Existing bounded reconnect backoff |
 | Active keepalive | Existing 4-second ping cadence |
+| Active serial write | 2 seconds |
 | Silent active link | Disconnect after 12 seconds without a matching keepalive pong |
 
 An explicit setup command takes a bounded snapshot of eligible candidates
@@ -195,7 +197,7 @@ identity or effective override, without opening other candidates.
 ## Implementation checkpoints
 
 1. Add reusable hello validation in `host/src/status349/proto.py`, metadata
-   filtering and serial-session ownership in `link.py`, and a focused
+   filtering and serial-session ownership in `serial_session.py`, and a focused
    discovery helper in `host/src/status349/discovery.py`. Establish bounded
    probe and cleanup tests before changing the daemon.
 2. Add pairing record validation and atomic persistence in
@@ -302,3 +304,18 @@ daemon status after rollout.
 Rollback restores the previous host revision and backed-up port overrides,
 then reloads that daemon code. Preserve the pairing record; the older code
 does not use it. Board firmware remains compatible throughout.
+
+## Automated acceptance
+
+The complete `host/tests` and `tools/tests` gate passed on Python 3.11 and
+3.14: 338 passed and 3 skipped on each. The skips are the existing live desktop
+notification checks, disabled by the CI command's unset session bus. All ten
+desktop action-provider tests passed. No firmware or font files changed.
+
+New coverage includes metadata filtering, alias deduplication, strict hello
+and fresh-pong validation, atomic persistence, cancellation before and after
+the commit point, exact-serial reconnect, setup through the real daemon IPC,
+same-handle adoption, active explicit-target pairing, failed replacement,
+pause/resume, target reload, bounded writes and keepalive expiry. Actual PTY
+unplug tests verify handling of Linux `tcflush` errors, already-lost async
+transports, released tty exclusivity and absence of callback failures.

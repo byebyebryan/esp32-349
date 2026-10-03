@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import socket as socketlib
 import sys
 import time
@@ -17,7 +18,7 @@ from . import ipc
 from .link import Link, LinkError, open_port
 from .proto import classify
 
-SOCKET_COMMANDS = {"status", "device-cards", "text", "notify", "pause", "resume", "reload", "log"}
+SOCKET_COMMANDS = {"status", "device-cards", "text", "notify", "pause", "resume", "reload", "log", "pair"}
 DIRECT_COMMANDS = {"hello", "ping", "text", "listen"}
 
 
@@ -42,11 +43,11 @@ def wait_for(link: Link, msg_type: str, timeout: float) -> dict | None:
     return None
 
 
-def ipc_request(request: dict, path: Path | None = None) -> dict:
+def ipc_request(request: dict, path: Path | None = None, timeout: float = 5.0) -> dict:
     target = path or ipc.socket_path()
     try:
         with socketlib.socket(socketlib.AF_UNIX, socketlib.SOCK_STREAM) as sock:
-            sock.settimeout(5.0)
+            sock.settimeout(timeout)
             sock.connect(str(target))
             sock.sendall((json.dumps(request) + "\n").encode())
             data = b""
@@ -69,7 +70,89 @@ def request_for(args: argparse.Namespace) -> dict:
         return {"cmd": "notify", "summary": args.summary, "body": args.body}
     if args.command == "log":
         return {"cmd": "log", "lines": args.n}
+    if args.command == "pair":
+        return {"cmd": "pair", "replace": args.replace}
     return {"cmd": args.command}
+
+
+def _positive_finite_seconds(value: str) -> float:
+    try:
+        seconds = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be a positive finite number of seconds") from exc
+    if not math.isfinite(seconds) or seconds <= 0:
+        raise argparse.ArgumentTypeError("must be a positive finite number of seconds")
+    return seconds
+
+
+def run_pair(args: argparse.Namespace, path: Path | None) -> int:
+    try:
+        response = ipc_request(request_for(args), path)
+    except LinkError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    if not response.get("ok"):
+        print(f"error: {response.get('error', 'unknown')}", file=sys.stderr)
+        return 1
+    if response.get("done") is True:
+        serial = response.get("serial")
+        if not isinstance(serial, str) or not serial:
+            print("error: daemon returned an invalid pairing result", file=sys.stderr)
+            return 1
+        print(f"paired {serial}")
+        return 0
+
+    operation = response.get("operation")
+    if type(operation) is not int:
+        print("error: daemon returned an invalid pairing operation", file=sys.stderr)
+        return 1
+
+    deadline = time.monotonic() + args.wait_timeout
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            print(
+                f"error: pairing operation {operation} is still running; "
+                f"observation timed out after {args.wait_timeout:g}s",
+                file=sys.stderr,
+            )
+            return 1
+        try:
+            status = ipc_request({"cmd": "status"}, path, timeout=min(5.0, remaining))
+        except LinkError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        if not status.get("ok"):
+            print(f"error: {status.get('error', 'could not read daemon status')}", file=sys.stderr)
+            return 1
+
+        pairing = status.get("pairing")
+        if not isinstance(pairing, dict):
+            print("error: daemon returned invalid pairing status", file=sys.stderr)
+            return 1
+        current_operation = pairing.get("operation")
+        if type(current_operation) is not int or current_operation != operation:
+            print("error: pairing operation changed; daemon restarted or another operation replaced it", file=sys.stderr)
+            return 1
+
+        result = pairing.get("result")
+        if isinstance(result, dict) and type(result.get("operation")) is int:
+            if result["operation"] == operation:
+                if result.get("ok") is not True:
+                    print(f"error: {result.get('error', 'pairing failed')}", file=sys.stderr)
+                    return 1
+                serial = result.get("serial")
+                if not isinstance(serial, str) or not serial:
+                    print("error: daemon returned an invalid pairing result", file=sys.stderr)
+                    return 1
+                print(f"paired {serial}")
+                return 0
+
+        if pairing.get("state") != "pairing":
+            print("error: pairing ended without a result", file=sys.stderr)
+            return 1
+        time.sleep(min(0.2, max(0.0, deadline - time.monotonic())))
 
 
 def run_direct(args: argparse.Namespace) -> int:
@@ -122,6 +205,12 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("reload", help="reload the config file")
     log = sub.add_parser("log", help="show recent device log lines")
     log.add_argument("-n", type=int, default=50)
+    pair = sub.add_parser("pair", help="pair with a USB-connected 349 display")
+    pair.add_argument("--replace", action="store_true", help="replace the saved USB binding")
+    pair.add_argument(
+        "--wait-timeout", type=_positive_finite_seconds, default=30.0,
+        help="maximum time to wait for pairing to finish (default: 30s; does not cancel pairing)",
+    )
     sub.add_parser("hello", help="direct: request a device hello")
     sub.add_parser("ping", help="direct: round-trip a ping")
     sub.add_parser("listen", help="direct: print everything until interrupted")
@@ -136,6 +225,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command not in SOCKET_COMMANDS:
         print(f"error: {args.command} requires --port (daemon bypass)", file=sys.stderr)
         return 1
+
+    if args.command == "pair":
+        return run_pair(args, Path(args.socket) if args.socket else None)
 
     try:
         response = ipc_request(request_for(args), Path(args.socket) if args.socket else None)

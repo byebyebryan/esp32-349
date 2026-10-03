@@ -7,9 +7,11 @@ Run `python -m status349.fake` to get a pty path, then point the daemon at it:
 from __future__ import annotations
 
 import argparse
+import errno
 import logging
 import os
 import pty
+import select
 import threading
 import time
 import tty
@@ -26,7 +28,10 @@ class FakeDevice:
         tty.setraw(slave)
         self.master = master
         self.path = os.ttyname(slave)
-        self.hello_message = dict(hello_message) if hello_message is not None else proto.hello()
+        os.close(slave)
+        self.hello_message = dict(hello_message) if hello_message is not None else {
+            "t": "hello", "proto": 1, "fw": "fake-349", "cap": ["link", "bar"],
+        }
         self.received: list[dict] = []
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -56,11 +61,21 @@ class FakeDevice:
         buf = b""
         while not self._stop.is_set():
             try:
-                chunk = os.read(self.master, 4096)
+                ready, _, _ = select.select([self.master], [], [], 0.1)
             except OSError:
                 break
+            if not ready:
+                continue
+            try:
+                chunk = os.read(self.master, 4096)
+            except OSError as exc:
+                # A PTY master reports EIO while no process has the slave
+                # open. Keep the fake alive so a later client can connect.
+                if exc.errno == errno.EIO:
+                    time.sleep(0.05)
+                    continue
+                break
             if not chunk:
-                time.sleep(0.05)
                 continue
 
             buf += chunk
@@ -74,6 +89,8 @@ class FakeDevice:
                 self.received.append(message)
                 if message.get("t") == "hello":
                     self.send(self.hello_message)
+                elif message.get("t") == "ping" and "ts" in message:
+                    self.send({"t": "pong", "ts": message["ts"]})
 
 
 def main(argv: list[str] | None = None) -> int:

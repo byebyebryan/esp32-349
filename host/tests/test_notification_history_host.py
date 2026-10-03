@@ -47,6 +47,7 @@ def _history_hello(boot_id: int = 2) -> dict:
     return {
         "t": "hello",
         "proto": 1,
+        "fw": "test",
         "cap": [
             "link", "bar", "card-sync-v1", "dashboard-v1", "grouped-ui-v1",
             "notification-history-v1",

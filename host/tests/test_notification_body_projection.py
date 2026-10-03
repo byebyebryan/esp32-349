@@ -29,7 +29,10 @@ class _Writer:
 
 
 def _style_hello(capabilities: list[str]) -> dict:
-    return {"t": "hello", "proto": 1, "cap": capabilities, "cache_cards": 32}
+    return {
+        "t": "hello", "proto": 1, "fw": "test",
+        "cap": list(dict.fromkeys(["link", "bar", *capabilities])), "cache_cards": 32,
+    }
 
 
 def _history_snapshot(cards: list[dict]) -> dict:

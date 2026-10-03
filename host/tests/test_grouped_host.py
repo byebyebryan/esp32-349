@@ -66,6 +66,7 @@ def test_grouped_negotiation_requires_all_capabilities_and_syncs_retained_collec
         hello = {
             "t": "hello",
             "proto": 1,
+            "fw": "test",
             "cap": ["link", "bar", "card-sync-v1", "dashboard-v1", "grouped-ui-v1"],
             "cache_cards": 8,
             "boot_id": 31,
@@ -81,7 +82,7 @@ def test_grouped_negotiation_requires_all_capabilities_and_syncs_retained_collec
         )
 
         sent.clear()
-        incomplete = {**hello, "cap": ["link", "card-sync-v1", "grouped-ui-v1"], "boot_id": 32}
+        incomplete = {**hello, "cap": ["link", "bar", "card-sync-v1", "grouped-ui-v1"], "boot_id": 32}
         await daemon._on_line("@349 " + json.dumps(incomplete))
         assert not daemon._grouped_enabled
         assert sent[0]["t"] == "sync_begin"
@@ -174,6 +175,7 @@ def test_device_boot_generation_resets_without_rewinding_host_generation():
         hello = {
             "t": "hello",
             "proto": 1,
+            "fw": "test",
             "cap": ["link", "bar", "card-sync-v1", "dashboard-v1", "grouped-ui-v1"],
             "cache_cards": 32,
             "boot_id": 42,
@@ -354,6 +356,7 @@ def test_grouped_pty_link_serializes_session_presentation_dismiss_and_recovery_s
     hello = {
         "t": "hello",
         "proto": 1,
+        "fw": "test",
         "cap": ["link", "bar", "card-sync-v1", "dashboard-v1", "grouped-ui-v1"],
         "cache_cards": 32,
         "boot_id": 3401,
@@ -467,6 +470,7 @@ def test_grouped_pty_reboot_resets_expected_input_generation_without_replaying_a
     hello = {
         "t": "hello",
         "proto": 1,
+        "fw": "test",
         "cap": ["link", "bar", "card-sync-v1", "dashboard-v1", "grouped-ui-v1"],
         "cache_cards": 32,
         "boot_id": 4401,

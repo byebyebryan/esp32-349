@@ -10,7 +10,7 @@ import pytest
 from status349.config import default_config
 from status349.daemon import Daemon
 from status349.ipc import IpcServer
-from status349.link import LinkError
+from status349.pairing import PairingStore, UsbIdentity
 
 
 def test_failed_tick_exits_daemon_and_cleans_up():
@@ -226,6 +226,8 @@ def test_injected_notification_expires_and_sends_close():
 
 
 def test_missing_port_uses_fast_discovery_even_with_long_open_backoff(monkeypatch):
+    PairingStore().save(UsbIdentity("missing-device"))
+
     async def scenario():
         cfg = default_config()
         cfg.link.reconnect_min_s = 5.0
@@ -234,14 +236,15 @@ def test_missing_port_uses_fast_discovery_even_with_long_open_backoff(monkeypatc
         daemon = Daemon(cfg, stop)
         attempts = 0
 
-        def missing_port():
+        def missing_device(serial):
+            assert serial == "missing-device"
             nonlocal attempts
             attempts += 1
             if attempts == 2:
                 stop.set()
-            raise LinkError("absent")
+            return None
 
-        monkeypatch.setattr("status349.daemon.find_port", missing_port)
+        monkeypatch.setattr("status349.daemon.discovery.resolve_serial", missing_device)
         started = time.monotonic()
         await asyncio.wait_for(daemon._link_loop(), 2)
         assert attempts == 2
