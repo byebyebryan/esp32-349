@@ -526,3 +526,41 @@ async def test_adopt_keeps_buffered_bytes_and_abort_bypasses_blocking_flush(
         os.close(reopened)
     finally:
         os.close(master_fd)
+
+
+@async_test
+async def test_hot_unplug_handles_tcflush_error_and_already_lost_transport(
+    fake_serial_skips_kernel_tty_exclusive,
+):
+    import pty
+
+    master, slave = pty.openpty()
+    path = os.ttyname(slave)
+    os.close(slave)
+    handle = SessionSerial(port=None, baudrate=115200, timeout=0.05, write_timeout=0.5)
+    handle.port = path
+    handle.open()
+    fake_serial_skips_kernel_tty_exclusive(handle)
+    result = ProbeResult(handle, DEVICE_HELLO, None, b"", path)
+    session = await discovery.adopt(result)
+    loop = asyncio.get_running_loop()
+    failures = []
+    old_handler = loop.get_exception_handler()
+    loop.set_exception_handler(lambda _loop, context: failures.append(context))
+    try:
+        await asyncio.sleep(0)  # Install the async transport's reader.
+        os.close(master)
+        master = None
+        with pytest.raises(serial.SerialException):
+            await asyncio.wait_for(session.reader.readline(), 0.5)
+        await asyncio.wait_for(session.close(), 0.5)
+        await session.close()
+        await asyncio.sleep(0)
+        assert not handle.is_open
+        assert not handle._status349_tty_exclusive
+        assert failures == []  # No repeated tcflush/abort callback exceptions.
+    finally:
+        loop.set_exception_handler(old_handler)
+        await session.close()
+        if master is not None:
+            os.close(master)

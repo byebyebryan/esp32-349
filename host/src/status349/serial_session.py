@@ -71,7 +71,7 @@ class SessionSerial(serial.Serial):
         self.begin_discard_teardown()
         try:
             self.reset_output_buffer()
-        except (OSError, serial.SerialException):
+        except (OSError, serial.SerialException, termios.error):
             pass
 
 
@@ -82,7 +82,7 @@ def discard_serial_output(port: serial.Serial) -> None:
         begin_discard()
     try:
         port.reset_output_buffer()
-    except (OSError, serial.SerialException, AttributeError):
+    except (OSError, serial.SerialException, termios.error, AttributeError):
         pass
 
 
@@ -166,16 +166,23 @@ class Session:
             begin_discard()
         transport = self.writer.transport
         abort = getattr(transport, "abort", None)
-        if callable(abort):
-            abort()
-        else:
-            self.writer.close()
+        is_closing = getattr(transport, "is_closing", None)
+        buffered = getattr(transport, "get_write_buffer_size", None)
+        closing = callable(is_closing) and is_closing()
+        # SerialTransport.abort is not idempotent after connection_lost. A
+        # closing transport with an empty queue already scheduled that callback
+        # or finished it. Abort only an active or still-draining transport.
+        if not closing or (callable(buffered) and buffered() > 0):
+            if callable(abort):
+                abort()
+            else:
+                self.writer.close()
         # Abort synchronously disables future transport writes and clears its
         # queue. Clear the tty queue in the same event-loop turn, before the
         # scheduled pyserial-asyncio loss callback can flush and close it.
         try:
             self._serial.reset_output_buffer()
-        except (OSError, serial.SerialException, AttributeError):
+        except (OSError, serial.SerialException, termios.error, AttributeError):
             pass
         closed = asyncio.create_task(self.writer.wait_closed())
         try:
