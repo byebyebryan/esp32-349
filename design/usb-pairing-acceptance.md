@@ -63,17 +63,53 @@ timed out after 2.05 seconds. The following attempt succeeded. Prefixing the
 discovery hello with a newline ended the fragment; both subsequent attempts
 succeeded in 0.12–0.13 seconds with the same boot ID. No board reset was used.
 
-After loading `95420ed`, Snap's daemon restart returned a verified link in
-0.25 seconds. Three consecutive pause/resume cycles each recovered in about
-0.15 seconds, preserving boot ID and saved state. Timings include host-side
-open/metadata work and status polling; the earlier prototype's roughly 2 ms
+After loading `95420ed`, daemon restart returned a verified link in 0.25
+seconds on Snap and 0.20 seconds on Starship. Three consecutive pause/resume
+cycles on each host recovered in about 0.15 seconds, preserving boot ID and
+saved state. Timings include host-side open/metadata work and status polling;
+the earlier prototype's roughly 2 ms
 hello/pong timing measured just the protocol exchange.
+
+Both deployed host trees matched SHA-256
+`c2c8f2c64e78a67bc5037a2be8920cfbdd1cd6d9e067da65db39f005abae2282`
+over the sorted path-to-file-hash mapping for tracked `host/src`,
+`host/pyproject.toml`, `host/uv.lock` and `host/349d.service`. The installed
+package resolves to this checkout. Both services were active with zero
+automatic restarts; the paired tty had the daemon as its sole visible owner
+and Starship's RLCD had none.
 
 ## Physical gates
 
-Starship's 349-only unplug/replug, RLCD-only failed replacement and USB hub
-power-cycle observations are pending the user-operated sequence. Their
-watcher preserves the live record and reports each inventory/link transition.
-Host reboot and startup while a board is still booting have not been observed;
-daemon restart and simulated cold-start tests do not establish those physical
-gates.
+Starship's 349-only unplug/replug passed with the RLCD still attached. The
+daemon stayed disconnected while the paired serial was absent. An explicit
+RLCD-only replacement failed with a bounded write timeout and preserved the
+saved record. The original 349 recovered automatically 1.88 seconds after
+USB enumeration. Its new boot ID was `3797701044`, as expected after power
+loss. The first probe write timed out while the board was starting; the next
+selected-target attempt succeeded without scanning the RLCD.
+
+The user-operated Starship hub power cycle also passed on the final host
+implementation. Both serial devices disappeared. The RLCD enumerated first,
+then the saved 349 appeared 0.81 seconds later. The daemon remained
+disconnected until its 349 returned and verified it 0.53 seconds after that
+enumeration. It needed no reload, service restart or pairing command. The
+saved record remained byte-for-byte unchanged throughout. The 349's new boot
+ID was `1911868472`; the host daemon kept the same process and recorded zero
+automatic restarts. Port ownership confirmed that the daemon opened only the
+349 tty.
+
+Device readback after recovery showed two retained cards (`100005`, `100006`),
+matching the host's retained count, with the desktop action provider still
+available. The earlier injected test card (`100001`) had already exceeded the
+configured 600-second retention limit before the cycle and was absent, so
+that specific ID does not establish card preservation across the cycle.
+Physical pause/resume confirmed retention; automated reconnect tests cover
+unchanged notification ages.
+
+This cycle exercised cold boot and RLCD-first enumeration; the tty assignment
+remained `/dev/ttyACM0` for the RLCD and `/dev/ttyACM1` for the 349. Changed tty
+numbers are covered by automated identity-resolution tests. A separate RLCD
+dashboard-capture process ran during the waiting interval and was left alone;
+the 50 fps observation above predates that separate development activity.
+Host reboot has not been observed; daemon restart and simulated persistence
+tests do not establish that optional physical gate.

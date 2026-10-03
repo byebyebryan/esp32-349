@@ -3,6 +3,8 @@
 Implementation and acceptance plan, 2026-10-02. The host implementation now
 passes automated acceptance. Deployment and physical gates are recorded
 separately; the plan below remains the behavior and ownership contract.
+The [acceptance record](usb-pairing-acceptance.md) records deployed revisions,
+observed timings and the remaining physical gates.
 
 During setup, the host should discover a compatible 349 and save its stable
 USB identity. Subsequent boots and reconnects should open only that paired
