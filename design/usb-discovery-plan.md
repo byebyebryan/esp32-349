@@ -128,8 +128,10 @@ Tests of pairing supply USB metadata separately from the PTY protocol.
    represented as a universal protection against noncooperating clients.
 3. Preconfigure DTR and RTS asserted before opening, with bounded serial
    reads and writes. Never call the reset helper during discovery.
-4. Send one newline-terminated `@349 {"t":"hello"}`. Ignore ordinary logs
-   and bounded malformed input while waiting within the attempt deadline.
+4. Send a newline followed by one newline-terminated `@349 {"t":"hello"}`.
+   The initial newline ends any unfinished application frame left by a prior
+   disconnect. Ignore ordinary logs and bounded malformed input while waiting
+   within the attempt deadline.
 5. Require an object with `t = "hello"`, an integer protocol version equal to
    1, a firmware string, and a list of string capabilities containing `link`
    and `bar`. Reject booleans masquerading as integers and echoed requests.
@@ -305,10 +307,10 @@ Rollback restores the previous host revision and backed-up port overrides,
 then reloads that daemon code. Preserve the pairing record; the older code
 does not use it. Board firmware remains compatible throughout.
 
-## Automated acceptance
+## Automated results
 
 The complete `host/tests` and `tools/tests` gate passed on Python 3.11 and
-3.14: 338 passed and 3 skipped on each. The skips are the existing live desktop
+3.14: 339 passed and 3 skipped on each. The skips are the existing live desktop
 notification checks, disabled by the CI command's unset session bus. All ten
 desktop action-provider tests passed. No firmware or font files changed.
 
@@ -319,3 +321,6 @@ same-handle adoption, active explicit-target pairing, failed replacement,
 pause/resume, target reload, bounded writes and keepalive expiry. Actual PTY
 unplug tests verify handling of Linux `tcflush` errors, already-lost async
 transports, released tty exclusivity and absence of callback failures.
+An unfinished application frame must not swallow the next discovery hello;
+the framing regression and a physical Snap reproduction verify first-attempt
+recovery without resetting the board.

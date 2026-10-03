@@ -423,7 +423,10 @@ def _probe_sync(
         deadline = time.monotonic() + ATTEMPT_TIMEOUT_S
         receive_buffer = bytearray()
         counters = [0, 0]
-        _bounded_write(port, proto.encode(proto.hello()), deadline)
+        # Discarding queued output on the previous close may leave a partial
+        # application frame in the board's line buffer. Finish that line before
+        # the discovery hello so this attempt can identify the still-running peer.
+        _bounded_write(port, b"\n" + proto.encode(proto.hello()), deadline)
 
         while True:
             message = _next_data_frame(

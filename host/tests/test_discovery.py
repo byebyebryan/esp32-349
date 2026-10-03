@@ -56,6 +56,7 @@ class FakeSerial:
         self.chunks = []
         self.reset_count = 0
         self.open_controls = None
+        self.incoming = bytearray()
 
     def open(self):
         self.open_controls = (self.dtr, self.rts)
@@ -64,9 +65,13 @@ class FakeSerial:
 
     def write(self, payload):
         self.writes.append(payload)
-        is_data, message = proto.classify(payload.decode("utf-8").rstrip("\n"))
-        assert is_data and message is not None
-        self.response(self, message)
+        self.incoming.extend(payload)
+        while (newline := self.incoming.find(b"\n")) >= 0:
+            line = bytes(self.incoming[:newline])
+            del self.incoming[:newline + 1]
+            is_data, message = proto.classify(line.decode("utf-8"))
+            if is_data and message is not None:
+                self.response(self, message)
         return len(payload)
 
     def queue(self, payload):
@@ -147,6 +152,31 @@ async def do_probe(response, **kwargs):
         **kwargs,
     )
     return result, opened
+
+
+@async_test
+async def test_probe_recovers_an_unfinished_application_frame(monkeypatch):
+    """Discard-on-close can leave the board waiting for the previous newline."""
+    monkeypatch.setattr(discovery, "ATTEMPT_TIMEOUT_S", .15)
+    opened = []
+    factory = serial_factory_for(response_for(pong=lambda nonce: nonce), opened)
+
+    def unfinished_frame_factory(**kwargs):
+        port = factory(**kwargs)
+        port.incoming.extend(b'@349 {"t":"sync",')
+        return port
+
+    result = await discovery.probe(
+        candidate(), owner_check=lambda _path: [],
+        serial_factory=unfinished_frame_factory,
+        metadata_lookup=lambda _path: DEVICE_ID,
+    )
+    try:
+        assert result.hello == DEVICE_HELLO
+        assert result.handle is opened[0]
+        assert len(opened[0].writes) == 2
+    finally:
+        await result.close()
 
 
 def test_hello_validator_requires_exact_protocol_integer_and_base_capabilities():
