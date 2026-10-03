@@ -156,6 +156,123 @@ def test_manager_binds_once_and_unchanged_polls_do_not_churn():
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("failure", [
+    BridgeError("unavailable"),
+    BridgeError("timeout"),
+    BridgeError("timeout", uncertain=True),
+    BridgeError("process-error"),
+    OSError("temporary IPC failure"),
+    asyncio.TimeoutError(),
+])
+def test_transient_bind_failure_recovers_on_healthy_polls_without_activation(failure):
+    async def scenario():
+        manager, _source, provider, _changed = make_manager()
+        provider.bind_error = failure
+        await manager.reconcile_once()
+        entry = manager.entries[1]
+        assert manager.open_for(1) == {"rev": 2, "state": "unavailable"}
+        assert entry.pending_bind_revision == 3
+
+        # Each status reconciliation makes at most one availability attempt,
+        # keeping the same revision and exact notification identity throughout.
+        for count in range(2, 7):
+            await manager.reconcile_once()
+            assert provider.bind_count == count
+            assert entry.pending_bind_revision == 3
+            assert not manager.ready_binding(1, 3, 5, 9)
+
+        attempts = [payload for method, payload in provider.calls if method == "bind"]
+        assert all(payload == attempts[0] for payload in attempts)
+        provider.bind_error = None
+        await manager.reconcile_once()
+        assert provider.bind_count == 7
+        assert manager.ready_binding(1, 3, 5, 9)
+        await manager.reconcile_once()
+        assert provider.bind_count == 7
+        assert not any(method == "activate" for method, _payload in provider.calls)
+
+    asyncio.run(scenario())
+
+
+def test_timed_out_bind_that_completed_remotely_is_adopted_without_rebinding():
+    class CompletedBindProvider(Provider):
+        async def call(self, method, payload=None):
+            reply = await super().call(method, payload)
+            if method == "bind":
+                raise BridgeError("timeout", uncertain=True)
+            return reply
+
+    async def scenario():
+        manager, _source, provider, _changed = make_manager(provider=CompletedBindProvider())
+        await manager.reconcile_once()
+        assert manager.entries[1].state == "unavailable"
+        assert provider.bind_count == 1
+        await manager.reconcile_once()
+        assert manager.ready_binding(1, 3, 5, 9)
+        assert provider.bind_count == 1
+        assert not any(method == "activate" for method, _payload in provider.calls)
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("failure", [
+    BridgeError("malformed-output", uncertain=True),
+    BridgeError("oversized-output", uncertain=True),
+    {"malformed": True},
+    "unavailable",
+    "stale",
+])
+def test_definitive_or_malformed_bind_failure_stays_blocked(failure):
+    async def scenario():
+        manager, _source, provider, _changed = make_manager()
+        if isinstance(failure, Exception):
+            provider.bind_error = failure
+        elif isinstance(failure, dict):
+            provider.bind_reply = failure
+        else:
+            provider.bind_reply = {
+                "v": 1, "epoch": provider.epoch, "pid": provider.pid,
+                "session": 5, "boot_id": 9, "id": 1, "rev": 3, "status": failure,
+            }
+        await manager.reconcile_once()
+        assert manager.entries[1].blocked_epoch == provider.epoch
+        provider.bind_error = None
+        provider.bind_reply = None
+        for _ in range(5):
+            await manager.reconcile_once()
+        assert provider.bind_count == 1
+        assert manager.entries[1].state == "unavailable"
+        assert not any(method == "activate" for method, _payload in provider.calls)
+
+    asyncio.run(scenario())
+
+
+def test_retry_does_not_bind_a_closed_source_or_revive_a_revoked_binding():
+    async def scenario():
+        manager, source, provider, _changed = make_manager()
+        provider.bind_error = BridgeError("unavailable")
+        await manager.reconcile_once()
+        source.candidates.clear()
+        provider.bind_error = None
+        await manager.reconcile_once()
+        assert provider.bind_count == 1
+        assert manager.entries[1].pending_bind_revision is None
+        assert manager.entries[1].state == "unavailable"
+
+        source.candidates[1] = candidate(version=2)
+        await manager.reconcile_once()
+        assert manager.entries[1].state == "ready"
+        assert provider.bind_count == 2
+        provider.bindings[1]["live"] = False
+        for _ in range(5):
+            await manager.reconcile_once()
+        assert provider.bind_count == 2
+        assert manager.entries[1].state == "unavailable"
+        assert not any(method == "activate" for method, _payload in provider.calls)
+
+    asyncio.run(scenario())
+
+
 def test_sync_during_bind_keeps_unavailable_revision_until_ready_is_proven():
     async def scenario():
         manager, _source, provider, _changed = make_manager()

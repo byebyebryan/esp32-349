@@ -279,9 +279,16 @@ an older request outside that result window is rejected without invoking again.
 Keep the ledger across ordinary reconnect/full sync for the same device boot.
 Bind deduplication to the bridge epoch; no retry crosses provider restart.
 Exhausted counters disable activation pending a fresh identity rather than wrap.
-No automatic retry or replay after timeout, sync or reconnect. A new deliberate
-tap after refreshed availability may be another request; suppress rapid repeats
-while pending and for a 500 ms cooldown after a terminal response.
+No automatic activation retry or replay after timeout, sync or reconnect. A new
+deliberate tap after refreshed availability may be another request; suppress
+rapid repeats while pending and for a 500 ms cooldown after a terminal response.
+
+A transient IPC failure during an availability bind keeps its exact pending
+revision. The next healthy provider poll can adopt that revision's live binding
+or repeat the idempotent bind, at the existing maximum polling rate of once per
+second. Malformed replies, identity failures and revoked bindings do not trigger
+another bind to that provider instance. An exact pending binding may still be
+proven by status; recovering availability never invokes an action.
 
 Include metadata in atomic chunked sync, respecting existing line and capacity
 limits. Unknown card deltas cannot create records. Stage-invalid metadata leaves

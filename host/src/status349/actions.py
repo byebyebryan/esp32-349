@@ -541,8 +541,17 @@ class NotificationActionManager:
 
         try:
             reply = await self._call("bind", payload)
-        except (BridgeError, OSError, asyncio.TimeoutError):
-            if still_current():
+        except (BridgeError, OSError, asyncio.TimeoutError) as exc:
+            # Transport failures do not disprove the source identity. Keep the
+            # pending revision so the next healthy status poll can adopt an
+            # exact remote binding or repeat this idempotent availability bind.
+            # run() limits these polls to once per second; activation is never
+            # retried here. Malformed output cannot trigger another bind to
+            # this provider; an exact binding proven by status is still usable.
+            transient = not isinstance(exc, BridgeError) or exc.kind in {
+                "unavailable", "timeout", "process-error",
+            }
+            if still_current() and not transient:
                 entry.blocked_epoch = status["epoch"]
                 entry.blocked_pid = status["pid"]
             return
