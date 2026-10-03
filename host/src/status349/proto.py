@@ -83,6 +83,28 @@ def hello() -> dict:
     return {"t": "hello"}
 
 
+def is_device_hello(message: object) -> bool:
+    """Return whether a hello identifies a compatible 349 protocol peer.
+
+    Keep this deliberately limited to the fields required by the original
+    link protocol. Optional capabilities and boot identity are negotiated by
+    their existing helpers after the verified connection is adopted.
+    """
+    if not isinstance(message, dict) or message.get("t") != "hello":
+        return False
+    version = message.get("proto")
+    if type(version) is not int or version != PROTO_VERSION:
+        return False
+    if not isinstance(message.get("fw"), str):
+        return False
+    capabilities = message.get("cap")
+    return (
+        isinstance(capabilities, list)
+        and all(isinstance(capability, str) for capability in capabilities)
+        and {"link", "bar"}.issubset(capabilities)
+    )
+
+
 def card_sync_capacity(message: dict) -> int | None:
     """Return the advertised cache size when the device supports card sync."""
     capabilities = message.get("cap", [])
