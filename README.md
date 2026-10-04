@@ -466,7 +466,8 @@ python tools/check_native_ui.py --cjson-include "$native_idf_root/components/jso
 
 The runner builds Debug and Release with assertions enabled, then runs the
 legacy UI, grouped gestures, serialized replay, production parser/state, SDL
-smoke, and composed host → parser/state → LVGL → host-input checks. Captures
+smoke, USB receiver framing, sanitized legacy bar/media rendering, and composed
+host → parser/state → LVGL → host-input checks. Captures
 and traces live under each build's `artifacts/` directory. Defaults are the
 checkout's ignored `.cache/native-ui/debug` and `.cache/native-ui/release`
 directories. Overrides with a cache from another checkout are rejected before

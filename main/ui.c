@@ -2,6 +2,7 @@
 #include "ui_deck.h"
 #include "ui_fonts.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
@@ -99,7 +100,15 @@ static void make_progress_zone(lv_obj_t *parent, const status_zone_t *zone)
     }
 
     lv_obj_t *bar = make_bar(cont, 0, 6);
-    lv_bar_set_value(bar, zone->has_value ? (int)(zone->value * 100.0f) : 0, LV_ANIM_OFF);
+    int percent = 0;
+    if (zone->has_value && isfinite(zone->value)) {
+        if (zone->value >= 1.0f) {
+            percent = 100;
+        } else if (zone->value > 0.0f) {
+            percent = (int)(zone->value * 100.0f);
+        }
+    }
+    lv_bar_set_value(bar, percent, LV_ANIM_OFF);
     if (zone->has_color) {
         lv_obj_set_style_bg_color(bar, lv_color_hex(zone->color), LV_PART_INDICATOR);
     }
@@ -166,15 +175,20 @@ static void ui_update_media(void)
     }
     lv_label_set_text(s_media_label, text);
 
-    float pos = media.pos;
-    if (strcmp(media.state, "playing") == 0 && media.updated_us > 0) {
-        pos += (float)((esp_timer_get_time() - media.updated_us) / 1000000.0);
-    }
-    int percent = (media.len > 0) ? (int)(pos / media.len * 100.0f) : 0;
-    if (percent < 0) {
-        percent = 0;
-    } else if (percent > 100) {
-        percent = 100;
+    int percent = 0;
+    if (isfinite(media.pos) && isfinite(media.len) && media.len > 0.0f) {
+        double pos = (double)media.pos;
+        if (strcmp(media.state, "playing") == 0 && media.updated_us > 0) {
+            pos += ((double)esp_timer_get_time() - (double)media.updated_us) / 1000000.0;
+        }
+        const double ratio = pos / (double)media.len;
+        if (isfinite(ratio)) {
+            if (ratio >= 1.0) {
+                percent = 100;
+            } else if (ratio > 0.0) {
+                percent = (int)(ratio * 100.0);
+            }
+        }
     }
     lv_bar_set_value(s_media_bar, percent, LV_ANIM_OFF);
 }

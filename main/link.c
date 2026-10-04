@@ -21,6 +21,7 @@ static link_line_cb_t s_on_line;
 static link_overflow_cb_t s_on_overflow;
 static char s_line[LINK_LINE_MAX];
 static size_t s_line_len;
+static bool s_discard_line;
 static bool s_last_connected;
 static char s_tx_line[LINK_LINE_MAX];
 static SemaphoreHandle_t s_tx_mux;
@@ -46,12 +47,20 @@ static void link_task(void *arg)
         for (int i = 0; i < n; i++) {
             char c = (char)buf[i];
             if (c == '\n') {
-                dispatch_line();
+                if (s_discard_line) {
+                    s_discard_line = false;
+                    s_line_len = 0;
+                } else {
+                    dispatch_line();
+                }
+            } else if (s_discard_line) {
+                continue;
             } else if (s_line_len < LINK_LINE_MAX - 1) {
                 s_line[s_line_len++] = c;
             } else {
                 ESP_LOGW(TAG, "line longer than %d bytes, dropped", LINK_LINE_MAX);
                 s_line_len = 0;
+                s_discard_line = true;
                 if (s_on_overflow) {
                     s_on_overflow();
                 }
@@ -69,6 +78,8 @@ static void link_task(void *arg)
 esp_err_t link_start(link_line_cb_t on_line)
 {
     s_on_line = on_line;
+    s_line_len = 0;
+    s_discard_line = false;
 
     usb_serial_jtag_driver_config_t config = {
         .rx_buffer_size = LINK_RX_BUFFER,

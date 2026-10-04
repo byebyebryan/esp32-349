@@ -81,6 +81,41 @@ target_link_libraries(native_protocol PRIVATE native_cjson m)
 target_compile_definitions(native_protocol PRIVATE _DEFAULT_SOURCE)
 target_compile_options(native_protocol PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 
+add_executable(native_link_receiver ../native_link/test_link_receiver.c)
+target_include_directories(native_link_receiver PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/../native_link/stubs"
+    "${STATUS_MAIN}")
+target_compile_options(native_link_receiver PRIVATE
+    -Wall -Wextra -Werror -Wno-unused-parameter -UNDEBUG
+    -fsanitize=undefined,float-cast-overflow
+    -fno-sanitize-recover=all)
+target_link_options(native_link_receiver PRIVATE
+    -fsanitize=undefined,float-cast-overflow -fno-sanitize-recover=all)
+
+add_executable(native_legacy_renderer
+    test_legacy_renderer.c
+    ../native_protocol/stubs/native_platform.c
+    "${STATUS_MAIN}/state.c"
+    "${STATUS_MAIN}/dashboard.c"
+    "${STATUS_MAIN}/ui_fonts.c"
+    "${STATUS_MAIN}/fonts/status_symbol_14.c"
+    "${STATUS_MAIN}/fonts/status_symbol_16.c")
+target_include_directories(native_legacy_renderer PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/../native_protocol/stubs"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../native_protocol"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../native_ui/stubs"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../components/display_349/include"
+    "${STATUS_MAIN}"
+    "${CJSON_INCLUDE_DIR}")
+target_link_libraries(native_legacy_renderer PRIVATE lvgl native_cjson m)
+target_compile_definitions(native_legacy_renderer PRIVATE _DEFAULT_SOURCE)
+target_compile_options(native_legacy_renderer PRIVATE
+    -Wall -Wextra -Werror -Wno-unused-parameter -UNDEBUG
+    -fsanitize=undefined,float-cast-overflow
+    -fno-sanitize-recover=all)
+target_link_options(native_legacy_renderer PRIVATE
+    -fsanitize=undefined,float-cast-overflow -fno-sanitize-recover=all)
+
 add_native_fixture(native_ui_composed test_composed.c)
 target_include_directories(native_ui_composed BEFORE PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/../native_protocol/stubs"
@@ -108,6 +143,8 @@ add_test(NAME native_ui_viewer_smoke
 set_tests_properties(native_ui_viewer_smoke PROPERTIES
     ENVIRONMENT "SDL_VIDEODRIVER=dummy")
 add_test(NAME native_protocol_contract COMMAND native_protocol --self-test)
+add_test(NAME native_link_receiver COMMAND native_link_receiver)
+add_test(NAME native_legacy_renderer COMMAND native_legacy_renderer)
 add_test(NAME native_composed_replay_smoke
     COMMAND "${CMAKE_COMMAND}"
             -DRUNNER=$<TARGET_FILE:native_ui_composed>

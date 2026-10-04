@@ -238,6 +238,11 @@ clock; an invalid clock in staged sync rejects the transaction. Valid local
 dates outside the PCF85063's 2000–2099 range use the timer fallback instead
 of wrapping the hardware's two-digit year.
 
+Supplied numeric legacy progress ratios must be finite and between 0 and 1.
+An invalid ratio preserves the committed bar; in staged sync it rejects the
+transaction. The legacy renderer also bounds percentages before integer
+conversion, including the dormant media path.
+
 The active-card cache extension is capability-gated and leaves these v1
 messages available for older hosts and firmware. See
 [the cache plan](design/card-cache-plan.md) for `sync_begin`, `sync_cards`,
@@ -252,6 +257,9 @@ weather, CI, ...); the device never needs to know what they mean.
 
 Rules:
 
+- An overflowing receive line is discarded through its newline, with one
+  `rx_overflow` resync request. Only the following physical line can become
+  another command.
 - Host sends `hello` and `ping` after port open, then a full transfer after
   device `hello`, every 60 s, and on a device `resync` request. Capable firmware
   uses chunked card sync; older firmware uses the single legacy `sync`.

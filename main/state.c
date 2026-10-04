@@ -98,6 +98,13 @@ static int parse_zones(const cJSON *zones, status_zone_t *out, bool strict)
         zone->w = cJSON_IsNumber(w) ? w->valueint : 0;
         const cJSON *value = cJSON_GetObjectItemCaseSensitive(item, "value");
         if (cJSON_IsNumber(value)) {
+            if (strcmp(zone->kind, "progress") == 0 &&
+                (!isfinite(value->valuedouble) || value->valuedouble < 0.0 ||
+                 value->valuedouble > 1.0)) {
+                /* Keep this distinct from malformed layouts: a bad supplied
+                 * ratio must not replace an already committed legacy bar. */
+                return -2;
+            }
             zone->value = (float)value->valuedouble;
             zone->has_value = true;
         }
@@ -352,6 +359,9 @@ void state_apply_bar(const cJSON *obj)
 {
     const cJSON *zones = cJSON_GetObjectItemCaseSensitive(obj, "zones");
     int count = parse_zones(zones, s_zone_scratch, false);
+    if (count == -2) {
+        return;
+    }
     if (count < 0) {
         count = 0;
     }

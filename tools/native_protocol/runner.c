@@ -175,6 +175,72 @@ static void commit_clock_sync(int tx)
     CHECK(send_wire(message) == NULL);
 }
 
+static void expect_progress_zone(float value, bool has_value)
+{
+    state_lock();
+    const status_state_t *st = state_get();
+    CHECK(st->zone_count == 1);
+    CHECK(strcmp(st->zones[0].kind, "progress") == 0);
+    CHECK(st->zones[0].has_value == has_value);
+    if (has_value) CHECK(st->zones[0].value == value);
+    state_unlock();
+}
+
+static void test_progress_zone_validation(void)
+{
+    state_init();
+    (void)state_take_dirty();
+
+    CHECK(send_wire(
+        "{\"t\":\"bar\",\"zones\":[{\"kind\":\"progress\",\"value\":0}]}") == NULL);
+    expect_progress_zone(0.0f, true);
+    CHECK(send_wire(
+        "{\"t\":\"bar\",\"zones\":[{\"kind\":\"progress\",\"value\":1}]}") == NULL);
+    expect_progress_zone(1.0f, true);
+    CHECK(send_wire(
+        "{\"t\":\"bar\",\"zones\":[{\"kind\":\"progress\"}]}") == NULL);
+    expect_progress_zone(0.0f, false);
+
+    CHECK(send_wire(
+        "{\"t\":\"bar\",\"zones\":[{\"kind\":\"progress\",\"value\":0.5}]}") == NULL);
+    expect_progress_zone(0.5f, true);
+    (void)state_take_dirty();
+
+    static const char *const invalid_bars[] = {
+        "{\"t\":\"bar\",\"zones\":[{\"kind\":\"progress\",\"value\":-0.01}]}",
+        "{\"t\":\"bar\",\"zones\":[{\"kind\":\"progress\",\"value\":1.01}]}",
+        "{\"t\":\"bar\",\"zones\":[{\"kind\":\"progress\",\"value\":1e100}]}",
+        "{\"t\":\"bar\",\"zones\":[{\"kind\":\"progress\",\"value\":1e999}]}",
+        "{\"t\":\"bar\",\"zones\":[{\"kind\":\"progress\",\"value\":-1e999}]}",
+    };
+    for (size_t i = 0; i < sizeof(invalid_bars) / sizeof(invalid_bars[0]); i++) {
+        CHECK(send_wire(invalid_bars[i]) == NULL);
+        expect_progress_zone(0.5f, true);
+        CHECK(state_take_dirty() == 0);
+    }
+
+    /* A valid staged snapshot updates the committed bar. An invalid staged
+     * ratio is rejected before commit and leaves that snapshot untouched. */
+    CHECK(send_wire(
+        "{\"t\":\"sync_begin\",\"tx\":81,\"count\":0,\"limit\":0,"
+        "\"overflow\":0,\"bar\":{\"zones\":[{\"kind\":\"progress\","
+        "\"value\":0.25}]},\"dashboard\":{}}") == NULL);
+    CHECK(send_wire("{\"t\":\"sync_commit\",\"tx\":81}") == NULL);
+    expect_progress_zone(0.25f, true);
+    (void)state_take_dirty();
+
+    cJSON *response = send_wire(
+        "{\"t\":\"sync_begin\",\"tx\":82,\"count\":0,\"limit\":0,"
+        "\"overflow\":0,\"bar\":{\"zones\":[{\"kind\":\"progress\","
+        "\"value\":1e100}]},\"dashboard\":{}}");
+    CHECK(response != NULL && strcmp(string(response, "t"), "resync") == 0);
+    CHECK(strcmp(string(response, "reason"), "sync_begin_invalid") == 0);
+    cJSON_Delete(response);
+    CHECK(!state_sync_pending());
+    expect_progress_zone(0.25f, true);
+    CHECK(state_take_dirty() == 0);
+}
+
 static void test_clock_validation_and_atomicity(void)
 {
     state_init();
@@ -1272,6 +1338,7 @@ int main(int argc, char **argv)
         return 0;
     }
     if (argc == 2 && strcmp(argv[1], "--self-test") == 0) {
+        test_progress_zone_validation();
         test_staged_validation_and_deltas();
         test_presentation_and_session_reset();
         test_notification_actions_lifecycle();
