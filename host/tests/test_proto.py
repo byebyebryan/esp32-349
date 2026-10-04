@@ -521,6 +521,44 @@ def test_notify_uses_supported_glyphs_and_fits_device_buffers():
     assert len(proto.encode(message)) < proto.LINE_MAX
 
 
+def test_notify_bounds_raw_app_and_title_before_display_conversion(monkeypatch):
+    observed_sizes = []
+    display_text = proto.display_text
+
+    def record_display_input(value):
+        observed_sizes.append(len(value))
+        return display_text(value)
+
+    monkeypatch.setattr(proto, "display_text", record_display_input)
+    huge = "x" * 8_000_000
+
+    message = proto.notify(1, huge, huge, "body", 1, 5000, 42)
+
+    assert observed_sizes == [
+        31 * proto.DISPLAY_LABEL_INPUT_CODEPOINTS_PER_BYTE,
+        63 * proto.DISPLAY_LABEL_INPUT_CODEPOINTS_PER_BYTE,
+    ]
+    assert message["app"] == "x" * 31
+    assert message["summary"] == "x" * 63
+
+
+def test_notify_keeps_latin_simplification_and_cjk_with_byte_clipping():
+    message = proto.notify(
+        1,
+        "Café 東京 🔋 が",
+        "Cafe\u0301 東京" * 10,
+        "body",
+        1,
+        5000,
+        42,
+    )
+
+    assert message["app"] == "Cafe 東京 🔋 が"
+    assert message["summary"] == "Cafe 東京" * 5 + "Cafe 東"
+    assert len(message["app"].encode("utf-8")) <= 31
+    assert len(message["summary"].encode("utf-8")) <= 63
+
+
 def test_notification_body_limit_uses_utf8_bytes_and_marks_truncation():
     text = "東京" * 200
     message = proto.notify(1, "app", "sum", text, 1, -1, 1)

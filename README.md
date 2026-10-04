@@ -253,6 +253,13 @@ queues the desktop close. Each attempt times out after half a second; queued
 requests recheck the server and notification identity before dispatch, so a
 replacement is not closed by a stale dismissal.
 
+App names and titles use bounded raw prefixes of 124 and 252 code points
+before normalization and 31/63-byte UTF-8 clipping. Source classification
+treats app names and desktop-entry hints over 256 code points as unknown.
+With `ignore_apps` configured, oversized app names are conservatively
+suppressed so clipping cannot bypass an ignored-app filter. Display projection
+leaves the original Open-action identity unchanged.
+
 Notification bodies use an 8,192-code-point processing budget before parsing
 or normalization; longer sources retain a prefix and a regular ellipsis.
 Within that budget, bodies are converted on the host before clipping: supported

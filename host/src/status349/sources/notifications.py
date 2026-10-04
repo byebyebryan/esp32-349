@@ -56,6 +56,7 @@ OPEN_ACTION_PAIR_LIMIT = 64
 IDENTITY_QUERY_TIMEOUT_S = 0.5
 DISMISS_TIMEOUT_S = 0.5
 DISMISS_QUEUE_LIMIT = 32
+MAX_NOTIFICATION_SOURCE_IDENTITY_CODEPOINTS = 256
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,8 +99,36 @@ def parse_open_metadata(body: list) -> dict | None:
 
 
 def is_ignored(app: str, ignore_apps: list[str]) -> bool:
+    # When configured privacy filters are active, conservatively hide an
+    # oversized app identity. Fully stripping/lowercasing it would make each
+    # incoming notification unbounded, and clipping first could miss a padded
+    # ignored name such as "KeePassXC" followed by megabytes of whitespace.
+    if len(app) > MAX_NOTIFICATION_SOURCE_IDENTITY_CODEPOINTS:
+        return bool(ignore_apps)
     app = app.strip().lower()
     return any(app == ignored.strip().lower() for ignored in ignore_apps)
+
+
+def _source_identity_hint(value: str) -> str:
+    """Bound source classification while keeping raw metadata separate."""
+    if len(value) <= MAX_NOTIFICATION_SOURCE_IDENTITY_CODEPOINTS:
+        return value
+    # Never let a clipped suffix manufacture a trusted sender such as "kitty".
+    return "oversized-notification-source"
+
+
+def _source_conversion_hints(hints: object) -> object:
+    """Bound the one desktop-entry hint used during source classification."""
+    if not isinstance(hints, dict):
+        return hints
+    desktop_entry = hints.get("desktop-entry")
+    value = getattr(desktop_entry, "value", desktop_entry)
+    if (
+        isinstance(value, str)
+        and len(value) > MAX_NOTIFICATION_SOURCE_IDENTITY_CODEPOINTS
+    ):
+        return {"desktop-entry": _source_identity_hint(value)}
+    return hints
 
 
 def parse_notify_body(body: list) -> dict | None:
@@ -108,7 +137,22 @@ def parse_notify_body(body: list) -> dict | None:
         return None
     app_name, replaces_id, _app_icon, summary, body_text, _actions, hints, expire_timeout = body[:8]
 
-    display_body, body_runs = convert_body(str(app_name), str(summary), str(body_text), hints)
+    app_text = str(app_name)
+    summary_text = str(summary)
+    # Source conversion only needs a known short sender name and an exact
+    # "Codex" title match. Keep the original values below for wire projection
+    # and Open validation, where identity must never come from display text.
+    source_summary = (
+        summary_text
+        if len(summary_text) == len("Codex") and summary_text == "Codex"
+        else ""
+    )
+    display_body, body_runs = convert_body(
+        _source_identity_hint(app_text),
+        source_summary,
+        str(body_text),
+        _source_conversion_hints(hints),
+    )
 
     urgency = 1
     if isinstance(hints, dict):
@@ -117,9 +161,9 @@ def parse_notify_body(body: list) -> dict | None:
             urgency = int(variant.value)
 
     parsed = {
-        "app": str(app_name),
+        "app": app_text,
         "replaces": int(replaces_id),
-        "summary": str(summary),
+        "summary": summary_text,
         "body": display_body,
         "urgency": urgency,
         "expire": int(expire_timeout),
@@ -704,9 +748,18 @@ class NotificationSource:
     async def _handle_notify(self, message: Message) -> None:
         if self.cfg.mode != "mirror":
             return
-        if len(message.body) >= 8 and is_ignored(str(message.body[0]), self.cfg.ignore_apps):
-            log.debug("ignoring notification from %r", message.body[0])
-            return
+        if len(message.body) >= 8:
+            app_name = str(message.body[0])
+            if len(app_name) > MAX_NOTIFICATION_SOURCE_IDENTITY_CODEPOINTS:
+                if self.cfg.ignore_apps:
+                    # Do not pass a potentially secret oversized identity to
+                    # logging or later display paths while privacy filters are
+                    # configured.
+                    log.debug("ignoring notification with oversized app identifier")
+                    return
+            elif is_ignored(app_name, self.cfg.ignore_apps):
+                log.debug("ignoring notification from %r", message.body[0])
+                return
         parsed = parse_notify_body(message.body)
         if parsed is None:
             return

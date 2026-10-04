@@ -187,3 +187,83 @@ def test_ignored_body_is_skipped_before_conversion(monkeypatch):
         assert not daemon.notifications._local_to_daemon
 
     asyncio.run(scenario())
+
+
+def test_oversized_app_with_ignore_filters_is_suppressed_without_logging_raw_name(monkeypatch):
+    app = "KeePassXC" + " " * 1_000_000
+    assert notifications.is_ignored(app, ["KeePassXC"])
+    debug_messages = []
+
+    def record_debug(*args, **kwargs):
+        debug_messages.append(args)
+
+    def unexpected_conversion(*args, **kwargs):
+        raise AssertionError("oversized filtered app reached display conversion")
+
+    monkeypatch.setattr(notifications.log, "debug", record_debug)
+    monkeypatch.setattr(notifications, "convert_body", unexpected_conversion)
+
+    async def scenario():
+        daemon = _daemon()
+        await daemon.notifications._handle_notify(Message(
+            destination=notifications.NOTIFICATIONS_NAME,
+            path=notifications.NOTIFICATIONS_PATH,
+            interface=notifications.NOTIFICATIONS_NAME,
+            member="Notify",
+            signature="susssasa{sv}i",
+            sender=":1.401",
+            serial=1,
+            body=[app, 0, "", "summary", "body", [], {}, 0],
+        ))
+        assert not daemon.notifications._outbox
+        assert not daemon.notifications._local_to_daemon
+
+    asyncio.run(scenario())
+
+    assert debug_messages == [("ignoring notification with oversized app identifier",)]
+
+
+def test_huge_notification_labels_use_bounded_source_and_wire_projections(monkeypatch):
+    huge = "x" * 8_000_000
+    conversion_inputs = []
+    raw_action_inputs = []
+    convert = notifications.convert_body
+    parse_open = notifications.parse_open_metadata
+
+    def record_conversion(app, summary, body, hints):
+        conversion_inputs.append((app, summary))
+        return convert(app, summary, body, hints)
+
+    def record_raw_open_metadata(body):
+        raw_action_inputs.append((body[0], body[3]))
+        return parse_open(body)
+
+    monkeypatch.setattr(notifications, "convert_body", record_conversion)
+    monkeypatch.setattr(notifications, "parse_open_metadata", record_raw_open_metadata)
+
+    async def scenario():
+        daemon = _daemon()
+        daemon.cfg.notifications.ignore_apps = []
+        await daemon.notifications._handle_notify(Message(
+            destination=notifications.NOTIFICATIONS_NAME,
+            path=notifications.NOTIFICATIONS_PATH,
+            interface=notifications.NOTIFICATIONS_NAME,
+            member="Notify",
+            signature="susssasa{sv}i",
+            sender=":1.402",
+            serial=2,
+            body=[huge, 0, "", huge, "body", ["default", "Open"], {}, 0],
+        ))
+
+        assert conversion_inputs == [("oversized-notification-source", "")]
+        assert len(daemon.notifications._outbox) == 1
+        local_id, projected = next(iter(daemon.notifications._outbox.items()))
+        assert projected["app"] == "x" * 31
+        assert projected["summary"] == "x" * 63
+        assert daemon.notifications._open_info[local_id]["expected"] is None
+
+    asyncio.run(scenario())
+
+    assert len(raw_action_inputs) == 1
+    assert raw_action_inputs[0][0] is huge
+    assert raw_action_inputs[0][1] is huge

@@ -2,6 +2,7 @@ from dbus_next import Variant
 
 from status349 import notification_text
 from status349.notification_text import convert_body, normalize_body, project_body
+from status349.sources import notifications
 from status349.sources.notifications import parse_notify_body, parse_open_metadata
 
 
@@ -169,6 +170,21 @@ def test_markdown_requires_a_known_terminal_and_exact_codex_title():
     body, runs = convert_body("kitty", "Build", "**literal**", {})
     assert body == "**literal**"
     assert runs == []
+
+
+def test_oversized_sender_suffix_cannot_manufacture_a_terminal_identity():
+    padding = " " * (notifications.MAX_NOTIFICATION_SOURCE_IDENTITY_CODEPOINTS + 1)
+    cases = (
+        ("unknown" + padding + "kitty", {}),
+        ("kitty", {"desktop-entry": Variant("s", "unknown" + padding + "kitty.desktop")}),
+    )
+
+    for app, hints in cases:
+        parsed = parse_notify_body([
+            app, 0, "", "Codex", "**literal**", [], hints, 0,
+        ])
+        assert parsed["body"] == "**literal**"
+        assert parsed.get("body_runs", []) == []
 
 
 def test_notify_display_conversion_does_not_change_raw_open_metadata():

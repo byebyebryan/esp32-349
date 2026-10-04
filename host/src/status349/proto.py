@@ -28,6 +28,7 @@ DASHBOARD_CPU_FREQ_MAX_MHZ = 100_000
 DASHBOARD_MEMORY_MAX_BYTES = 1 << 50
 NOTIFICATION_BODY_HISTORY_BYTES = 511
 NOTIFICATION_BODY_LEGACY_BYTES = 159
+DISPLAY_LABEL_INPUT_CODEPOINTS_PER_BYTE = 4
 
 
 def display_text(value: str) -> str:
@@ -47,6 +48,19 @@ def display_text(value: str) -> str:
 def clip_utf8(value: str, max_bytes: int) -> str:
     """Fit a device string buffer without splitting a UTF-8 code point."""
     return value.encode("utf-8")[:max_bytes].decode("utf-8", "ignore")
+
+
+def _display_label(value: str, max_bytes: int) -> str:
+    """Normalize only a bounded prefix before fitting an app/title field.
+
+    Four raw code points per output byte accommodates common decomposed Latin
+    and Hangul sequences before the byte clip. Extremely long labels are
+    intentionally projected from this bounded prefix.
+    """
+    raw_limit = max_bytes * DISPLAY_LABEL_INPUT_CODEPOINTS_PER_BYTE
+    if len(value) > raw_limit:
+        value = value[:raw_limit]
+    return clip_utf8(display_text(value), max_bytes)
 
 
 def clip_utf8_ellipsis(value: str, max_bytes: int) -> str:
@@ -668,8 +682,8 @@ def notify(
     message = {
         "t": "notify",
         "id": int(nid),
-        "app": clip_utf8(display_text(app), 31),
-        "summary": clip_utf8(display_text(summary), 63),
+        "app": _display_label(app, 31),
+        "summary": _display_label(summary, 63),
         "body": body,
         "urgency": int(urgency),
         "expire": int(expire),
