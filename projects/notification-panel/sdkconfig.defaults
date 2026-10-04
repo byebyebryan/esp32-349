@@ -1,4 +1,4 @@
-# 349-status M0: USB-Serial-JTAG link bring-up (display arrives in M1)
+# notification-panel: USB-Serial-JTAG host link, telemetry and notifications
 CONFIG_IDF_TARGET="esp32s3"
 CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 CONFIG_PARTITION_TABLE_CUSTOM=y

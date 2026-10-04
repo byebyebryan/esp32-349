@@ -1,15 +1,28 @@
-# 349-hello — ESP32-S3-Touch-LCD-3.49 V2
+# render-bench — ESP32-S3-Touch-LCD-3.49 V2
 
 Landscape (640x172) bouncing-ball demo used to bring up the board and tune the
 display pipeline. Runs at ~45fps with low CPU and no artifacts.
 
+Previously `examples/349-hello/`, this is the rendering experiment project in
+the [esp32-349 repository](../../README.md). Its optimized board/display
+pipeline lives in the shared [`display_349` component](../../components/display_349/README.md),
+also used by notification-panel. Performance figures below are the recorded
+on-device measurements from those experiments.
+
 ## Build and flash
+
+Run from `projects/render-bench/` after the common toolchain is installed.
 
 ```sh
 . ../../scripts/env.sh
 idf.py build
 idf.py -p /dev/ttyACM0 flash monitor
 ```
+
+Select the intended board's port. If `349d` is running, pause it before
+flashing. This benchmark does not implement its host protocol, so leave the
+daemon paused while using it. Flash notification-panel again before resuming
+the daemon; see its [flashing guide](../notification-panel/README.md#flashing-while-the-daemon-runs).
 
 ## Hardware and configuration
 

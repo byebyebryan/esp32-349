@@ -17,4 +17,4 @@ else
     eim install --config "$REPO_ROOT/scripts/eim-config.toml" -p "$EIM_ROOT"
 fi
 
-echo "Done. Activate with: source scripts/env.sh"
+echo "Done. Activate with: source \"$REPO_ROOT/scripts/env.sh\""

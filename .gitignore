@@ -10,7 +10,7 @@ sdkconfig.old
 compile_commands.json
 
 # Python (host tools)
-.venv/
+.venv
 __pycache__/
 .pytest_cache/
 

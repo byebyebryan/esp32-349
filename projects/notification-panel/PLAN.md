@@ -1,4 +1,8 @@
-# 349-status — plan
+# notification-panel — plan
+
+This record predates the multi-project layout. Historical `349-status` and
+`349-hello` names refer to notification-panel and render-bench respectively;
+the shared board component now lives at `../../components/display_349/`.
 
 Always-on 640x172 desk display for the ESP32-S3-Touch-LCD-3.49 V2: mirrors
 clock, host-composed status zones and notifications from one PC over

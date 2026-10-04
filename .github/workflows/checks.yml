@@ -26,9 +26,10 @@ jobs:
           version: "0.8.22"
           python-version: ${{ matrix.python }}
           enable-cache: true
-          cache-dependency-glob: host/uv.lock
+          cache-dependency-glob: projects/notification-panel/host/uv.lock
           cache-suffix: ${{ matrix.python }}
       - name: Host and native-check tooling regressions
+        working-directory: projects/notification-panel
         run: env -u DBUS_SESSION_BUS_ADDRESS uv run --project host --frozen pytest -q host/tests tools/tests
 
   provider:
@@ -42,4 +43,5 @@ jobs:
         with:
           node-version: "22"
       - name: Desktop action provider regressions
+        working-directory: projects/notification-panel
         run: node integrations/dms/349NotificationActions/tests/provider_core_test.js

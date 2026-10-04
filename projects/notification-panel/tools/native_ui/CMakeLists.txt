@@ -104,7 +104,7 @@ target_include_directories(native_legacy_renderer PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/../native_protocol/stubs"
     "${CMAKE_CURRENT_SOURCE_DIR}/../native_protocol"
     "${CMAKE_CURRENT_SOURCE_DIR}/../native_ui/stubs"
-    "${CMAKE_CURRENT_SOURCE_DIR}/../../components/display_349/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../../components/display_349/include"
     "${STATUS_MAIN}"
     "${CJSON_INCLUDE_DIR}")
 target_link_libraries(native_legacy_renderer PRIVATE lvgl native_cjson m)

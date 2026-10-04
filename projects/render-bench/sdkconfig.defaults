@@ -1,4 +1,4 @@
-# Minimal hello-world display test for the ESP32-S3-Touch-LCD-3.49 V2
+# Rendering benchmark for the ESP32-S3-Touch-LCD-3.49 V2
 CONFIG_IDF_TARGET="esp32s3"
 CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 CONFIG_PARTITION_TABLE_CUSTOM=y

@@ -5,7 +5,7 @@ This DMS daemon plugin exposes a small Quickshell IPC bridge for the current
 the exact live wrapper, notification, and action objects that were bound. It
 does not focus a window or claim that an application handled the action.
 
-Run the shell commands below from the root of the `esp32-349` checkout.
+Run the shell commands below from anywhere in the `esp32-349` checkout.
 
 ## Install and scoped reload
 
@@ -16,13 +16,13 @@ and enable only this plugin:
 ```sh
 plugin_root="$HOME/.config/DankMaterialShell/plugins"
 plugin_dest="$plugin_root/status349NotificationActions"
-repo_root="$(git rev-parse --show-toplevel)"
+project_root="$(git rev-parse --show-toplevel)/projects/notification-panel"
 mkdir -p "$plugin_root"
 if [ -e "$plugin_dest" ] || [ -L "$plugin_dest" ]; then
   printf '%s\n' "Plugin destination already exists; inspect it before replacing: $plugin_dest" >&2
   exit 1
 fi
-cp -a "$repo_root/integrations/dms/349NotificationActions" "$plugin_dest"
+cp -a "$project_root/integrations/dms/349NotificationActions" "$plugin_dest"
 dms ipc call plugin-scan scan
 dms ipc call plugins enable status349NotificationActions
 dms ipc call plugins status status349NotificationActions
@@ -83,9 +83,9 @@ selection. Interactive commands are `replace`, `replace-identical`, `new`,
 `close`, and `quit`.
 
 ```sh
-repo_root="$(git rev-parse --show-toplevel)"
-rtk uv run --project "$repo_root/host" --frozen \
-  python "$repo_root/integrations/dms/349NotificationActions/tools/controlled_notification.py" \
+project_root="$(git rev-parse --show-toplevel)/projects/notification-panel"
+rtk uv run --project "$project_root/host" --frozen \
+  python "$project_root/integrations/dms/349NotificationActions/tools/controlled_notification.py" \
   --log-file /tmp/349-notification-actions.jsonl
 ```
 

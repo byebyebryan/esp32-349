@@ -1,6 +1,6 @@
 # Native UI checks
 
-Run from the repository root after an IDF build has fetched the pinned LVGL
+Run from `projects/notification-panel/` after an IDF build has fetched the pinned LVGL
 dependency. Install CMake, a C compiler, pkg-config, SDL2 development headers,
 Python, uv and RTK (used by the check script). Use a shell without EIM
 activation so host GCC selects the host assembler; EIM's `PATH` can select
