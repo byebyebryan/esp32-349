@@ -399,6 +399,14 @@ Real Ghostty default dispatch/focus passed on Snap with a local Niri compatibili
 setting; see the [acceptance record](design/notification-actions-acceptance.md)
 for desktop configuration and application-compatibility limits.
 
+`349ctl status` reports notification-server identity under
+`notification_actions.source`, separately from DMS plugin health under
+`notification_actions.provider`. When DMS replaces its notification server,
+the daemon archives old card identities and discovers the new owner/PID.
+Fresh notifications can regain Open automatically; archived cards keep their
+text with Open disabled. Identity lookup failures keep Open unavailable while
+the daemon retries, without interrupting mirroring or invoking actions.
+
 The daemon sends a ping every four seconds even when the bar does not change.
 While the board stays powered, it shows `host asleep` when USB activity stops
 and `host disconnected` when USB is active but host messages stop for ten
@@ -432,8 +440,14 @@ address skips the three live D-Bus tests; omit `env -u DBUS_SESSION_BUS_ADDRESS`
 only when desktop notification tests are intended. Tooling tests also verify
 that native checks preserve caches belonging to other checkouts.
 
+Install `dbus-broker` to run the isolated notification-server restart
+regressions. These tests create a private bus and never use the desktop bus.
+Locally they skip if the broker is absent; set
+`STATUS349_REQUIRE_DBUS_BROKER=1` to make a missing broker fail instead.
+
 The [CI workflow](../../.github/workflows/checks.yml) runs these isolated host/tooling
-tests on Python 3.11 and 3.14, plus the JavaScript desktop-action provider tests.
+tests on Python 3.11 and 3.14 with the private broker required, plus the JavaScript
+desktop-action provider tests.
 Native LVGL/font checks, ESP-IDF builds and physical acceptance remain separate
 local gates; a green CI run does not establish device rendering or touch behavior.
 

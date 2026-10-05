@@ -92,6 +92,39 @@ def test_grouped_negotiation_requires_all_capabilities_and_syncs_retained_collec
     asyncio.run(scenario())
 
 
+def test_owner_archive_preserves_fresh_card_presentation_and_pending_arrival():
+    async def scenario():
+        daemon, writer = _grouped_daemon()
+        await daemon._device_notify(proto.notify(1, "app", "old server", "body", 1, 0, 1))
+        async with daemon._state_lock:
+            await daemon._publish_pending_presentation_locked(time.monotonic() + 1)
+        await daemon._device_notify(proto.notify(2, "app", "new server", "body", 1, 0, 2))
+        async with daemon._state_lock:
+            await daemon._publish_pending_presentation_locked(time.monotonic() + 1)
+        assert daemon._presentation["id"] == 2
+        await daemon._device_notify(proto.notify(3, "app", "fresh pending", "body", 1, 5000, 3))
+        assert daemon._pending_present_id == 3
+        frames_before = len(writer.frames)
+
+        await daemon._device_monitor_reset([1])
+        assert daemon._presentation["id"] == 2
+        assert daemon._pending_present_id == 3
+        assert len(writer.frames) == frames_before
+        assert 1 in daemon.model.retained_notifs
+        assert 1 not in daemon.model.notifs
+        assert 2 in daemon.model.notifs
+
+        await daemon._device_monitor_reset([2])
+        assert daemon._presentation is None
+        assert daemon._pending_present_id == 3
+        await daemon._device_monitor_reset([3])
+        assert daemon._pending_present_id is None
+        assert daemon._pending_present_due is None
+        assert set(daemon.model.retained_notifs) == {1, 2, 3}
+
+    asyncio.run(scenario())
+
+
 def test_normal_coalescing_manual_takeover_and_critical_presentation(monkeypatch):
     async def scenario():
         now = [10.0]
@@ -269,6 +302,7 @@ def test_grouped_dismiss_accepts_stale_generation_and_replacement_can_reintroduc
         daemon.notifications._mirrored_local_ids.add(7)
         daemon.notifications._local_to_daemon[7] = 900
         daemon.notifications._daemon_to_local[900] = 7
+        daemon.notifications._notification_owner_generations[7] = daemon.notifications._owner_change_generation
 
         await daemon._handle_input(
             {"t": "input", "action": "dismiss", "session": 123, "generation": 0, "id": 7}

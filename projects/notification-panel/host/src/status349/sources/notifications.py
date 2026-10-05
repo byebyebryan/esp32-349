@@ -42,7 +42,6 @@ MONITOR_RULES = [
     "interface='org.freedesktop.Notifications'",
     f"type='method_return',sender='{NOTIFICATIONS_NAME}'",
     f"type='error',sender='{NOTIFICATIONS_NAME}'",
-    "type='signal',sender='org.freedesktop.DBus',interface='org.freedesktop.DBus',member='NameOwnerChanged',arg0='org.freedesktop.Notifications'",
 ]
 
 # One message per interval keeps a notification burst from overflowing the
@@ -54,9 +53,15 @@ PENDING_REPLY_LIMIT = 64
 MONITOR_QUEUE_LIMIT = 256
 OPEN_ACTION_PAIR_LIMIT = 64
 IDENTITY_QUERY_TIMEOUT_S = 0.5
+IDENTITY_RETRY_INITIAL_S = 0.1
+IDENTITY_RETRY_MAX_S = 5.0
 DISMISS_TIMEOUT_S = 0.5
 DISMISS_QUEUE_LIMIT = 32
 MAX_NOTIFICATION_SOURCE_IDENTITY_CODEPOINTS = 256
+DBUS_OWNER_MATCH = (
+    "type='signal',sender='org.freedesktop.DBus',interface='org.freedesktop.DBus',"
+    "member='NameOwnerChanged',arg0='org.freedesktop.Notifications'"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,7 +70,15 @@ class _PendingDismiss:
     daemon_id: int
     version: int
     owner: str | None
+    owner_generation: int
     control: object
+
+
+@dataclass(frozen=True, slots=True)
+class _QueuedMessage:
+    message: Message
+    owner_generation: int
+    owner_change_generation: int | None = None
 
 
 def parse_open_metadata(body: list) -> dict | None:
@@ -212,10 +225,11 @@ class NotificationSource:
 
         self._monitor: MessageBus | None = None
         self._control: MessageBus | None = None
-        self._messages: asyncio.Queue[Message] = asyncio.Queue(maxsize=MONITOR_QUEUE_LIMIT)
+        self._messages: asyncio.Queue[Message | _QueuedMessage] = asyncio.Queue(maxsize=MONITOR_QUEUE_LIMIT)
         self._outbox: dict[int, dict] = {}
         self._outbox_ready = asyncio.Event()
         self._monitor_task: asyncio.Task | None = None
+        self._identity_task: asyncio.Task | None = None
         self._process_task: asyncio.Task | None = None
         self._send_task: asyncio.Task | None = None
         self._dismiss_task: asyncio.Task | None = None
@@ -232,6 +246,15 @@ class NotificationSource:
         self._next_open_version = 1
         self._server_owner: str | None = None
         self._server_pid: int | None = None
+        self._control_generation = 0
+        self._owner_change_generation = 0
+        self._owner_change_applied_generation = 0
+        self._observed_owner: str | None = None
+        self._control_handler: Callable[[Message], bool] | None = None
+        self._identity_wakeup = asyncio.Event()
+        self._identity_state = "stopped"
+        self._identity_last_error: str | None = None
+        self._notification_owner_generations: dict[int, int] = {}
         self._mirrored_local_ids: set[int] = set()
         self._expiry_deadlines: dict[int, float] = {}
         self._locally_removed: dict[int, None] = {}
@@ -292,7 +315,9 @@ class NotificationSource:
         await self._teardown()
 
     async def _close_mirrored_notifications(self) -> None:
-        local_ids = tuple(self._mirrored_local_ids)
+        await self._archive_local_notifications(tuple(self._mirrored_local_ids))
+
+    async def _archive_local_notifications(self, local_ids: tuple[int, ...] | list[int]) -> None:
         for local_id in local_ids:
             self._forget_local(local_id)
         if self._grouped_mode():
@@ -303,6 +328,7 @@ class NotificationSource:
 
     def _forget_local(self, local_id: int) -> None:
         self._open_info.pop(local_id, None)
+        self._notification_owner_generations.pop(local_id, None)
         self.actions_changed.set()
         self._mirrored_local_ids.discard(local_id)
         self._locally_removed.pop(local_id, None)
@@ -378,6 +404,9 @@ class NotificationSource:
             info is None or info["expected"] is None or not info["confirmed"]
             or self._server_owner is None or self._server_pid is None
             or info.get("owner") != self._server_owner
+            or info.get("owner_generation") != self._owner_change_generation
+            or info.get("reply_generation") != self._owner_change_generation
+            or self._notification_owner_generations.get(local_id) != self._owner_change_generation
             or desktop_id is None or self._daemon_to_local.get(desktop_id) != local_id
             or not 0 < desktop_id <= 0xFFFFFFFF or isinstance(desktop_id, bool)
             or not 0 < info["version"] <= proto.IDENTITY_MAX
@@ -393,44 +422,218 @@ class NotificationSource:
     def action_candidates(self) -> dict[int, dict]:
         return {nid: candidate for nid in self._open_info if (candidate := self.action_candidate(nid)) is not None}
 
-    async def _refresh_server_identity(self) -> None:
-        self._server_owner = self._server_pid = None
-        if self._control is None:
+    def identity_status(self) -> dict:
+        """Return bounded provider identity state for read-only diagnostics."""
+        return {
+            "state": self._identity_state,
+            "owner": self._server_owner,
+            "pid": self._server_pid,
+            "last_error": self._identity_last_error,
+        }
+
+    def _set_identity_status(
+        self, state: str, error: str | None, owner: str | None = None, pid: int | None = None
+    ) -> None:
+        updated = (state, error, owner, pid)
+        current = (self._identity_state, self._identity_last_error, self._server_owner, self._server_pid)
+        if updated == current:
             return
-        try:
-            reply = await asyncio.wait_for(
-                self._control.call(Message(
-                    destination="org.freedesktop.DBus", path="/org/freedesktop/DBus",
-                    interface="org.freedesktop.DBus", member="GetNameOwner",
-                    signature="s", body=[NOTIFICATIONS_NAME],
-                )),
-                timeout=IDENTITY_QUERY_TIMEOUT_S,
+        self._identity_state, self._identity_last_error, self._server_owner, self._server_pid = updated
+        if state == "ready":
+            log.info("notification server identity ready: owner=%s pid=%s", owner, pid)
+        self.actions_changed.set()
+
+    async def _apply_identity_evidence(
+        self, owner: str, owner_generation: int,
+        control: object | None = None, control_generation: int | None = None,
+    ) -> None:
+        stale_pending: list[int] = []
+        control = self._control if control is None else control
+        control_generation = self._control_generation if control_generation is None else control_generation
+        if (
+            self._identity_state != "ready" or self._server_owner != owner
+            or self._owner_change_generation != owner_generation
+            or self._control is not control
+            or self._control_generation != control_generation
+        ):
+            return
+        # Finish association mutations before invoking callbacks. A callback
+        # may yield to another owner change, replacement or full teardown.
+        archived: list[int] = []
+        for local_id, info in tuple(self._open_info.items()):
+            if self._open_info.get(local_id) is not info or local_id not in self._mirrored_local_ids:
+                continue
+            reply_owner = info.get("reply_owner")
+            owner_evidence_matches = bool(
+                reply_owner == owner
+                and info.get("reply_generation") == owner_generation
+                and info.get("owner_generation") == owner_generation
+                and local_id in self._mirrored_local_ids
             )
-            if reply.message_type == MessageType.ERROR or not reply.body or not isinstance(reply.body[0], str):
-                return
-            owner = reply.body[0]
-            pid_reply = await asyncio.wait_for(
-                self._control.call(Message(
+            staged_id = info.get("staged_reply") is True
+            if staged_id and info.get("owner_generation") == owner_generation:
+                if reply_owner != owner or info.get("reply_generation") != owner_generation:
+                    if reply_owner is not None:
+                        stale_pending.append(local_id)
+                    continue
+                desktop_id = info.get("reply_desktop_id")
+                if (
+                    not isinstance(desktop_id, int) or isinstance(desktop_id, bool)
+                    or not 0 < desktop_id <= 0xFFFFFFFF
+                ):
+                    stale_pending.append(local_id)
+                    continue
+                previous_local = self._daemon_to_local.get(desktop_id)
+                if previous_local is not None and previous_local != local_id:
+                    self._forget_local(previous_local)
+                    archived.append(previous_local)
+                previous_id = self._local_to_daemon.get(local_id)
+                if previous_id is not None and previous_id != desktop_id:
+                    if self._daemon_to_local.get(previous_id) == local_id:
+                        self._daemon_to_local.pop(previous_id, None)
+                    self._action_daemon_id.pop(local_id, None)
+                self._daemon_to_local[desktop_id] = local_id
+                self._local_to_daemon[local_id] = desktop_id
+                self._action_daemon_id[local_id] = desktop_id
+                info["staged_reply"] = False
+                owner_evidence_matches = bool(
+                    reply_owner == owner
+                    and info.get("reply_generation") == owner_generation
+                    and info.get("owner_generation") == owner_generation
+                    and local_id in self._mirrored_local_ids
+                )
+            desktop_id = self._local_to_daemon.get(local_id)
+            current_association = bool(
+                desktop_id is not None
+                and self._action_daemon_id.get(local_id) == desktop_id
+                and self._daemon_to_local.get(desktop_id) == local_id
+                and local_id in self._mirrored_local_ids
+            )
+            if owner_evidence_matches and current_association:
+                info["owner"] = owner
+                info["identity_pending"] = False
+                if info.get("expected") is not None:
+                    info["confirmed"] = True
+            elif (
+                info.get("identity_pending") is True
+                and reply_owner is not None and reply_owner != owner
+            ):
+                stale_pending.append(local_id)
+        archived.extend(stale_pending)
+        if archived:
+            await self._archive_local_notifications(archived)
+
+    @staticmethod
+    async def _identity_call(control: object, message: Message) -> Message:
+        try:
+            async with asyncio.timeout(IDENTITY_QUERY_TIMEOUT_S):
+                return await control.call(message)
+        except (asyncio.CancelledError, TimeoutError):
+            NotificationSource._discard_cancelled_call(control, message)
+            raise
+
+    async def _refresh_server_identity(
+        self,
+        control: object | None = None,
+        control_generation: int | None = None,
+        owner_generation: int | None = None,
+    ) -> bool:
+        """Take one fenced identity snapshot; return false until fully verified."""
+        control = self._control if control is None else control
+        control_generation = self._control_generation if control_generation is None else control_generation
+        owner_generation = self._owner_change_generation if owner_generation is None else owner_generation
+        if control is None or self._control is not control:
+            return False
+        self._set_identity_status("resolving", None)
+
+        def still_current() -> bool:
+            return (
+                self._control is control
+                and self._control_generation == control_generation
+                and self._owner_change_generation == owner_generation
+            )
+
+        error_code: str | None = None
+        owner: str | None = None
+        pid: int | None = None
+        try:
+            owner_reply = await self._identity_call(control, Message(
+                destination="org.freedesktop.DBus", path="/org/freedesktop/DBus",
+                interface="org.freedesktop.DBus", member="GetNameOwner",
+                signature="s", body=[NOTIFICATIONS_NAME],
+            ))
+            if not still_current():
+                return False
+            if owner_reply.message_type == MessageType.ERROR:
+                error_code = (
+                    "name_not_owned"
+                    if owner_reply.error_name == "org.freedesktop.DBus.Error.NameHasNoOwner"
+                    else "owner_lookup_failed"
+                )
+            elif (
+                not owner_reply.body or not isinstance(owner_reply.body[0], str)
+                or not owner_reply.body[0].startswith(":")
+            ):
+                error_code = "invalid_owner_reply"
+            else:
+                owner = owner_reply.body[0]
+                pid_reply = await self._identity_call(control, Message(
                     destination="org.freedesktop.DBus", path="/org/freedesktop/DBus",
                     interface="org.freedesktop.DBus", member="GetConnectionUnixProcessID",
                     signature="s", body=[owner],
-                )),
-                timeout=IDENTITY_QUERY_TIMEOUT_S,
-            )
-            if (
-                pid_reply.message_type != MessageType.ERROR and pid_reply.body
-                and isinstance(pid_reply.body[0], int) and not isinstance(pid_reply.body[0], bool)
-                and pid_reply.body[0] > 0
-            ):
-                self._server_owner, self._server_pid = owner, pid_reply.body[0]
+                ))
+                if not still_current():
+                    return False
+                if pid_reply.message_type == MessageType.ERROR:
+                    error_code = "pid_lookup_failed"
+                elif (
+                    not pid_reply.body or not isinstance(pid_reply.body[0], int)
+                    or isinstance(pid_reply.body[0], bool) or pid_reply.body[0] <= 0
+                ):
+                    error_code = "invalid_pid_reply"
+                else:
+                    pid = pid_reply.body[0]
         except asyncio.CancelledError:
             raise
+        except TimeoutError:
+            error_code = "lookup_timeout"
         except Exception:
-            # Owner identity is advisory for action eligibility. An unresponsive
-            # bus must not stall the monitor queue or retain an old PID.
-            pass
-        finally:
-            self.actions_changed.set()
+            error_code = "lookup_failed"
+
+        if not still_current():
+            return False
+        if error_code is not None or owner is None or pid is None:
+            self._set_identity_status("retrying", error_code or "lookup_failed")
+            return False
+
+        self._set_identity_status("ready", None, owner, pid)
+        # Replies received while a lookup was unavailable remain inert until
+        # this snapshot proves their actual service owner and epoch.
+        await self._apply_identity_evidence(owner, owner_generation)
+        self.actions_changed.set()
+        return True
+
+    async def _identity_loop(self, control: object, control_generation: int) -> None:
+        backoff = IDENTITY_RETRY_INITIAL_S
+        while self._control is control and self._control_generation == control_generation:
+            self._identity_wakeup.clear()
+            owner_generation = self._owner_change_generation
+            succeeded = await self._refresh_server_identity(
+                control, control_generation, owner_generation
+            )
+            if self._identity_wakeup.is_set():
+                continue
+            if succeeded:
+                backoff = IDENTITY_RETRY_INITIAL_S
+                await self._identity_wakeup.wait()
+                continue
+            else:
+                delay = backoff
+                backoff = min(backoff * 2, IDENTITY_RETRY_MAX_S)
+            try:
+                await asyncio.wait_for(self._identity_wakeup.wait(), timeout=delay)
+            except asyncio.TimeoutError:
+                pass
 
     async def _expire_due(self) -> None:
         now = time.monotonic()
@@ -454,14 +657,24 @@ class NotificationSource:
         info = self._open_info.get(local_id)
         version = info.get("version") if info is not None else None
         if (
-            daemon_id is None or control is None
+            daemon_id is None or control is None or self._identity_state != "ready"
+            or self._server_owner is None
             or self._daemon_to_local.get(daemon_id) != local_id
             or self._local_to_daemon.get(local_id) != daemon_id
             or not isinstance(version, int)
+            or info is None or info.get("owner") != self._server_owner
+            or info.get("owner_generation") != self._owner_change_generation
+            or info.get("reply_generation") != self._owner_change_generation
+            or info.get("reply_owner") != self._server_owner
+            or info.get("identity_pending") is True
+            or self._notification_owner_generations.get(local_id) != self._owner_change_generation
         ):
             log.debug("dismiss %d has no daemon id to propagate", local_id)
             return
-        pending = _PendingDismiss(local_id, daemon_id, version, self._server_owner, control)
+        pending = _PendingDismiss(
+            local_id, daemon_id, version, self._server_owner,
+            self._owner_change_generation, control,
+        )
         self._ensure_dismiss_worker()
         try:
             self._dismiss_queue.put_nowait(pending)
@@ -488,12 +701,21 @@ class NotificationSource:
         return bool(
             self.cfg.device_dismiss == "propagate"
             and self._control is pending.control
+            and self._identity_state == "ready"
+            and self._server_owner is not None
             and self._server_owner == pending.owner
+            and self._owner_change_generation == pending.owner_generation
             and self._action_daemon_id.get(pending.local_id) == pending.daemon_id
             and self._local_to_daemon.get(pending.local_id) == pending.daemon_id
             and self._daemon_to_local.get(pending.daemon_id) == pending.local_id
             and pending.local_id in self._mirrored_local_ids
             and info is not None and info.get("version") == pending.version
+            and info.get("owner") == pending.owner
+            and info.get("owner_generation") == pending.owner_generation
+            and info.get("reply_generation") == pending.owner_generation
+            and info.get("reply_owner") == pending.owner
+            and info.get("identity_pending") is not True
+            and self._notification_owner_generations.get(pending.local_id) == pending.owner_generation
         )
 
     async def _dispatch_dismiss(self, pending: _PendingDismiss, message: Message) -> bool:
@@ -519,10 +741,8 @@ class NotificationSource:
                 if not self._dismiss_is_current(pending):
                     continue
                 message = Message(
-                    # Pin the request to the captured service owner when the
-                    # monitor knows it. Unknown identity retains the existing
-                    # well-known-name behavior.
-                    destination=pending.owner or NOTIFICATIONS_NAME,
+                    # Pin every request to the identity captured at enqueue.
+                    destination=pending.owner,
                     path=NOTIFICATIONS_PATH,
                     interface=NOTIFICATIONS_NAME,
                     member="CloseNotification",
@@ -549,14 +769,29 @@ class NotificationSource:
             finally:
                 self._dismiss_queue.task_done()
 
+    @staticmethod
+    def _is_notification_owner_change(message: Message) -> bool:
+        return bool(
+            message.message_type == MessageType.SIGNAL
+            and message.sender == "org.freedesktop.DBus"
+            and message.path == "/org/freedesktop/DBus"
+            and message.interface == "org.freedesktop.DBus"
+            and message.member == "NameOwnerChanged"
+            and message.signature == "sss"
+            and len(message.body) == 3
+            and message.body[0] == NOTIFICATIONS_NAME
+            and isinstance(message.body[1], str)
+            and isinstance(message.body[2], str)
+        )
+
     async def _monitor_loop(self) -> None:
         backoff = 1.0
         while True:
             try:
                 await self._setup()
                 backoff = 1.0
-                await self._monitor.wait_for_disconnect()
-                log.warning("notification monitor disconnected")
+                disconnected = await self._wait_for_connection_disconnect()
+                log.warning("notification %s connection disconnected", disconnected)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
@@ -568,10 +803,55 @@ class NotificationSource:
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, 30.0)
 
+    async def _wait_for_connection_disconnect(self) -> str:
+        control = self._control
+        monitor = self._monitor
+        if control is None or monitor is None:
+            raise RuntimeError("notification connections are not ready")
+        waiters = {
+            asyncio.create_task(control.wait_for_disconnect(), name="notify-control-disconnect"): "control",
+            asyncio.create_task(monitor.wait_for_disconnect(), name="notify-monitor-disconnect"): "monitor",
+        }
+        identity_task = self._identity_task
+        if identity_task is not None:
+            waiters[identity_task] = "identity"
+        try:
+            done, pending = await asyncio.wait(waiters, return_when=asyncio.FIRST_COMPLETED)
+            first_name = waiters[next(iter(done))]
+            for task in done:
+                await task
+                if task is identity_task:
+                    raise RuntimeError("notification identity worker stopped")
+            return first_name
+        finally:
+            # The parent monitor loop can be cancelled while asyncio.wait is
+            # suspended (notably during stop); collect both bus waiters then.
+            for task in waiters:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*waiters, return_exceptions=True)
+
     async def _setup(self) -> None:
-        self._control = await MessageBus(bus_type=BusType.SESSION).connect()
+        control = await MessageBus(bus_type=BusType.SESSION).connect()
+        self._control = control
+        self._control_generation += 1
+        control_generation = self._control_generation
+
+        def control_handler(message: Message) -> bool:
+            return self._handle_control_message(control, control_generation, message)
+
+        self._control_handler = control_handler
+        control.add_message_handler(control_handler)
+        match_reply = await self._identity_call(control, Message(
+            destination="org.freedesktop.DBus", path="/org/freedesktop/DBus",
+            interface="org.freedesktop.DBus", member="AddMatch",
+            signature="s", body=[DBUS_OWNER_MATCH],
+        ))
+        if match_reply.message_type == MessageType.ERROR:
+            raise RuntimeError(f"NameOwnerChanged AddMatch failed: {match_reply.error_name}")
+
         self._monitor = await MessageBus(bus_type=BusType.SESSION, negotiate_unix_fd=True).connect()
-        reply = await self._monitor.call(
+        reply = await self._identity_call(self._monitor,
             Message(
                 destination="org.freedesktop.DBus",
                 path="/org/freedesktop/DBus",
@@ -584,28 +864,103 @@ class NotificationSource:
         if reply.message_type == MessageType.ERROR:
             raise RuntimeError(f"BecomeMonitor failed: {reply.error_name} {reply.body}")
 
-        self._monitor.add_message_handler(self._enqueue)
-        await self._refresh_server_identity()
+        def monitor_handler(message: Message) -> bool:
+            return self._enqueue(message)
+
+        self._monitor.add_message_handler(monitor_handler)
+        self._set_identity_status("resolving", None)
+        self._identity_task = self._watch_task(asyncio.create_task(
+            self._identity_loop(control, control_generation), name="notify-identity"
+        ))
         log.info("notification mirror active")
+
+    def _handle_control_message(
+        self, control: object, control_generation: int, message: Message
+    ) -> bool:
+        # Do not consume unrelated method replies: dbus-next's MessageBus.call
+        # needs them to complete AddMatch and identity RPCs.
+        if (
+            self._control is not control
+            or self._control_generation != control_generation
+            or not self._is_notification_owner_change(message)
+        ):
+            return False
+        old_owner, new_owner = message.body[1], message.body[2]
+        if old_owner != new_owner:
+            log.info("notification server owner changed: %s -> %s", old_owner or "none", new_owner or "none")
+            self._owner_change_generation += 1
+            self._observed_owner = new_owner
+            self._set_identity_status(
+                "resolving" if new_owner else "unavailable",
+                None if new_owner else "name_not_owned",
+            )
+            self._identity_wakeup.set()
+            self._enqueue(message, owner_change_generation=self._owner_change_generation)
+        return True
+
+    def _enqueue(self, message: Message, *, owner_change_generation: int | None = None) -> bool:
+        # Returning True marks eavesdropped method calls handled and prevents
+        # dbus-next from auto-replying UNKNOWN_METHOD. Received FDs are unused.
+        for fd in message.unix_fds or []:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        queued = _QueuedMessage(
+            message,
+            owner_generation=(
+                owner_change_generation
+                if owner_change_generation is not None
+                else self._owner_change_generation
+            ),
+            owner_change_generation=owner_change_generation,
+        )
+        try:
+            self._messages.put_nowait(queued)
+        except asyncio.QueueFull:
+            log.error("notification monitor queue overflow; resetting monitor correlation")
+            self._discard_messages()
+            if self._monitor is not None:
+                self._monitor.disconnect()
+        return True
 
     async def _teardown(self) -> None:
         self._discard_dismissals()
+        # Revoke identity before cancellation/cleanup yields to other workers.
+        self._control_generation += 1
+        self._owner_change_generation += 1
+        self._observed_owner = None
+        self._set_identity_status("stopped", None)
+        self._identity_wakeup.set()
+        identity_task = self._identity_task
+        self._identity_task = None
+        if identity_task is not None and not identity_task.done():
+            identity_task.cancel()
+            await asyncio.gather(identity_task, return_exceptions=True)
         for bus in (self._monitor, self._control):
             if bus is not None:
+                handler = self._control_handler if bus is self._control else None
+                if handler is not None:
+                    try:
+                        bus.remove_message_handler(handler)
+                    except Exception:
+                        pass
                 try:
                     bus.disconnect()
                 except Exception:
                     pass
         self._monitor = self._control = None
+        self._control_handler = None
         # Ids from a previous daemon session are meaningless now.
         self._by_serial.clear()
         self._open_info.clear()
         self._open_reply_versions.clear()
-        self._server_owner = self._server_pid = None
+        self._set_identity_status("stopped", None)
         self.actions_changed.set()
         self._daemon_to_local.clear()
         self._local_to_daemon.clear()
         self._action_daemon_id.clear()
+        self._notification_owner_generations.clear()
         self._outbox.clear()
         self._outbox_ready.clear()
         self._expiry_deadlines.clear()
@@ -617,24 +972,6 @@ class NotificationSource:
                 self._messages.get_nowait()
             except asyncio.QueueEmpty:
                 break
-
-    def _enqueue(self, message: Message) -> bool:
-        # Returning True marks the message handled: a monitor must not send
-        # anything, and dbus-next would otherwise auto-reply UNKNOWN_METHOD to
-        # every eavesdropped method call. Received FDs are never used.
-        for fd in message.unix_fds or []:
-            try:
-                os.close(fd)
-            except OSError:
-                pass
-        try:
-            self._messages.put_nowait(message)
-        except asyncio.QueueFull:
-            log.error("notification monitor queue overflow; resetting monitor correlation")
-            self._discard_messages()
-            if self._monitor is not None:
-                self._monitor.disconnect()
-        return True
 
     async def _process_loop(self) -> None:
         while True:
@@ -649,32 +986,109 @@ class NotificationSource:
             except asyncio.TimeoutError:
                 continue
             try:
-                await self._handle(message)
+                if isinstance(message, _QueuedMessage):
+                    if message.owner_change_generation is not None:
+                        await self._handle_owner_change(
+                            message.message, message.owner_change_generation
+                        )
+                    else:
+                        await self._handle(
+                            message.message, owner_generation=message.owner_generation
+                        )
+                else:
+                    await self._handle(message)
             except Exception:
                 log.exception("notification handling failed")
 
-    async def _handle(self, message: Message) -> None:
-        if (
-            message.message_type == MessageType.SIGNAL
-            and message.sender == "org.freedesktop.DBus"
-            and message.interface == "org.freedesktop.DBus"
-            and message.member == "NameOwnerChanged"
-            and len(message.body) >= 3 and message.body[0] == NOTIFICATIONS_NAME
-            and message.body[1] != message.body[2]
-        ):
-            # Owner replacement does not necessarily disconnect the monitor.
-            # Archive text and revoke numeric IDs before accepting new events.
-            self._server_owner = self._server_pid = None
-            await self._close_mirrored_notifications()
-            self._by_serial.clear()
-            self._open_reply_versions.clear()
-            await self._refresh_server_identity()
+    def _has_pending_notify_reply(self, local_id: int, version: int) -> bool:
+        return any(
+            pending_local == local_id and self._open_reply_versions.get(key) == version
+            for key, (pending_local, _requested_id) in self._by_serial.items()
+        )
+
+    async def _handle_owner_change(self, message: Message, generation: int | None = None) -> None:
+        if not self._is_notification_owner_change(message):
+            return
+        old_owner, new_owner = message.body[1], message.body[2]
+        if old_owner == new_owner:
+            return
+        if generation is None:
+            self._owner_change_generation += 1
+            generation = self._owner_change_generation
+            self._observed_owner = new_owner
+            self._set_identity_status(
+                "resolving" if new_owner else "unavailable",
+                None if new_owner else "name_not_owned",
+            )
+            self._identity_wakeup.set()
+        elif generation > self._owner_change_generation:
+            self._owner_change_generation = generation
+            self._observed_owner = new_owner
+            self._set_identity_status(
+                "resolving" if new_owner else "unavailable",
+                None if new_owner else "name_not_owned",
+            )
+            self._identity_wakeup.set()
+        if generation <= self._owner_change_applied_generation:
+            return
+
+        # The control socket can observe loss/gain before the monitor socket's
+        # queued Notify/reply pair. Use the latest owner event as the fence so
+        # fresh final-owner evidence survives intermediate loss notifications.
+        latest_generation = self._owner_change_generation
+        latest_owner = self._observed_owner
+        archive_ids: list[int] = []
+        for local_id in tuple(self._mirrored_local_ids):
+            info = self._open_info.get(local_id)
+            source_generation = self._notification_owner_generations.get(local_id, -1)
+            fresh_epoch = source_generation >= latest_generation
+            current_owner_reply = bool(
+                latest_owner and info is not None
+                and info.get("reply_owner") == latest_owner
+                and info.get("owner") is None
+            )
+            pending_reply = bool(
+                info is not None and self._has_pending_notify_reply(local_id, info["version"])
+            )
+            if fresh_epoch or current_owner_reply or pending_reply:
+                self._notification_owner_generations[local_id] = latest_generation
+                if info is not None:
+                    info["owner_generation"] = latest_generation
+                    info["confirmed"] = False
+                    info["owner"] = None
+                    if current_owner_reply:
+                        info["reply_generation"] = latest_generation
+                    info["identity_pending"] = bool(
+                        info.get("expected") is not None
+                        and (pending_reply or current_owner_reply or fresh_epoch)
+                    )
+                # An unreturned Notify cannot keep an earlier owner's desktop
+                # ID. Its eventual reply will establish a fresh association.
+                if pending_reply and not current_owner_reply:
+                    for daemon_id, mapped_id in tuple(self._daemon_to_local.items()):
+                        if mapped_id == local_id:
+                            self._daemon_to_local.pop(daemon_id, None)
+                    self._local_to_daemon[local_id] = None
+                    self._action_daemon_id.pop(local_id, None)
+            else:
+                archive_ids.append(local_id)
+
+        self._owner_change_applied_generation = generation
+        if archive_ids:
+            await self._archive_local_notifications(archive_ids)
+        if latest_owner and self._identity_state == "ready" and self._server_owner == latest_owner:
+            await self._apply_identity_evidence(latest_owner, latest_generation)
+        self.actions_changed.set()
+
+    async def _handle(self, message: Message, *, owner_generation: int | None = None) -> None:
+        if self._is_notification_owner_change(message):
+            await self._handle_owner_change(message)
         elif (
             message.message_type == MessageType.METHOD_CALL
             and message.interface == NOTIFICATIONS_NAME
             and message.member == "Notify"
         ):
-            await self._handle_notify(message)
+            await self._handle_notify(message, owner_generation=owner_generation)
         elif message.message_type in {MessageType.METHOD_RETURN, MessageType.ERROR}:
             key = (message.destination, message.reply_serial) if message.destination and message.reply_serial else None
             pending = self._by_serial.pop(key, None) if key is not None else None
@@ -683,6 +1097,9 @@ class NotificationSource:
                 return
             local_id, requested_id = pending
             if local_id not in self._local_to_daemon:
+                return
+            info = self._open_info.get(local_id)
+            if info is not None and info.get("version") != open_version:
                 return
             if message.message_type == MessageType.ERROR:
                 # A failed replacement must not invalidate the still-live
@@ -696,17 +1113,82 @@ class NotificationSource:
                     self._daemon_to_local.pop(requested_id, None)
                     self._local_to_daemon[local_id] = None
                 return
-            daemon_id = int(message.body[0]) if message.body and isinstance(message.body[0], int) else None
+            daemon_id = None
+            if (
+                message.body and isinstance(message.body[0], int)
+                and not isinstance(message.body[0], bool)
+                and 0 < message.body[0] <= 0xFFFFFFFF
+            ):
+                daemon_id = message.body[0]
+            info = self._open_info.get(local_id)
+            reply_owner = (
+                message.sender
+                if isinstance(message.sender, str) and message.sender.startswith(":")
+                else None
+            )
+            if info is not None and info.get("version") == open_version:
+                evidence_generation = (
+                    self._owner_change_generation
+                    if reply_owner is not None and reply_owner == self._observed_owner
+                    else self._owner_change_generation if owner_generation is None else owner_generation
+                )
+                info["reply_owner"] = reply_owner
+                info["reply_generation"] = evidence_generation
+                info["reply_desktop_id"] = daemon_id
+
+                if reply_owner is not None:
+                    known_owner = (
+                        self._observed_owner
+                        if self._observed_owner is not None
+                        else self._server_owner if self._identity_state == "ready" else None
+                    )
+                    if (
+                        known_owner is not None
+                        and reply_owner != known_owner
+                    ):
+                        # A fast owner replacement can produce the new
+                        # service's reply before the control socket reports
+                        # its owner event. Hold its ID until that owner is
+                        # observed and independently validated.
+                        info["identity_pending"] = True
+                        info["staged_reply"] = daemon_id is not None
+                        self.actions_changed.set()
+                        return
+                    if (
+                        self._identity_state != "ready"
+                        and self._observed_owner is not None
+                        and daemon_id is not None
+                    ):
+                        mapped_local = self._daemon_to_local.get(daemon_id)
+                        mapped_generation = self._notification_owner_generations.get(mapped_local)
+                        if mapped_local not in {None, local_id} and mapped_generation != self._owner_change_generation:
+                            info["identity_pending"] = True
+                            info["staged_reply"] = True
+                            self.actions_changed.set()
+                            return
+
+            archive_ids: list[int] = []
             if daemon_id is not None:
                 if requested_id and self._daemon_to_local.get(requested_id) not in {None, local_id}:
-                    return
+                    requested_local = self._daemon_to_local.get(requested_id)
+                    requested_generation = self._notification_owner_generations.get(requested_local)
+                    if not (self._observed_owner is not None and requested_generation != self._owner_change_generation):
+                        return
                 if requested_id and requested_id != daemon_id and self._daemon_to_local.get(requested_id) == local_id:
                     self._daemon_to_local.pop(requested_id, None)
                 previous_local = self._daemon_to_local.get(daemon_id)
                 if previous_local is not None and previous_local != local_id:
-                    # A daemon ID can be reused after a desktop close. Its new
-                    # Notify reply transfers correlation and action ownership.
-                    self._forget_local(previous_local)
+                    previous_generation = self._notification_owner_generations.get(previous_local)
+                    if (
+                        self._observed_owner is not None
+                        and previous_generation != self._owner_change_generation
+                    ):
+                        self._forget_local(previous_local)
+                        archive_ids.append(previous_local)
+                    else:
+                        # A daemon ID can be reused after a desktop close. Its
+                        # current Notify reply transfers correlation ownership.
+                        self._forget_local(previous_local)
                 self._daemon_to_local[daemon_id] = local_id
                 previous_id = self._local_to_daemon.get(local_id)
                 if previous_id is not None and previous_id != daemon_id:
@@ -714,13 +1196,24 @@ class NotificationSource:
                 self._local_to_daemon[local_id] = daemon_id
                 self._action_daemon_id[local_id] = daemon_id
                 info = self._open_info.get(local_id)
-                if info is not None and info["version"] == open_version and message.sender == self._server_owner:
-                    info["confirmed"] = True
-                    info["owner"] = message.sender
+                if info is not None and info.get("version") == open_version:
+                    info["staged_reply"] = False
+                    if (
+                        reply_owner is not None and self._identity_state == "ready"
+                        and reply_owner == self._server_owner
+                        and evidence_generation == self._owner_change_generation
+                        and info.get("owner_generation") == self._owner_change_generation
+                    ):
+                        info["owner"] = reply_owner
+                        info["identity_pending"] = False
+                        if info.get("expected") is not None:
+                            info["confirmed"] = True
                     self.actions_changed.set()
             elif requested_id and self._daemon_to_local.get(requested_id) == local_id:
                 self._daemon_to_local.pop(requested_id, None)
                 self._local_to_daemon[local_id] = None
+            if archive_ids:
+                await self._archive_local_notifications(archive_ids)
         elif (
             message.message_type == MessageType.SIGNAL
             and message.interface == NOTIFICATIONS_NAME
@@ -745,9 +1238,13 @@ class NotificationSource:
                         self._forget_local(local_id)
                         await self._on_close(local_id)
 
-    async def _handle_notify(self, message: Message) -> None:
+    async def _handle_notify(
+        self, message: Message, *, owner_generation: int | None = None
+    ) -> None:
         if self.cfg.mode != "mirror":
             return
+        if owner_generation is None:
+            owner_generation = self._owner_change_generation
         if len(message.body) >= 8:
             app_name = str(message.body[0])
             if len(app_name) > MAX_NOTIFICATION_SOURCE_IDENTITY_CODEPOINTS:
@@ -766,7 +1263,13 @@ class NotificationSource:
         received_mono = time.monotonic()
 
         replaces = parsed.pop("replaces")
-        local_id = self._daemon_to_local.get(replaces) if replaces else None
+        prior_local = self._daemon_to_local.get(replaces) if replaces else None
+        local_id = (
+            prior_local
+            if prior_local is not None
+            and self._notification_owner_generations.get(prior_local) == owner_generation
+            else None
+        )
         if local_id is None:
             if self._allocate_local_id is None:
                 local_id = self._next_id
@@ -774,7 +1277,7 @@ class NotificationSource:
             else:
                 local_id = self._allocate_local_id()
             self._local_to_daemon[local_id] = None
-            if replaces:
+            if replaces and prior_local is None:
                 # Keep a provisional association until Notify returns. Some
                 # notification daemons allocate a fresh ID for an unknown
                 # replaces_id, and that returned ID is authoritative.
@@ -786,6 +1289,10 @@ class NotificationSource:
         self._locally_removed.pop(local_id, None)
         self._attention_expired.pop(local_id, None)
         self._forgotten_local_ids.pop(local_id, None)
+        self._notification_owner_generations.pop(local_id, None)
+        self._notification_owner_generations[local_id] = owner_generation
+        while len(self._notification_owner_generations) > ASSOCIATION_LIMIT:
+            self._notification_owner_generations.pop(next(iter(self._notification_owner_generations)))
 
         # Every Notify changes action identity, including identical replacements.
         version = self._next_open_version
@@ -794,6 +1301,9 @@ class NotificationSource:
         self._open_info[local_id] = {
             "version": version, "expected": parse_open_metadata(message.body),
             "confirmed": False, "owner": None,
+            "owner_generation": owner_generation,
+            "reply_owner": None, "reply_generation": None,
+            "identity_pending": self._identity_state != "ready" or owner_generation != self._owner_change_generation,
         }
         while len(self._open_info) > ASSOCIATION_LIMIT:
             self._open_info.pop(next(iter(self._open_info)))

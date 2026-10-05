@@ -388,3 +388,57 @@ accepted Snap image remains `0b7587bca`; these source commits do not restamp or
 replace that deployed image. Snap's Niri source/live bytes still match, its
 config validation and scoped chezmoi dry run pass, and its compatibility change
 is separately committed as `92bd5cd`. Unrelated Snap dotfiles work is preserved.
+
+## Notification-server restart recovery (2026-10-05)
+
+Snap's notification cards were mirrored with Open unavailable immediately on
+arrival. The running daemon predated a DMS restart and retained the old
+notification-server owner/PID: its `BecomeMonitor` rule did not deliver the
+required `NameOwnerChanged` events through dbus-broker. The provider and USB
+action negotiation were healthy.
+
+The host now subscribes through its ordinary control connection before taking
+the initial identity snapshot. Owner changes revoke action eligibility
+immediately; bounded background queries recover owner/PID without blocking
+mirroring. Per-notification reply, version and owner-generation evidence
+protects reused IDs and late replies. Archive callbacks preserve fresh-card
+presentation, and propagated Close requires the notification's own current
+owner proof. Recovery never invokes an action. Source identity health is
+reported separately from provider health in `349ctl status`.
+
+Accepted automated checks:
+
+- Host/tool suites: **387 passed, 3 expected live-desktop skips** on each of
+  Python 3.11 and 3.14. The private-broker regression is mandatory in CI.
+- Actual isolated dbus-broker: startup without a notification server, owner
+  loss/gain, distinct server PIDs, immediate A→B→C restarts and desktop ID 349
+  reuse. Old cards remain ineligible; fresh final-owner cards become eligible.
+- Targeted ordering, delayed lookup/reply, transient recovery, same-owner
+  reacquisition, connection recovery and shutdown cleanup checks.
+- Negative control: disabling only the normal owner-change subscription in
+  an isolated test process makes the broker regression fail as expected.
+- Existing desktop provider contract checks: **10 passed**.
+
+Snap's host service loaded the fix at **11:38:35 PDT**, with working directory
+`projects/notification-panel/host` and systemd main PID `111660`. Live identity
+matched the notification server and provider: owner `:1.253551`, PID `3922472`.
+The paired board remained `28:84:85:92:C4:3C`, running the existing firmware
+`d6e782b-dirty` / SHA `9188da1dc`; no firmware was flashed.
+
+Owned transient fixtures produced these device readbacks:
+
+| Desktop ID | Device card | Default action | Open | After popup timeout |
+|---|---|---|---|---|
+| 32 | 100000 | Explicit `default` | `ready` | Still `ready` |
+| 33 | 100001 | None | `unavailable` | Not applicable |
+
+Both fixtures were closed against their captured unique owner and disappeared
+from device readback; no actions were invoked. Device boot ID `2043102809`
+remained stable throughout this check. Earlier USB reconnects during the work
+make comparison with the initial boot snapshot inconclusive about restart
+behavior. Saved pairing and the final link were healthy.
+
+The running desktop shell was not restarted for this check. Actual server
+restarts were exercised on the isolated broker; a full DMS restart in the live
+graphical session remains a separate manual confirmation. Physical touch and
+application focus retain the earlier acceptance evidence above.

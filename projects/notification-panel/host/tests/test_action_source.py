@@ -40,6 +40,7 @@ async def noop(_):
 def source():
     result = NotificationSource(NotificationsConfig(), noop, noop, grouped_mode=lambda: True)
     result._server_owner, result._server_pid = ":1.40", 40
+    result._identity_state = "ready"
     return result
 
 

@@ -150,6 +150,7 @@ def test_display_conversion_keeps_original_open_action_metadata():
             lambda _local_id: asyncio.sleep(0),
         )
         source._server_owner, source._server_pid = ":1.40", 40
+        source._identity_state = "ready"
         await source._handle(
             Message(
                 destination=NOTIFICATIONS_NAME,

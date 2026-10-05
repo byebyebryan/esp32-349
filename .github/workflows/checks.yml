@@ -28,8 +28,12 @@ jobs:
           enable-cache: true
           cache-dependency-glob: projects/notification-panel/host/uv.lock
           cache-suffix: ${{ matrix.python }}
+      - name: Install isolated notification-bus test broker
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y dbus-broker
       - name: Host and native-check tooling regressions
         working-directory: projects/notification-panel
+        env:
+          STATUS349_REQUIRE_DBUS_BROKER: "1"
         run: env -u DBUS_SESSION_BUS_ADDRESS uv run --project host --frozen pytest -q host/tests tools/tests
 
   provider:

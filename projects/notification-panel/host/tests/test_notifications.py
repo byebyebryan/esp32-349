@@ -84,12 +84,29 @@ def _notify_call(sender: str, serial: int, replaces_id: int, summary: str, expir
 def _notify_reply(destination: str, serial: int, daemon_id: int) -> Message:
     return Message(
         message_type=MessageType.METHOD_RETURN,
-        sender=NOTIFICATIONS_NAME,
+        sender=":1.40",
         destination=destination,
         reply_serial=serial,
         signature="u",
         body=[daemon_id],
     )
+
+
+def _ready_identity(source: NotificationSource, owner: str) -> None:
+    source._server_owner = owner
+    source._server_pid = 1
+    source._identity_state = "ready"
+    source._identity_last_error = None
+
+
+def _ready_action_info(source: NotificationSource, local_id: int, version: int) -> None:
+    generation = source._owner_change_generation
+    owner = source._server_owner
+    source._notification_owner_generations[local_id] = generation
+    source._open_info[local_id] = {
+        "version": version, "owner": owner, "owner_generation": generation,
+        "reply_owner": owner, "reply_generation": generation, "identity_pending": False,
+    }
 
 
 def _closed_signal(daemon_id: int) -> Message:
@@ -245,6 +262,7 @@ def test_grouped_reason_one_disables_propagation_and_reused_id_belongs_to_new_ca
         )
         control = Control()
         source._control = control
+        _ready_identity(source, ":1.40")
 
         await source._handle_notify(_notify_call(":1.93", 1, 0, "closed card"))
         await source._handle(_notify_reply(":1.93", 1, 777))
@@ -288,11 +306,11 @@ def test_propagated_dismiss_does_not_hold_serial_reader_or_delay_local_close():
                 await release.wait()
 
         source._control = Control()
-        source._server_owner = ":1.95"
+        _ready_identity(source, ":1.95")
         source._daemon_to_local = {daemon_id: local_id}
         source._local_to_daemon = {local_id: daemon_id}
         source._action_daemon_id = {local_id: daemon_id}
-        source._open_info = {local_id: {"version": 3}}
+        _ready_action_info(source, local_id, 3)
         source._mirrored_local_ids.add(local_id)
         sent = []
 
@@ -343,11 +361,11 @@ def test_propagated_dismiss_timeout_cleans_pinned_dbus_reply_handler(monkeypatch
         control.send = lambda message: sent.append(message)
 
         source._control = control
-        source._server_owner = ":1.96"
+        _ready_identity(source, ":1.96")
         source._daemon_to_local = {778: 8}
         source._local_to_daemon = {8: 778}
         source._action_daemon_id = {8: 778}
-        source._open_info = {8: {"version": 4}}
+        _ready_action_info(source, 8, 4)
         source._mirrored_local_ids.add(8)
         monkeypatch.setattr("status349.sources.notifications.DISMISS_TIMEOUT_S", 0.02)
 
@@ -377,11 +395,11 @@ def test_dismiss_dispatch_revalidates_immediately_before_call(invalidation):
 
         control = Control()
         source._control = control
-        source._server_owner = ":1.97"
+        _ready_identity(source, ":1.97")
         source._daemon_to_local = {779: 9}
         source._local_to_daemon = {9: 779}
         source._action_daemon_id = {9: 779}
-        source._open_info = {9: {"version": 5}}
+        _ready_action_info(source, 9, 5)
         source._mirrored_local_ids.add(9)
         dispatch_started = asyncio.Event()
         release_dispatch = asyncio.Event()
@@ -430,11 +448,11 @@ def test_dismiss_shutdown_cancels_inflight_call_and_drains_bounded_queue(monkeyp
         sent = []
         control.send = lambda message: sent.append(message)
         source._control = control
-        source._server_owner = ":1.99"
+        _ready_identity(source, ":1.99")
         source._daemon_to_local = {780: 11}
         source._local_to_daemon = {11: 780}
         source._action_daemon_id = {11: 780}
-        source._open_info = {11: {"version": 7}}
+        _ready_action_info(source, 11, 7)
         source._mirrored_local_ids.add(11)
         monkeypatch.setattr("status349.sources.notifications.DISMISS_TIMEOUT_S", 5.0)
 
@@ -472,11 +490,11 @@ def test_dismiss_worker_preserves_cancellation_when_reply_completes():
                 asyncio.get_running_loop().call_soon(source._dismiss_task.cancel)
 
         source._control = Control()
-        source._server_owner = ":1.100"
+        _ready_identity(source, ":1.100")
         source._daemon_to_local = {781: 12}
         source._local_to_daemon = {12: 781}
         source._action_daemon_id = {12: 781}
-        source._open_info = {12: {"version": 8}}
+        _ready_action_info(source, 12, 8)
         source._mirrored_local_ids.add(12)
         try:
             await source.dismiss(12)
@@ -702,6 +720,15 @@ def test_partial_monitor_setup_closes_created_connection(monkeypatch):
                 if len(created) == 2:
                     raise RuntimeError("monitor connect failed")
                 return self
+
+            def add_message_handler(self, _handler):
+                pass
+
+            async def call(self, _message):
+                return Message(message_type=MessageType.METHOD_RETURN, reply_serial=1)
+
+            def remove_message_handler(self, _handler):
+                pass
 
             def disconnect(self):
                 self.closed = True

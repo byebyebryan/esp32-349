@@ -455,12 +455,14 @@ class Daemon:
     async def _device_monitor_reset(self, local_ids: list[int]) -> None:
         """Archive grouped text and cancel actions tied to the lost monitor."""
         async with self._state_lock:
+            archived = set(local_ids)
             for local_id in local_ids:
                 self._cancel_unsent_action(local_id)
                 self.model.close_active_notification(local_id)
-            self._pending_present_id = None
-            self._pending_present_due = None
-            if self._presentation is not None:
+            if self._pending_present_id in archived:
+                self._pending_present_id = None
+                self._pending_present_due = None
+            if self._presentation is not None and self._presentation["id"] in archived:
                 await self._end_presentation_locked(send_end=self._grouped_enabled)
 
     def _presentation_timeout_ms(self, message: dict) -> int | None:
@@ -1768,6 +1770,7 @@ class Daemon:
                 "configured": self.cfg.notifications.device_open == "dms",
                 "capable": self._actions_capable,
                 "negotiated": self._actions_negotiated,
+                "source": self.notifications.identity_status(),
                 "provider": {
                     "available": self.action_manager._provider_epoch is not None,
                     "epoch": self.action_manager._provider_epoch,

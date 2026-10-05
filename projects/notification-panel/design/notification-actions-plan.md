@@ -201,6 +201,28 @@ a server revision hook; stop and revise the contract rather than claiming a
 plugin token supplies that missing guarantee. This boundary does not permit
 rebinding an old card to a different server/object after a restart or close.
 
+### Notification-server identity recovery
+
+Subscribe to `NameOwnerChanged` for `org.freedesktop.Notifications` through the
+ordinary control connection before reading the initial owner/PID. A
+`BecomeMonitor` rule alone does not establish this subscription on dbus-broker.
+Receive owner changes through one connection to avoid duplicate invalidation;
+the control handler must leave ordinary method replies to the D-Bus client.
+
+On owner loss or replacement, revoke the previous desktop associations and
+archive their text. Refresh the current owner/PID with bounded queries and
+retry transient lookup failures without blocking notification mirroring.
+Results must belong to the current connection and owner generation; delayed
+queries cannot restore an obsolete identity. Notifications received during
+lookup can become eligible only when their own reply sender, desktop ID and
+action revision are proven against the recovered identity. Reused numeric IDs
+never restore old cards. Recovery updates availability without invoking actions.
+
+Either control or monitor disconnection resets correlation and reconnects both
+connections. Shutdown cancels identity work and connection waiters. Expose
+source identity health separately from plugin health in `349ctl status`, using
+bounded error codes without notification content.
+
 ## Lifetime rules
 
 | Event | Retained card | Open eligibility |
