@@ -1,0 +1,52 @@
+{
+  "description": "Unchanged benchmark main.c rendered with locked LVGL, native board stubs and virtual time; performance overlay disabled.",
+  "source_revision": "55fecbd883878aa143ba39b47de410cb6791ca26",
+  "source_sha256": {
+    "projects/render-bench/main/main.c": "c3ed7d26245001faa680e1e7c38d6f739fa378680a9821569c558bfcc1bc5edf",
+    "projects/render-bench/main/CMakeLists.txt": "00be284d6fc9ef9c51a7304763f5bb32fe99ae0e673af35456ea6bbef7399e08",
+    "projects/render-bench/dependencies.lock": "e283e82575e5f7360a87453795d753b0926c3a19b13d697fea2a3f32e55b6b7e",
+    "projects/render-bench/sdkconfig.defaults": "604359bccf3cf6cafe7146b79c903a87f1ceb918996651c66e5309e635408595",
+    "projects/render-bench/tools/render_presentation.py": "9522ed849393693ce9f54a2efaaf0ec560df52f6b07d2179a74dc974ca41681a",
+    "projects/render-bench/tools/native_presentation/CMakeLists.txt": "79f05c5a62f99879fde1ef364dd128b52a7a908695c8d29bf76bf0172f1f13db",
+    "projects/render-bench/tools/native_presentation/lv_conf.h": "9d27a95814ab2f3404e3e448bbd4cd7d47e08a3e6a86acd49edb4d3371440fac",
+    "projects/render-bench/tools/native_presentation/runner.c": "c76ddb1037bd5c7906cef7003ccc1fe5ff0de9a96204eae9a490a541069cf202",
+    "projects/render-bench/tools/native_presentation/stubs/display_349.h": "5d96a5e91cedc0a5fa375368a94ceb8b8e8a2de3ee6c56ee6dbfd4d0d100de45",
+    "projects/render-bench/tools/native_presentation/stubs/esp_log.h": "5d96a5e91cedc0a5fa375368a94ceb8b8e8a2de3ee6c56ee6dbfd4d0d100de45",
+    "projects/render-bench/tools/native_presentation/stubs/esp_timer.h": "5d96a5e91cedc0a5fa375368a94ceb8b8e8a2de3ee6c56ee6dbfd4d0d100de45",
+    "projects/render-bench/tools/native_presentation/stubs/freertos/FreeRTOS.h": "5d96a5e91cedc0a5fa375368a94ceb8b8e8a2de3ee6c56ee6dbfd4d0d100de45",
+    "projects/render-bench/tools/native_presentation/stubs/freertos/idf_additions.h": "5d96a5e91cedc0a5fa375368a94ceb8b8e8a2de3ee6c56ee6dbfd4d0d100de45",
+    "projects/render-bench/tools/native_presentation/stubs/freertos/task.h": "5d96a5e91cedc0a5fa375368a94ceb8b8e8a2de3ee6c56ee6dbfd4d0d100de45",
+    "projects/render-bench/tools/native_presentation/stubs/native_platform.h": "1c6b5ad6a0c699a964ad2b89469956bbbd7b20d079577f2a6fda938ef3d84747"
+  },
+  "lvgl": {
+    "version": "9.5.0",
+    "component_hash": "184e532558c1c45fefed631f3e235423d22582aafb4630f3e8885c35281a49ae",
+    "font_sha256": {
+      "lv_font_montserrat_16.c": "bfe04c1059a2cb310c8c7a69e72d52e720f743e26065fd0ddc4561f2423ed372",
+      "lv_font_montserrat_28.c": "779d47f0eb18c2563fb8bffe50dd9f797fcebced2abfe7edb9c961413f9fbce8"
+    }
+  },
+  "native_executable_sha256": "9e636e8634a49547dbaac44d980a924a4fe46a452cae1ce4b417662f0fd95fd9",
+  "pillow_version": "12.0.0",
+  "screen_size": [
+    640,
+    172
+  ],
+  "animation": {
+    "frames_sampled": 160,
+    "distinct_screens": 159,
+    "duration_ms": 6400,
+    "sample_ms": 40,
+    "timing": "virtual timer samples; not measured panel performance"
+  },
+  "files": {
+    "benchmark.png": {
+      "sha256": "ca1bc3264eb1c5a328091d54c4c0666d1bb0e7ce0d5e1c414264fbc4ae2e0cfc",
+      "bytes": 6703
+    },
+    "benchmark-demo.gif": {
+      "sha256": "3f6f48cf668830e726a49e85baca7e4ee2f6f561254d06f1f0ad11adcb501abf",
+      "bytes": 210190
+    }
+  }
+}

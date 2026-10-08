@@ -73,7 +73,6 @@ jobs:
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
-        if: matrix.project == 'notification-panel'
         with:
           version: "0.8.22"
           python-version: "3.11"
@@ -114,3 +113,22 @@ jobs:
         if: matrix.project == 'notification-panel'
         working-directory: projects/notification-panel
         run: uv run --project host --frozen python tools/check_native_ui.py --cjson-include .cache/ci-cjson
+      - name: Benchmark gallery regeneration in Debug and Release
+        if: matrix.project == 'render-bench'
+        working-directory: projects/render-bench
+        run: |
+          uv run --no-project --with pillow==12.0.0 python tools/render_presentation.py \
+            --build-type Debug --output .cache/presentation/export-debug
+          uv run --no-project --with pillow==12.0.0 python tools/render_presentation.py \
+            --build-type Release --output .cache/presentation/export-release
+          python3 - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+          manifest = json.loads(Path("docs/media/manifest.json").read_text())
+          for name, record in manifest["files"].items():
+              for configuration in ("debug", "release"):
+                  path = Path(f".cache/presentation/export-{configuration}") / name
+                  assert hashlib.sha256(path.read_bytes()).hexdigest() == record["sha256"], path
+          print("Benchmark gallery bytes match committed assets in Debug and Release")
+          PY
