@@ -5,6 +5,8 @@
 This is a collection of independent projects for the
 Waveshare ESP32-S3-Touch-LCD-3.49 **V2**. Keep the root README and repository
 metadata focused on the hardware, project catalog and shared support.
+Show concise project highlights and previews on the root README; keep full
+guides and the media files with their owning project.
 `projects/notification-panel` and `projects/render-bench` are standalone
 ESP-IDF applications; run firmware builds from the selected project directory.
 The repository root is not an ESP-IDF application.

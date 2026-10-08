@@ -97,8 +97,9 @@ Give each application its own `main/`, `CMakeLists.txt`,
 Add it to the root project catalog and the firmware CI matrix. Keep its guide,
 behavior, tests and demos in its project directory. Shared code should provide
 board support or serve multiple applications. The root README introduces the
-hardware and collection; application features and acceptance records belong
-with the application.
+hardware and collection, with concise project highlights and previews.
+Detailed application guides, media files and acceptance records belong with
+the application.
 
 Keep machine-specific caches and captures under ignored `.cache/` directories.
 Publish selected demos under `projects/<name>/docs/media/`, with regeneration

@@ -5,10 +5,24 @@
 Projects, examples and shared board support for the
 **Waveshare ESP32-S3-Touch-LCD-3.49 V2**, built with ESP-IDF and LVGL.
 
-![ESP32-349: a collection of independent projects for the Waveshare ESP32-S3-Touch-LCD-3.49 V2](docs/media/collection.svg)
+## Projects
 
-Each application has its own firmware, configuration, documentation and tests.
-Shared components provide the panel, touch and board I/O for this hardware.
+| Project | Highlights | Explore |
+| --- | --- | --- |
+| **render-bench** | 640 × 172 bouncing-ball benchmark; recorded trials reached **about 45 fps** with low CPU use. Dirty-rectangle transpose, a shadow framebuffer and GDMA staging drive the shared display pipeline. | [Build and rendering findings](projects/render-bench/README.md) |
+| **notification-panel** | Clock and CPU/MEM/network telemetry beside recent desktop notifications. Vertical swipe browsing, touch dismissal, optional Open, English and common Simplified Chinese text, styled Latin body text and remembered USB pairing. | [Demo, setup and behavior](projects/notification-panel/README.md) |
+
+Each is a standalone ESP-IDF application. One firmware project runs on the
+board at a time; both share [display_349](components/display_349/README.md).
+
+### Notification-panel preview
+
+![Native demo: notifications arrive, a vertical swipe selects an earlier card, and touch dismissal returns to the empty pane](projects/notification-panel/docs/media/notification-demo.gif)
+
+*Native LVGL render with demo data and virtual pointer input/time.
+[Media provenance and regeneration](projects/notification-panel/docs/media/README.md).*
+
+Full guides, additional previews and validation records live with each project.
 
 ## Hardware
 
@@ -17,18 +31,6 @@ Built for the [Waveshare ESP32-S3-Touch-LCD-3.49](https://www.waveshare.com/esp3
 AXS15231B touch display. The current applications use 640 × 172 landscape. See the
 [official hardware documentation](https://docs.waveshare.com/ESP32-S3-Touch-LCD-3.49)
 for version identification, pinouts and schematics.
-
-## Projects
-
-| Project | Purpose | Guide |
-| --- | --- | --- |
-| **render-bench** | Bouncing-ball benchmark and display pipeline experiments | [Build and findings](projects/render-bench/README.md) |
-| **notification-panel** | Clock, host telemetry, recent notifications and touch actions | [Overview, demo and setup](projects/notification-panel/README.md) |
-
-Each is a standalone ESP-IDF application. One firmware project runs on the
-board at a time; both share [display_349](components/display_349/README.md).
-
-Project demos, behavior and validation records live with each application.
 
 ## Build
 

@@ -1,6 +1,6 @@
 # Collection and project media
 
-The repository header, [collection.svg](collection.svg), introduces the hardware
+The collection artwork, [collection.svg](collection.svg), introduces the hardware
 and shared project structure. It is editable vector artwork, not a device
 photograph or a render of an application's UI.
 
