@@ -35,6 +35,38 @@ def test_sysinfo_read():
     assert second["cpu"] is None or 0.0 <= second["cpu"] <= 1.0
 
 
+@pytest.mark.parametrize("guest,guest_nice", [(80, 0), (0, 80), (40, 40)])
+def test_sysinfo_guest_time_is_already_in_user_and_nice(tmp_path, guest, guest_nice):
+    stat = tmp_path / "stat"
+    stat.write_text("cpu 100 100 100 100 100 100 100 100 100 100\n")
+    source = SysinfoSource(tmp_path)
+    assert source.read()["cpu"] is None
+    # 90 busy ticks, 10 idle ticks; guest counters are subsets of user/nice.
+    stat.write_text(
+        f"cpu {100 + guest} {190 - guest} 100 110 100 100 100 100 "
+        f"{100 + guest} {100 + guest_nice}\n"
+    )
+    assert source.read()["cpu"] == pytest.approx(.9)
+
+
+def test_sysinfo_legacy_four_field_cpu_accounting(tmp_path):
+    stat = tmp_path / "stat"
+    stat.write_text("cpu 10 10 10 10\n")
+    source = SysinfoSource(tmp_path)
+    assert source.read()["cpu"] is None
+    stat.write_text("cpu 15 10 10 15\n")
+    assert source.read()["cpu"] == .5
+
+
+def test_sysinfo_irq_softirq_and_steal_are_busy_time(tmp_path):
+    stat = tmp_path / "stat"
+    stat.write_text("cpu 100 100 100 100 100 100 100 100 0 0\n")
+    source = SysinfoSource(tmp_path)
+    assert source.read()["cpu"] is None
+    stat.write_text("cpu 100 100 100 110 100 105 105 110 0 0\n")
+    assert source.read()["cpu"] == pytest.approx(2 / 3)
+
+
 def test_sysinfo_frequency_and_memory_details_share_one_sample(tmp_path):
     (tmp_path / "stat").write_text("cpu 10 0 0 90 0\n")
     (tmp_path / "cpuinfo").write_text(

@@ -39,7 +39,9 @@ class SysinfoSource:
         if len(values) < 4:
             return None
         idle = values[3] + (values[4] if len(values) > 4 else 0)
-        total = sum(values)
+        # guest/guest_nice (fields 9/10) are already included in user/nice.
+        # Count user through steal once, including IRQ and softirq time.
+        total = sum(values[:8])
         busy = total - idle
 
         if self._prev is None:
