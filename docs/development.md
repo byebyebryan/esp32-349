@@ -1,6 +1,7 @@
 # Development and repository layout
 
 For the project overview and demos, see the [repository README](../README.md).
+Repository maintenance guidance is in [AGENTS.md](../AGENTS.md).
 The commands below start at the repository root unless a project directory is
 selected explicitly.
 

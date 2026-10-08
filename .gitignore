@@ -13,6 +13,7 @@ compile_commands.json
 .venv
 __pycache__/
 .pytest_cache/
+.ruff_cache/
 
 # OS noise
 .DS_Store

@@ -1,7 +1,7 @@
 [project]
 name = "status349"
 version = "0.1.0"
-description = "Host-side link tools for the 349-status desktop display"
+description = "Linux host tools for the ESP32-349 notification panel"
 requires-python = ">=3.11"
 dependencies = [
     "dbus-next>=0.2.3",
