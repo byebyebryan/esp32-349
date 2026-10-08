@@ -11,7 +11,7 @@ native_idf_root="${EIM_ROOT:-$HOME/.espressif}/${IDF_VERSION:-v5.5.3}/esp-idf"
 python tools/check_native_ui.py --cjson-include "$native_idf_root/components/json/cJSON"
 ```
 
-This builds Debug and Release with assertions enabled and runs fourteen CTests
+This builds Debug and Release with assertions enabled and runs fifteen CTests
 per configuration. The default CTest gate includes the production USB line
 receiver and legacy renderer safety checks. Override `--debug-build-dir` and
 `--release-build-dir` to choose build/artifact directories. The default directories are
@@ -27,6 +27,7 @@ The cache is preserved; choose fresh override paths to continue.
 | `native_ui` | LVGL, `ui_deck.c`, deck/input policy and font fallback/assets | Direct state fixture, virtual clock, link and dismissal capture |
 | `native_groups` | Same UI with grouped gesture/lifecycle cases | Same direct fixture |
 | `native_protocol` | `proto.c`, `state.c`, dashboard parser and IDF cJSON | Native allocation, locks, clock/RTC, USB output and descriptor identity |
+| `native_backlight` | Backlight PWM mapping, timeout/reconnect/local-button policy and shared debounce/touch gates | Electrical-model current fractions, virtual clock and raw input; sync precedence, manual-off persistence, bounce/hold/startup and release-before-touch checks |
 | `native_rtc` | Production `rtc.c` register decoding and timer fallback | Simulated I2C registers/errors and elapsed timer; stopped oscillator, BCD/range/calendar validity and recovery; UBSan |
 | `native_link_receiver` | Production `link.c` task and USB read loop | Fragmented native USB reads, captured task startup and overflow callback |
 | `native_legacy_renderer` | Production `ui.c` progress/media widgets plus real `state.c` | Native LVGL display, clock/RTC and protocol hooks; UBSan and float-cast-overflow |

@@ -47,6 +47,8 @@ void proto_send_hello(void)
     cJSON_AddItemToArray(cap, cJSON_CreateString("link"));
     cJSON_AddItemToArray(cap, cJSON_CreateString("bar"));
     cJSON_AddItemToArray(cap, cJSON_CreateString("rtc"));
+    cJSON_AddItemToArray(cap, cJSON_CreateString("backlight-v1"));
+    cJSON_AddItemToArray(cap, cJSON_CreateString("backlight-buttons-v1"));
     if (state_card_sync_capacity() > 0) {
         cJSON_AddItemToArray(cap, cJSON_CreateString("card-sync-v1"));
         cJSON_AddItemToArray(cap, cJSON_CreateString("dashboard-v1"));
@@ -142,6 +144,12 @@ static void send_cards_status(void)
     /* Cache membership and the UI-published view must describe one state. */
     state_lock();
     const status_state_t *st = state_get();
+    const backlight_policy_t backlight = st->backlight;
+    const uint8_t backlight_applied = st->backlight_applied_percent;
+    const uint32_t brightness_clicks = st->brightness_clicks;
+    const uint32_t power_clicks = st->power_clicks;
+    const bool brightness_pressed = st->brightness_pressed;
+    const bool power_pressed = st->power_pressed;
     count = st->notif_count;
     overflow = st->notif_overflow;
     capacity = st->notif_capacity;
@@ -184,6 +192,21 @@ static void send_cards_status(void)
 
     cJSON *obj = cJSON_CreateObject();
     cJSON_AddStringToObject(obj, "t", "cards_status");
+    cJSON *power = cJSON_AddObjectToObject(obj, "backlight");
+    const int64_t power_now = esp_timer_get_time();
+    cJSON_AddNumberToObject(power, "percent", backlight_applied);
+    cJSON_AddNumberToObject(power, "target_percent", backlight_policy_target(&backlight, power_now));
+    cJSON_AddStringToObject(power, "reason", backlight_policy_reason(&backlight, power_now));
+    cJSON_AddNumberToObject(power, "brightness", backlight.brightness);
+    cJSON_AddNumberToObject(power, "disconnect_s", backlight.disconnect_s);
+    cJSON_AddBoolToObject(power, "host_screen_on", backlight.host_screen_on);
+    cJSON_AddNumberToObject(power, "host_brightness", backlight.host_brightness);
+    cJSON_AddBoolToObject(power, "manual_off", backlight.manual_off);
+    cJSON *buttons = cJSON_AddObjectToObject(power, "buttons");
+    cJSON_AddNumberToObject(buttons, "brightness_clicks", brightness_clicks);
+    cJSON_AddNumberToObject(buttons, "power_clicks", power_clicks);
+    cJSON_AddBoolToObject(buttons, "brightness_pressed", brightness_pressed);
+    cJSON_AddBoolToObject(buttons, "power_pressed", power_pressed);
     cJSON_AddNumberToObject(obj, "count", count);
     cJSON_AddNumberToObject(obj, "overflow", overflow);
     cJSON_AddNumberToObject(obj, "capacity", capacity);
@@ -477,6 +500,8 @@ void proto_handle_line(const char *json)
     } else if (strcmp(kind, "ping") == 0) {
         handle_ping(cJSON_GetObjectItemCaseSensitive(obj, "ts"));
         state_note_rx();
+    } else if (strcmp(kind, "display") == 0) {
+        if (!state_apply_backlight(obj)) send_resync("display_invalid");
     } else if (strcmp(kind, "sync") == 0) {
         state_sync_abort();
         s_drop_sync_tail = false;
@@ -562,7 +587,6 @@ void proto_handle_line(const char *json)
         state_note_rx();
     } else if (strcmp(kind, "cards_query") == 0) {
         send_cards_status();
-        state_note_rx();
     } else {
         ESP_LOGW(TAG, "unknown type: %s", kind);
     }

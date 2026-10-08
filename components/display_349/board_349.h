@@ -35,6 +35,10 @@
 /* Backlight: BL_EN gates the rail, PWM sets brightness (active-low duty). */
 #define BOARD_349_PIN_BK_LIGHT GPIO_NUM_42
 
+/* V2 BOOT0 / SYS_OUT buttons; active low, RESET is wired to CHIP_PU. */
+#define BOARD_349_PIN_BUTTON_BRIGHTNESS GPIO_NUM_0
+#define BOARD_349_PIN_BUTTON_POWER GPIO_NUM_16
+
 /* TCA9554 bit assignments. */
 #define BOARD_349_EXIO_TOUCH_INT (1ULL << 0)
 #define BOARD_349_EXIO_BL_EN     (1ULL << 1)

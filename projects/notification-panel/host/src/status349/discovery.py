@@ -176,6 +176,7 @@ def _visible_port_owners(path: str) -> list[int]:
         return []
     if not stat.S_ISCHR(target_stat.st_mode):
         return []
+    resolved_target = _resolved(path)
     owners: list[int] = []
     try:
         processes = os.scandir("/proc")
@@ -194,6 +195,13 @@ def _visible_port_owners(path: str) -> list[int]:
             with descriptors:
                 for descriptor in descriptors:
                     try:
+                        # Following every /proc fd can block on an unrelated
+                        # FUSE/network mount before the bounded USB probe starts.
+                        # Kernel tty fd links resolve to /dev paths; retain a
+                        # direct match for explicitly selected non-/dev nodes.
+                        target = os.readlink(descriptor.path)
+                        if target != resolved_target and not target.startswith("/dev/"):
+                            continue
                         descriptor_stat = descriptor.stat(follow_symlinks=True)
                     except OSError:
                         continue

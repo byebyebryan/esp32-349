@@ -1,6 +1,6 @@
 # notification-panel
 
-An always-on **640 × 172 desktop notification display** for the
+A **640 × 172 desktop notification display** for the
 [Waveshare ESP32-S3-Touch-LCD-3.49 V2](https://docs.waveshare.com/ESP32-S3-Touch-LCD-3.49).
 A Linux host sends telemetry and notifications over USB Serial/JTAG.
 
@@ -14,6 +14,8 @@ A Linux host sends telemetry and notifications over USB Serial/JTAG.
 - Vertical whole-card browsing, × dismissal and optional Open through DMS.
 - English and common Simplified Chinese text, with Latin bold/italic body spans.
 - One-time USB pairing and verified reconnects to the saved board.
+- Backlight follows host screens and turns off after five minutes without the daemon.
+- Physical brightness cycles 25/50/75/100%; Power toggles manual off, starting at 50%.
 
 ## Start here
 

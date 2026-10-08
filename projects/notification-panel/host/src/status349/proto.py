@@ -295,6 +295,43 @@ def card_status(message: dict) -> dict | None:
     if len(ids) != count or count > capacity or len(set(ids)) != count:
         return None
     result = {"count": count, "overflow": values[1], "ids": list(ids), "capacity": capacity}
+    if "backlight" in message:
+        power = message["backlight"]
+        if not isinstance(power, dict):
+            return None
+        for name, low, high in (("percent", 0, 100), ("target_percent", 0, 100),
+                                ("brightness", 1, 100), ("disconnect_s", 1, 86400)):
+            value = power.get(name)
+            if type(value) is not int or not low <= value <= high:
+                return None
+        if type(power.get("host_screen_on")) is not bool or power.get("reason") not in {
+            "on", "host_screen_off", "disconnected", "awaiting_host", "manual_off"
+        }:
+            return None
+        result["backlight"] = {name: power[name] for name in (
+            "percent", "target_percent", "brightness", "disconnect_s", "host_screen_on", "reason"
+        )}
+        if "host_brightness" in power or "manual_off" in power:
+            host_brightness = power.get("host_brightness")
+            if type(host_brightness) is not int or not 1 <= host_brightness <= 100:
+                return None
+            if type(power.get("manual_off")) is not bool:
+                return None
+            result["backlight"].update(host_brightness=host_brightness, manual_off=power["manual_off"])
+        if "buttons" in power:
+            buttons = power["buttons"]
+            if not isinstance(buttons, dict):
+                return None
+            for name in ("brightness_clicks", "power_clicks"):
+                value = buttons.get(name)
+                if type(value) is not int or not 0 <= value <= 0xFFFFFFFF:
+                    return None
+            for name in ("brightness_pressed", "power_pressed"):
+                if type(buttons.get(name)) is not bool:
+                    return None
+            result["backlight"]["buttons"] = {name: buttons[name] for name in (
+                "brightness_clicks", "power_clicks", "brightness_pressed", "power_pressed"
+            )}
     if "dashboard" in message:
         dashboard = _dashboard_status(message["dashboard"])
         if dashboard is None:

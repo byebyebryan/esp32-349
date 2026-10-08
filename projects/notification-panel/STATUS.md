@@ -71,6 +71,8 @@ records describe that run, rather than the display's connection state today.
 
 | Topic | Detailed record |
 | --- | --- |
+| Subsequent backlight policy and Snap deployment (October 8) | [Backlight acceptance](design/backlight-acceptance.md) |
+| Subsequent 50% default and physical button controls on Snap (October 8) | [Button acceptance](design/backlight-buttons-acceptance.md) |
 | Current bar layout and panel feedback | [CPU/MEM utilization bars](design/telemetry-rail-usage-bars.md) |
 | Paired reconnect, mixed devices and hub power cycle | [USB pairing acceptance](design/usb-pairing-acceptance.md) |
 | Retention and notification-only UI | [History acceptance](design/notification-history-acceptance.md) |

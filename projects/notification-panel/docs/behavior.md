@@ -175,12 +175,43 @@ for native captures and the firmware candidate's validation boundary.
 
 ## Connection states
 
+With `backlight-v1` firmware, the backlight turns off after five minutes without
+host traffic, including when the daemon stops while USB remains powered. A
+newly powered board uses the same grace period. The timeout starts at the last
+host message, rather than five additional minutes after the stale indicator.
+
+While connected, `349d` follows Linux monitor power: any on keeps the backlight
+on; all known off turns it off. This follows screen power separately from
+session lock. The monitor worker samples once per second independently of
+telemetry. Missing or unreadable state preserves the prior screen decision and
+is visible in `349ctl status`.
+
+Backlight-off leaves the ESP32, LCD controller and USB receiver running. The
+clock, retained notifications and expiry continue. Reconnect replays the
+current host screen decision; notifications and touch do not wake a dark bar.
+Pointer input is cancelled while dark, and a held finger must be released
+before a new press is accepted after wake. Configure normal brightness and the
+timeout in [configuration](configuration.md). `349ctl device-cards` includes
+applied/target backlight readback; queries do not extend the timeout. See
+[the design](../design/backlight-policy.md) and
+[dated validation](../design/backlight-acceptance.md).
+
+The physical brightness button cycles 25 → 50 → 75 → 100%, with 50% as the
+default. The Power button toggles manual backlight off; pressing it again
+returns to automatic screen/timeout following. Brightness can be selected while
+dark. Ordinary host syncs and reconnects preserve these local choices; changing
+the configured brightness replaces the selection but leaves manual off set.
+RESET restarts the board and clears local choices, then the daemon reapplies
+its configured level. Buttons act once on release and do not repeat while held.
+The board has no ambient-light sensor. See the
+[button validation checkpoint](../design/backlight-buttons-acceptance.md).
+
 The daemon sends a ping every four seconds even when the bar does not change.
 While the board stays powered, it shows `host asleep` when USB activity stops
 and `host disconnected` when USB is active but host messages stop for ten
 seconds. If the host cuts USB power during sleep, the board turns off instead;
 a full sync restores the display when it powers up and reconnects.
-The dashboard UI keeps the clock visible and marks the rail readings stale.
+While illuminated, the dashboard keeps the clock visible and marks readings stale.
 History mode keeps the cached right-side cards browsable, disables Open, and
 shows the connection message in the rail footer; older grouped mode uses the
 right content area for that message.

@@ -1,6 +1,7 @@
 import asyncio
 import errno
 import os
+import stat
 import time
 import threading
 from functools import wraps
@@ -20,6 +21,40 @@ DEVICE_HELLO = {
     "fw": "test-fw",
     "cap": ["link", "bar"],
 }
+
+
+def test_port_owner_scan_skips_filesystem_descriptors(monkeypatch):
+    """A stale filesystem mount must not block detection of a real tty owner."""
+    class Entries(list):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+    def unrelated_stat(**_):
+        raise AssertionError("followed an unrelated filesystem descriptor")
+
+    descriptors = Entries([
+        SimpleNamespace(path="/proc/123/fd/4", stat=unrelated_stat),
+        SimpleNamespace(path="/proc/123/fd/5", stat=unrelated_stat),
+        SimpleNamespace(path="/proc/123/fd/6", stat=lambda **_: SimpleNamespace(
+            st_mode=stat.S_IFCHR, st_rdev=99)),
+        SimpleNamespace(path="/proc/123/fd/7", stat=lambda **_: SimpleNamespace(
+            st_mode=stat.S_IFCHR, st_rdev=42)),
+    ])
+    targets = {"/proc/123/fd/4": "/run/user/1000/doc/stale/file",
+               "/proc/123/fd/5": "/mnt/unavailable/file",
+               "/proc/123/fd/6": "/dev/ttyACM0",
+               "/proc/123/fd/7": "/dev/ttyACM1"}
+    monkeypatch.setattr(discovery, "sys_platform_linux", lambda: True)
+    monkeypatch.setattr(discovery, "_resolved", lambda _: "/dev/ttyACM1")
+    monkeypatch.setattr(discovery.os, "stat", lambda _: SimpleNamespace(
+        st_mode=stat.S_IFCHR, st_rdev=42))
+    monkeypatch.setattr(discovery.os, "readlink", targets.__getitem__)
+    monkeypatch.setattr(discovery.os, "scandir", lambda path:
+        Entries([SimpleNamespace(name="123")]) if path == "/proc" else descriptors)
+    assert discovery._visible_port_owners("/dev/serial/by-id/paired") == [123]
 
 
 def async_test(function):

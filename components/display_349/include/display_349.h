@@ -21,11 +21,22 @@ lv_display_t *display_349_lvgl(void);
 /* Register the LVGL pointer indev backed by the AXS15231B touch controller. */
 esp_err_t display_349_touch_init(void);
 
+typedef struct {
+    bool brightness_click, power_click;
+    bool brightness_pressed, power_pressed;
+} display_349_buttons_t;
+
+/* Opt-in GPIO0/16 input. Poll every 20 ms; clicks occur on debounced release.
+ * A button held during init is ignored until released. Does not cut power. */
+esp_err_t display_349_buttons_init(void);
+display_349_buttons_t display_349_buttons_poll(void);
+
 /* LVGL lock, held while mutating widgets from outside the LVGL task. */
 bool display_349_lock(int timeout_ms);
 void display_349_unlock(void);
 
-/* 0 = off, 1..100 = brightness. */
+/* 0 = off, 1..100 = brightness. Hold the LVGL lock when calling.
+ * Off cancels and suppresses pointer input; wake requires finger release. */
 esp_err_t display_349_backlight(uint8_t percent);
 
 /* I2C0 handle (TCA9554, RTC, IMU) for board peripherals outside this component. */

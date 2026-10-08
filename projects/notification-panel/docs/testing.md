@@ -80,3 +80,21 @@ simulated I2C registers, including oscillator-stop, invalid BCD/calendar values
 and fallback/recovery cases. These checks do not emulate ESP32 task scheduling,
 touch hardware or panel transfer.
 See [the native test guide](../tools/native_ui/README.md) for individual runners.
+
+The backlight fixture checks exact timeout boundaries, screen following,
+reconnect control, local brightness/manual-off precedence, shared button
+debounce and the touch gate. Production parser checks validate display commands,
+button state and readback. Live off/wake observations remain separate
+[Snap policy](../design/backlight-acceptance.md) and
+[button acceptance](../design/backlight-buttons-acceptance.md) gates.
+
+For physical button acceptance on Snap, start at 50% with host screens on.
+Press/release brightness four times: 75 → 100 → 25 → 50%. Verify a held button
+does not repeat. Press Power to go dark, then brightness to select 75% while
+staying dark; Power should return to automatic mode at 75%. Leave a local
+choice through at least one 60-second sync and a daemon pause/resume. With the
+host screen off, Power off/on must remain dark. Finally press RESET: a new boot
+should restore 50% (or an explicit configured host level). Observe actual light
+output as well as serial click counts; readback alone does not establish button
+or optical acceptance. Avoid holding BOOT during RESET unless entering download
+mode is intended.

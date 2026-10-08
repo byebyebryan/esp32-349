@@ -334,7 +334,11 @@ lv_display_t *display_349_lvgl(void)
     return s_disp;
 }
 
+#include "touch_gate_349.h"
+
 static bool s_touch_was_pressed;
+static lv_indev_t *s_touch_indev;
+static touch_gate_349_t s_touch_gate;
 static int s_touch_release_ticks;
 static uint16_t s_touch_last_x;
 static uint16_t s_touch_last_y;
@@ -353,6 +357,15 @@ static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data)
     uint16_t x = 0;
     uint16_t y = 0;
     bool pressed = touch_349_read_raw(&x, &y);
+    if (!touch_gate_349_accept(&s_touch_gate, pressed)) {
+        if (!s_touch_gate.enabled || s_touch_gate.waiting_release) {
+            s_touch_was_pressed = false;
+            s_touch_release_ticks = 0;
+            data->state = LV_INDEV_STATE_RELEASED;
+            return;
+        }
+        pressed = false;
+    }
 
     if (pressed) {
         s_touch_release_ticks = 0;
@@ -402,6 +415,7 @@ esp_err_t display_349_touch_init(void)
     lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
     lv_indev_set_read_cb(indev, touch_read_cb);
     lv_indev_set_display(indev, s_disp);
+    s_touch_indev = indev;
     display_349_unlock();
     return ESP_OK;
 }
@@ -421,7 +435,20 @@ void display_349_unlock(void)
 
 esp_err_t display_349_backlight(uint8_t percent)
 {
-    return board_349_backlight(percent);
+    const esp_err_t err = board_349_backlight(percent);
+    if (err == ESP_OK) {
+        const bool enabled = percent > 0;
+        if (s_touch_gate.enabled != enabled) {
+            touch_gate_349_enable(&s_touch_gate, enabled);
+            s_touch_was_pressed = false;
+            s_touch_release_ticks = 0;
+            if (s_touch_indev != NULL) {
+                lv_indev_reset(s_touch_indev, NULL);
+                lv_indev_enable(s_touch_indev, enabled);
+            }
+        }
+    }
+    return err;
 }
 
 i2c_master_bus_handle_t display_349_i2c_bus0(void)

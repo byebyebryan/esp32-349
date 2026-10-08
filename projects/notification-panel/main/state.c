@@ -295,6 +295,7 @@ void state_init(void)
 {
     s_history_expired_count = 0;
     memset(&s_state, 0, sizeof(s_state));
+    backlight_policy_init(&s_state.backlight, esp_timer_get_time());
     memset(&s_stage, 0, sizeof(s_stage));
     s_state.notifs = heap_caps_calloc(STATUS_MAX_NOTIFS, sizeof(status_notif_t),
                                       MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -352,6 +353,47 @@ void state_note_rx(void)
 {
     state_lock();
     s_state.last_rx_us = esp_timer_get_time();
+    backlight_policy_note_rx(&s_state.backlight, s_state.last_rx_us);
+    state_unlock();
+}
+
+bool state_apply_backlight(const cJSON *obj)
+{
+    const cJSON *on = cJSON_GetObjectItemCaseSensitive(obj, "on");
+    const cJSON *brightness = cJSON_GetObjectItemCaseSensitive(obj, "brightness");
+    const cJSON *disconnect = cJSON_GetObjectItemCaseSensitive(obj, "disconnect_s");
+    if ((!cJSON_IsBool(on) && !cJSON_IsNull(on)) ||
+        !cJSON_IsNumber(brightness) || !cJSON_IsNumber(disconnect) ||
+        !isfinite(brightness->valuedouble) || !isfinite(disconnect->valuedouble) ||
+        brightness->valuedouble < 1 || brightness->valuedouble > 100 ||
+        brightness->valuedouble != brightness->valueint ||
+        disconnect->valuedouble < 1 || disconnect->valuedouble > BACKLIGHT_MAX_DISCONNECT_S ||
+        disconnect->valuedouble != disconnect->valueint) {
+        return false;
+    }
+    state_lock();
+    backlight_policy_configure(&s_state.backlight, esp_timer_get_time(),
+        (uint8_t)brightness->valueint, disconnect->valueint,
+        cJSON_IsBool(on), cJSON_IsTrue(on));
+    s_state.last_rx_us = esp_timer_get_time();
+    state_unlock();
+    return true;
+}
+
+void state_apply_buttons(bool brightness_click, bool power_click,
+                         bool brightness_pressed, bool power_pressed)
+{
+    state_lock();
+    s_state.brightness_pressed = brightness_pressed;
+    s_state.power_pressed = power_pressed;
+    if (brightness_click) {
+        backlight_policy_cycle_brightness(&s_state.backlight);
+        s_state.brightness_clicks++;
+    }
+    if (power_click) {
+        backlight_policy_toggle_power(&s_state.backlight);
+        s_state.power_clicks++;
+    }
     state_unlock();
 }
 

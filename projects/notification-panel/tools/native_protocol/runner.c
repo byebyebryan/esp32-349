@@ -1374,6 +1374,77 @@ static int run_line_json(void)
     return ferror(stdin) ? 1 : 0;
 }
 
+static void test_backlight_protocol(void)
+{
+    state_init();
+    const int64_t start = s_now_us;
+    cJSON *response = send_wire("{\"t\":\"hello\"}");
+    bool capable = false, buttons_capable = false;
+    const cJSON *item;
+    cJSON_ArrayForEach(item, field(response, "cap")) {
+        capable |= cJSON_IsString(item) && strcmp(item->valuestring, "backlight-v1") == 0;
+        buttons_capable |= cJSON_IsString(item) && strcmp(item->valuestring, "backlight-buttons-v1") == 0;
+    }
+    CHECK(capable && buttons_capable);
+    cJSON_Delete(response);
+    CHECK(send_wire("{\"t\":\"display\",\"on\":false,\"brightness\":65,\"disconnect_s\":300}") == NULL);
+    state_lock();
+    CHECK(backlight_policy_target(&state_get()->backlight, s_now_us) == 0);
+    CHECK(state_get()->backlight.brightness == 65);
+    state_unlock();
+    state_apply_buttons(true, false, false, false);
+    CHECK(state_get()->backlight.brightness == 75);
+    CHECK(send_wire("{\"t\":\"display\",\"on\":true,\"brightness\":65,\"disconnect_s\":300}") == NULL);
+    CHECK(state_get()->backlight.brightness == 75); /* Host replay keeps local choice. */
+    state_apply_buttons(false, true, false, false);
+    CHECK(send_wire("{\"t\":\"display\",\"on\":true,\"brightness\":65,\"disconnect_s\":300}") == NULL);
+    response = send_wire("{\"t\":\"cards_query\"}");
+    const cJSON *local = field(response, "backlight");
+    CHECK(strcmp(string(local, "reason"), "manual_off") == 0);
+    CHECK(cJSON_IsTrue(field(local, "manual_off")));
+    CHECK(number(local, "brightness") == 75 && number(local, "host_brightness") == 65);
+    CHECK(number(field(local, "buttons"), "brightness_clicks") == 1);
+    CHECK(number(field(local, "buttons"), "power_clicks") == 1);
+    cJSON_Delete(response);
+    CHECK(send_wire("{\"t\":\"display\",\"on\":false,\"brightness\":65,\"disconnect_s\":300}") == NULL);
+    const char *invalid[] = {
+        "{\"t\":\"display\",\"on\":0,\"brightness\":65,\"disconnect_s\":300}",
+        "{\"t\":\"display\",\"on\":true,\"brightness\":0,\"disconnect_s\":300}",
+        "{\"t\":\"display\",\"on\":true,\"brightness\":101,\"disconnect_s\":300}",
+        "{\"t\":\"display\",\"on\":true,\"brightness\":65.5,\"disconnect_s\":300}",
+        "{\"t\":\"display\",\"on\":true,\"brightness\":65,\"disconnect_s\":0}",
+        "{\"t\":\"display\",\"on\":true,\"brightness\":65,\"disconnect_s\":86401}",
+        "{\"t\":\"display\",\"on\":true,\"brightness\":65,\"disconnect_s\":1.5}",
+        "{\"t\":\"display\",\"brightness\":65,\"disconnect_s\":300}",
+    };
+    for (unsigned i = 0; i < sizeof(invalid) / sizeof(invalid[0]); i++) {
+        response = send_wire(invalid[i]);
+        CHECK(response && strcmp(string(response, "reason"), "display_invalid") == 0);
+        cJSON_Delete(response);
+        CHECK(!state_get()->backlight.host_screen_on);
+        CHECK(state_get()->backlight.manual_off && state_get()->backlight.brightness == 75);
+    }
+    CHECK(send_wire("{\"t\":\"display\",\"on\":null,\"brightness\":70,\"disconnect_s\":300}") == NULL);
+    CHECK(!state_get()->backlight.host_screen_on);
+    CHECK(state_get()->backlight.manual_off && state_get()->backlight.brightness == 70);
+    state_apply_buttons(false, true, false, false);
+    CHECK(!state_get()->backlight.manual_off);
+    native_protocol_advance_time(300000000);
+    response = send_wire("{\"t\":\"cards_query\"}");
+    const cJSON *power = field(response, "backlight");
+    CHECK(number(power, "target_percent") == 0);
+    CHECK(number(power, "disconnect_s") == 300);
+    CHECK(strcmp(string(power, "reason"), "disconnected") == 0);
+    CHECK(state_get()->backlight.last_host_us == start); /* Readback is inert. */
+    cJSON_Delete(response);
+    response = send_wire("{\"t\":\"ping\",\"ts\":12}");
+    CHECK(response && strcmp(string(response, "t"), "pong") == 0);
+    CHECK(backlight_policy_target(&state_get()->backlight, s_now_us) == 0);
+    cJSON_Delete(response);
+    CHECK(send_wire("{\"t\":\"display\",\"on\":true,\"brightness\":70,\"disconnect_s\":300}") == NULL);
+    CHECK(backlight_policy_target(&state_get()->backlight, s_now_us) == 70);
+}
+
 int main(int argc, char **argv)
 {
     if (argc == 2 && strcmp(argv[1], "--line-json") == 0) {
@@ -1385,6 +1456,7 @@ int main(int argc, char **argv)
         return 0;
     }
     if (argc == 2 && strcmp(argv[1], "--self-test") == 0) {
+        test_backlight_protocol();
         test_json_depth_and_recovery();
         test_progress_zone_validation();
         test_staged_validation_and_deltas();

@@ -70,6 +70,7 @@ add_executable(native_protocol
     ../native_protocol/runner.c
     ../native_protocol/stubs/native_platform.c
     "${STATUS_MAIN}/state.c"
+    "${STATUS_MAIN}/backlight_policy.c"
     "${STATUS_MAIN}/proto.c"
     "${STATUS_MAIN}/dashboard.c")
 target_include_directories(native_protocol PRIVATE
@@ -103,6 +104,7 @@ add_executable(native_legacy_renderer
     test_legacy_renderer.c
     ../native_protocol/stubs/native_platform.c
     "${STATUS_MAIN}/state.c"
+    "${STATUS_MAIN}/backlight_policy.c"
     "${STATUS_MAIN}/dashboard.c"
     "${STATUS_MAIN}/ui_fonts.c"
     "${STATUS_MAIN}/fonts/status_symbol_14.c"
@@ -131,10 +133,16 @@ target_compile_definitions(native_ui_composed PRIVATE NATIVE_PROTOCOL _DEFAULT_S
 target_sources(native_ui_composed PRIVATE
     ../native_protocol/stubs/native_platform.c
     "${STATUS_MAIN}/state.c"
+    "${STATUS_MAIN}/backlight_policy.c"
     "${STATUS_MAIN}/proto.c"
     "${STATUS_MAIN}/dashboard.c")
 
 enable_testing()
+add_executable(native_backlight ../test_backlight.c "${STATUS_MAIN}/backlight_policy.c")
+target_include_directories(native_backlight PRIVATE "${STATUS_MAIN}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../../components/display_349")
+target_compile_options(native_backlight PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+add_test(NAME native_backlight COMMAND native_backlight)
 add_test(NAME native_ui_regression
     COMMAND native_ui --self-test --artifacts
             "${CMAKE_CURRENT_BINARY_DIR}/artifacts/regression")

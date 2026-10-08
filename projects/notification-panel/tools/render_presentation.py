@@ -217,7 +217,7 @@ def main() -> int:
 
     sources = [
         "main/ui_deck.c", "main/ui_theme.h", "main/ui_fonts.c", "main/proto.c",
-        "main/state.c", "main/dashboard.c", "main/deck.c", "main/deck_input.c",
+        "main/state.c", "main/backlight_policy.c", "main/dashboard.c", "main/deck.c", "main/deck_input.c",
         "main/group_input.c", "tools/native_ui/test_ui.c", "tools/native_ui/test_composed.c",
         "tools/test_grouped_composed.py", "tools/check_native_ui.py", "tools/render_presentation.py",
         "tools/native_ui/CMakeLists.txt", "tools/native_ui/lv_conf.h", "dependencies.lock",

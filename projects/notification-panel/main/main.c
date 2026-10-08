@@ -74,11 +74,15 @@ void app_main(void)
 
     ESP_ERROR_CHECK(display_349_init());
     ESP_ERROR_CHECK(display_349_touch_init());
+    ESP_ERROR_CHECK(display_349_buttons_init());
     ESP_ERROR_CHECK(rtc_pcf_init());
 
     if (display_349_lock(-1)) {
         ui_init();
-        display_349_backlight(100);
+        ESP_ERROR_CHECK(display_349_backlight(BACKLIGHT_DEFAULT_PERCENT));
+        state_lock();
+        state_get()->backlight_applied_percent = BACKLIGHT_DEFAULT_PERCENT;
+        state_unlock();
         display_349_unlock();
     }
 
@@ -88,8 +92,40 @@ void app_main(void)
     proto_send_hello();
 
     ESP_LOGI(TAG, "link and display up");
+    int64_t next_health_us = esp_timer_get_time() + 10000000;
     while (true) {
-        vTaskDelay(pdMS_TO_TICKS(10000));
+        vTaskDelay(pdMS_TO_TICKS(20));
+        const display_349_buttons_t buttons = display_349_buttons_poll();
+        state_apply_buttons(buttons.brightness_click, buttons.power_click,
+                            buttons.brightness_pressed, buttons.power_pressed);
+        state_lock();
+        /* RX can advance last_host_us on the other core. Sample the decision
+         * clock under the same lock so fresh traffic cannot look expired. */
+        const int64_t now_us = esp_timer_get_time();
+        const uint8_t target = backlight_policy_target(&state_get()->backlight, now_us);
+        const uint8_t applied = state_get()->backlight_applied_percent;
+        const char *reason = backlight_policy_reason(&state_get()->backlight, now_us);
+        const uint8_t selected = state_get()->backlight.brightness;
+        const bool manual_off = state_get()->backlight.manual_off;
+        state_unlock();
+        if (buttons.brightness_click || buttons.power_click) {
+            ESP_LOGI(TAG, "buttons brightness_click=%u power_click=%u selected=%u manual_off=%u",
+                     buttons.brightness_click, buttons.power_click, selected, manual_off);
+        }
+        if (target != applied && display_349_lock(100)) {
+            const esp_err_t err = display_349_backlight(target);
+            display_349_unlock();
+            if (err == ESP_OK) {
+                state_lock();
+                state_get()->backlight_applied_percent = target;
+                state_unlock();
+                ESP_LOGI(TAG, "backlight=%u reason=%s", (unsigned)target, reason);
+            } else {
+                ESP_LOGE(TAG, "backlight update failed: %s", esp_err_to_name(err));
+            }
+        }
+        if (now_us < next_health_us) continue;
+        next_health_us = now_us + 10000000;
         uint32_t core0_idle_percent;
         uint32_t core1_idle_percent;
         const char *host = link_host_connected() ? "yes" : "no";

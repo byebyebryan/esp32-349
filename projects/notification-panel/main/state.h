@@ -5,6 +5,7 @@
 
 #include "cJSON.h"
 #include "dashboard.h"
+#include "backlight_policy.h"
 
 #define STATUS_MAX_ZONES        8
 #define STATUS_ZONE_ID_MAX      16
@@ -130,6 +131,10 @@ typedef struct {
     bool grouped_persistent;
     int64_t last_rx_us;
     bool got_sync;
+    backlight_policy_t backlight;
+    uint8_t backlight_applied_percent;
+    uint32_t brightness_clicks, power_clicks;
+    bool brightness_pressed, power_pressed;
 } status_state_t;
 
 #define STATE_DIRTY_BAR   0x1
@@ -150,6 +155,11 @@ void state_mark_dirty(uint32_t bits);
 
 /* Any recognized host message counts as liveness. */
 void state_note_rx(void);
+/* Display settings are validated and applied atomically; queries are inert. */
+bool state_apply_backlight(const cJSON *obj);
+/* Local controls never renew host liveness or change the host screen decision. */
+void state_apply_buttons(bool brightness_click, bool power_click,
+                         bool brightness_pressed, bool power_pressed);
 
 void state_apply_bar(const cJSON *obj);
 bool state_apply_clock(const cJSON *obj, int64_t *epoch, int *offset);

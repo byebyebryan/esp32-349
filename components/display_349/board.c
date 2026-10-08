@@ -1,4 +1,5 @@
 #include "board_349.h"
+#include "backlight_pwm_349.h"
 
 #include "driver/ledc.h"
 #include "esp_check.h"
@@ -82,8 +83,8 @@ esp_err_t board_349_backlight(uint8_t percent)
         percent = 100;
     }
 
-    /* The PWM input is active-low: duty 0 is full brightness. */
-    const uint32_t duty = 255 - (uint32_t)percent * 255 / 100;
+    /* V2 filters PWM into AP3032 feedback; use its usable current range. */
+    const uint32_t duty = backlight_pwm_349_duty(percent);
     ESP_RETURN_ON_ERROR(ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, duty), TAG, "ledc duty");
     ESP_RETURN_ON_ERROR(ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1), TAG, "ledc update");
     return esp_io_expander_set_level(s_expander, BOARD_349_EXIO_BL_EN, 1);

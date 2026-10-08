@@ -87,11 +87,19 @@ class BarConfig:
 
 
 @dataclass
+class DisplayConfig:
+    brightness_percent: int = 50
+    disconnect_timeout_s: int = 300
+    follow_host_screen: bool = True
+
+
+@dataclass
 class Config:
     link: LinkConfig
     daemon: DaemonConfig
     notifications: NotificationsConfig
     bar: BarConfig
+    display: DisplayConfig = field(default_factory=DisplayConfig)
 
 
 def default_config() -> Config:
@@ -116,6 +124,7 @@ def load_config(path: str | None = None) -> Config:
         ("daemon", cfg.daemon),
         ("notifications", cfg.notifications),
         ("bar", cfg.bar),
+        ("display", cfg.display),
     ):
         values = data.get(section, {})
         for key, value in values.items():
@@ -256,6 +265,14 @@ def _validate_sync_size(preset: list[dict]) -> None:
 
 def validate_config(cfg: Config) -> None:
     """Validate host settings against the fixed v1 device protocol limits."""
+    for name, value, upper in (
+        ("brightness_percent", cfg.display.brightness_percent, 100),
+        ("disconnect_timeout_s", cfg.display.disconnect_timeout_s, 86400),
+    ):
+        if type(value) is not int or not 1 <= value <= upper:
+            raise ValueError(f"display.{name} must be an integer from 1 to {upper}")
+    if type(cfg.display.follow_host_screen) is not bool:
+        raise ValueError("display.follow_host_screen must be a boolean")
     if cfg.link.port is not None and not isinstance(cfg.link.port, str):
         raise ValueError("link.port must be a string or omitted")
     for field_name, value in (
@@ -332,7 +349,7 @@ def validate_config(cfg: Config) -> None:
 
 def apply_config(target: Config, source: Config) -> None:
     """Copy values into the live config so existing references stay valid."""
-    for section in ("link", "daemon", "notifications", "bar"):
+    for section in ("link", "daemon", "notifications", "bar", "display"):
         dst = getattr(target, section)
         src = getattr(source, section)
         for field_name in vars(src):

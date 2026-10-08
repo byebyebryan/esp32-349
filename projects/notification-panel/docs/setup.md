@@ -84,7 +84,7 @@ with `systemctl --user show-environment`).
 349ctl status                 daemon/link state, revision, notification count
 349ctl pair                   discover and save the display's USB identity once
 349ctl pair --replace         explicitly discover and save a replacement
-349ctl device-cards           device cache and optional deck focus readback
+349ctl device-cards           device cache, deck focus and optional backlight readback
 349ctl text "hello"           send a text message to the device
 349ctl notify "summary" [body]  inject a test notification
 349ctl pause | resume         release/reconnect the serial port

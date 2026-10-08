@@ -31,6 +31,7 @@ from .sources.clock import ClockSource
 from .sources.network import NetworkSource
 from .sources.notifications import NotificationSource
 from .sources.power import PowerSource
+from .sources.screen_power import ScreenPowerSource
 from .sources.sysinfo import SysinfoSource
 from .sources.volume import VolumeSource
 from .state import StateModel
@@ -77,6 +78,10 @@ class Daemon:
         self.sysinfo = SysinfoSource()
         self.volume = VolumeSource()
         self.power = PowerSource()
+        self.screen_power = ScreenPowerSource()
+        self._screen_power_sample = {"on": None, "outputs": [], "error": None}
+        self._backlight_capable = False
+        self._last_display_sent: dict | None = None
         self.network = NetworkSource()
         self.bluetooth = BluetoothSource()
         self._cpu_ema: float | None = None
@@ -215,6 +220,7 @@ class Daemon:
                 asyncio.create_task(self._link_loop(), name="link"),
                 asyncio.create_task(self._tick_loop(), name="tick"),
                 asyncio.create_task(self._ping_loop(), name="ping"),
+                asyncio.create_task(self._display_loop(), name="display"),
                 asyncio.create_task(self.action_manager.run(self.stop), name="notification-actions"),
             }
             stop_waiter = asyncio.create_task(self.stop.wait(), name="stop")
@@ -791,6 +797,11 @@ class Daemon:
         # Hold the wire lock across the full transaction, including begin and
         # commit, so pings and IPC output cannot split its staging sequence.
         async with self._wire_lock:
+            if self._backlight_capable:
+                display = self._display_payload()
+                if not await self._write_message(display):
+                    return
+                self._last_display_sent = display
             for message in messages:
                 if not await self._write_message(message):
                     break
@@ -1106,6 +1117,8 @@ class Daemon:
             self._body_style_enabled = False
             self._actions_capable = False
             self._actions_negotiated = False
+            self._backlight_capable = False
+            self._last_display_sent = None
             self.action_manager.invalidate_for_link_reset()
             if self._action_pending is not None and not self._action_pending.get("started"):
                 self._action_pending["cancelled"] = True
@@ -1183,6 +1196,7 @@ class Daemon:
                 session = await discovery.adopt(result)
                 result = None  # Session now owns the verified handle.
                 await self._prime_sample()
+                await self._refresh_display()
                 async with self._state_lock:
                     if not self._target_current(generation):
                         continue
@@ -1199,6 +1213,8 @@ class Daemon:
                     self._manual_notifications = False
                     self._card_sync_capacity = None
                     self._dashboard_capable = False
+                    self._backlight_capable = False
+                    self._last_display_sent = None
                     self._sync_tx = 0
                     self._device_boot_id = None
                     self._session = session
@@ -1272,6 +1288,7 @@ class Daemon:
         new_history = new_capacity is not None and proto.notification_history_capable(message)
         new_body_style = proto.notification_body_style_capable(message)
         new_actions_capable = proto.notification_actions_capable(message)
+        new_backlight = "backlight-v1" in message.get("cap", [])
         new_actions_negotiated = (
             self.cfg.notifications.device_open == "dms" and new_actions_capable
         )
@@ -1285,9 +1302,11 @@ class Daemon:
             or new_history != self._history_enabled
             or new_body_style != self._body_style_enabled
             or new_actions_negotiated != self._actions_negotiated
+            or new_backlight != self._backlight_capable
         )
         self._card_sync_capacity = new_capacity
         self._dashboard_capable = new_dashboard
+        self._backlight_capable = new_backlight
         self._grouped_enabled = new_grouped
         self._grouped_mode = new_grouped
         self._notification_peer_known = True
@@ -1786,6 +1805,14 @@ class Daemon:
                 for key in ("cpu", "cpu_freq_mhz", "mem", "mem_used_bytes", "network",
                             "rx_bytes_per_s", "tx_bytes_per_s")
             },
+            "display": {
+                "capable": self._backlight_capable,
+                "brightness_percent": self.cfg.display.brightness_percent,
+                "disconnect_timeout_s": self.cfg.display.disconnect_timeout_s,
+                "follow_host_screen": self.cfg.display.follow_host_screen,
+                "host_screen": self._screen_power_sample,
+                "last_sent": self._last_display_sent if self._writer is not None else None,
+            },
             "config": self.cfg_path,
         }
 
@@ -1939,6 +1966,28 @@ class Daemon:
             if now >= next_sync:
                 await self._send_sync()
                 next_sync = self._monotonic() + float(self.cfg.daemon.sync_interval_s)
+
+    def _display_payload(self) -> dict:
+        return {
+            "t": "display",
+            "on": self._screen_power_sample["on"] if self.cfg.display.follow_host_screen else True,
+            "brightness": self.cfg.display.brightness_percent,
+            "disconnect_s": self.cfg.display.disconnect_timeout_s,
+        }
+
+    async def _refresh_display(self) -> None:
+        sample = await asyncio.to_thread(self.screen_power.read)
+        async with self._state_lock:
+            self._screen_power_sample = sample
+            message = self._display_payload()
+            if self._backlight_capable and message != self._last_display_sent:
+                if await self.send(message):
+                    self._last_display_sent = message
+
+    async def _display_loop(self) -> None:
+        while True:
+            await self._refresh_display()
+            await asyncio.sleep(1.0)
 
     async def _ping_loop(self) -> None:
         while True:
