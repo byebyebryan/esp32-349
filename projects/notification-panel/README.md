@@ -16,6 +16,7 @@ A Linux host sends telemetry and notifications over USB Serial/JTAG.
 - One-time USB pairing and verified reconnects to the saved board.
 - Backlight follows host screens and turns off after five minutes without the daemon.
 - Physical brightness cycles 25/50/75/100%; Power toggles manual off, starting at 50%.
+- Fresh notifications briefly boost brightness to 100%, then restore the selected level.
 
 ## Start here
 

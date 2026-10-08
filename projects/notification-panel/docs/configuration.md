@@ -20,6 +20,7 @@ sync_interval_s = 60.0
 brightness_percent = 50
 disconnect_timeout_s = 300
 follow_host_screen = true
+notification_boost_s = 30   # 0 disables temporary 100% brightness on arrivals
 
 [notifications]
 mode = "mirror"            # mirror | off (consume is not implemented)
@@ -72,3 +73,10 @@ does not. The Power button's manual-off latch survives either kind of reload.
 RESET/power loss clears both local choices, restoring the default and then the
 configured host level on reconnect. Power-on returns to automatic screen and
 timeout following; it does not force a dark host's bar to light up.
+
+`notification_boost_s` accepts integer 0–86,400 seconds. With boost-capable
+firmware, each fresh accepted notification raises brightness to 100% for this
+duration, then restores the selected level. Replays do not trigger it. Off
+decisions and Brightness input cancel it; arrivals while dark do not queue a
+later boost. Changing the duration cancels an active boost. This setting defaults
+to 30 seconds and can be disabled with 0.

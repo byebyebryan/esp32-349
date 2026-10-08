@@ -91,6 +91,7 @@ class DisplayConfig:
     brightness_percent: int = 50
     disconnect_timeout_s: int = 300
     follow_host_screen: bool = True
+    notification_boost_s: int = 30
 
 
 @dataclass
@@ -273,6 +274,8 @@ def validate_config(cfg: Config) -> None:
             raise ValueError(f"display.{name} must be an integer from 1 to {upper}")
     if type(cfg.display.follow_host_screen) is not bool:
         raise ValueError("display.follow_host_screen must be a boolean")
+    if type(cfg.display.notification_boost_s) is not int or not 0 <= cfg.display.notification_boost_s <= 86400:
+        raise ValueError("display.notification_boost_s must be an integer from 0 to 86400")
     if cfg.link.port is not None and not isinstance(cfg.link.port, str):
         raise ValueError("link.port must be a string or omitted")
     for field_name, value in (

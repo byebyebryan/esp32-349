@@ -53,6 +53,8 @@ def test_screen_power_never_confuses_unavailable_state_with_off(tmp_path):
     ("disconnect_timeout_s", 0), ("disconnect_timeout_s", 86401),
     ("disconnect_timeout_s", False), ("disconnect_timeout_s", float("inf")),
     ("follow_host_screen", "true"), ("follow_host_screen", 1),
+    ("notification_boost_s", -1), ("notification_boost_s", 86401),
+    ("notification_boost_s", True), ("notification_boost_s", 0.5),
 ])
 def test_invalid_display_config(name, value):
     cfg = default_config()
@@ -70,6 +72,10 @@ def test_display_config_defaults_and_reload(tmp_path):
     apply_config(cfg, load_config(str(path)))
     assert cfg.display.brightness_percent == 65
     assert cfg.display.follow_host_screen is False
+    assert cfg.display.notification_boost_s == 30
+    path.write_text("[display]\nnotification_boost_s=0\n")
+    apply_config(cfg, load_config(str(path)))
+    assert cfg.display.notification_boost_s == 0
 
 
 def test_display_transport_is_capability_gated_changed_only_and_replayed_before_sync():
@@ -166,3 +172,82 @@ def test_local_button_readback_and_validation():
     missing = dict(power)
     del missing["manual_off"]
     assert proto.card_status({**base, "backlight": missing}) is None
+
+
+@pytest.mark.parametrize("grouped", [False, True])
+def test_boost_marks_live_arrivals_and_replacements_but_never_sync_or_reconnect(grouped):
+    async def scenario():
+        daemon = Daemon(default_config(), asyncio.Event())
+        daemon._latest_sample = {}
+        daemon.screen_power.read = lambda: {"on": True, "outputs": [], "error": None}
+        sent = []
+
+        async def capture(message):
+            sent.append(message)
+            return True
+
+        daemon.send = capture
+        daemon._write_message = capture
+        caps = ["backlight-v1", "backlight-boost-v1"]
+        if grouped:
+            caps += ["card-sync-v1", "dashboard-v1", "grouped-ui-v1", "notification-history-v1"]
+        hello = {"boot_id": 17, "cap": caps, "cache_cards": 32}
+        await daemon._apply_hello_locked(hello)
+        assert sent[0]["boost_s"] == 30
+        sent.clear()
+        arrival = proto.notify(1, "test", "fresh", "body", 1, 0, 1)
+        await daemon._device_notify(arrival)
+        assert next(m for m in sent if m["t"] == "notify")["boost"] is True
+        assert "boost" not in daemon.model.retained_notifs[1]
+        assert "boost" not in daemon.model.notifs[1]
+        sent.clear()
+        await daemon._device_notify(dict(arrival))  # Genuine Notify replacement.
+        assert next(m for m in sent if m["t"] == "notify")["boost"] is True
+        sent.clear()
+        await daemon._send_sync_locked()
+        assert all("boost" not in c for m in sent for c in m.get("notifs", []))
+        sent.clear()
+        await daemon._apply_hello_locked({**hello, "boot_id": 18})
+        assert sent and all("boost" not in c for m in sent for c in m.get("notifs", []))
+        sent.clear()
+        daemon.cfg.display.notification_boost_s = 0
+        await daemon._refresh_display()
+        assert sent[0]["boost_s"] == 0
+        await daemon._device_notify(proto.notify(2, "test", "disabled", "body", 1, 0, 1))
+        assert "boost" not in next(m for m in sent if m["t"] == "notify")
+        daemon.cfg.display.notification_boost_s = 30
+        sent.clear()
+        await daemon._apply_hello_locked({**hello, "cap": ["backlight-v1"]})
+        assert "boost_s" not in sent[0]
+        await daemon._device_notify({**arrival, "id": 3, "boost": True})
+        assert "boost" not in next(m for m in sent if m["t"] == "notify")
+        assert "boost" not in daemon.model.notifs[3]
+
+    asyncio.run(scenario())
+
+
+def test_boost_readback_validation_and_expired_attention():
+    base = {"count": 0, "ids": [], "overflow": 0, "capacity": 32}
+    power = {"percent": 100, "target_percent": 100, "brightness": 50, "disconnect_s": 300,
+             "host_screen_on": True, "reason": "notification_boost", "boost_s": 30,
+             "boost_remaining_ms": 29999}
+    assert proto.card_status({**base, "backlight": power})["backlight"] == power
+    for name, value in (("boost_s", True), ("boost_s", -1), ("boost_s", 86401),
+                        ("boost_remaining_ms", 1.5), ("boost_remaining_ms", 86400001)):
+        assert proto.card_status({**base, "backlight": {**power, name: value}}) is None
+
+    async def scenario():
+        daemon = Daemon(default_config(), asyncio.Event())
+        daemon._backlight_boost_capable = True
+        daemon.notifications._mark_attention_expired(1)
+        sent = []
+
+        async def capture(message):
+            sent.append(message)
+            return True
+
+        daemon.send = capture
+        await daemon._device_notify(proto.notify(1, "test", "expired", "body", 1, 0, 1))
+        assert "boost" not in sent[-1]
+
+    asyncio.run(scenario())

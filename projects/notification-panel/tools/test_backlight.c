@@ -95,6 +95,50 @@ int main(void)
     backlight_policy_init(&p, 300000080);
     assert(!p.manual_off && p.brightness == 50); /* Reset discards RAM choices. */
 
+    backlight_policy_init(&p, 0);
+    backlight_policy_note_notification(&p, 1000000);
+    assert(p.brightness == 50 && backlight_policy_target(&p, 1000000) == 100);
+    assert(backlight_policy_boost_remaining_ms(&p, 1000000) == 30000);
+    assert(backlight_policy_target(&p, 30999999) == 100);
+    assert(backlight_policy_target(&p, 31000000) == 50); /* Exact 30 s boundary. */
+    backlight_policy_note_notification(&p, 32000000);
+    backlight_policy_note_notification(&p, 40000000);
+    backlight_policy_configure(&p, 50000000, 50, 300, true, true);
+    backlight_policy_set_boost_duration(&p, 30);
+    assert(backlight_policy_boost_remaining_ms(&p, 50000000) == 20000); /* Sync doesn't restart. */
+    assert(strcmp(backlight_policy_reason(&p, 50000000), "notification_boost") == 0);
+    assert(backlight_policy_target(&p, 70000000) == 50);
+    backlight_policy_note_notification(&p, 71000000);
+    backlight_policy_cycle_brightness(&p);
+    assert(backlight_policy_target(&p, 71000000) == 75); /* Button cancels, cycles selected 50. */
+    backlight_policy_note_notification(&p, 72000000);
+    backlight_policy_toggle_power(&p);
+    backlight_policy_note_notification(&p, 73000000);
+    backlight_policy_toggle_power(&p);
+    assert(backlight_policy_target(&p, 74000000) == 75); /* No deferred boost. */
+    backlight_policy_note_notification(&p, 75000000);
+    backlight_policy_configure(&p, 76000000, 50, 300, true, false);
+    backlight_policy_note_notification(&p, 77000000);
+    backlight_policy_configure(&p, 78000000, 50, 300, true, true);
+    assert(backlight_policy_target(&p, 78000000) == 75); /* Screen off cancels. */
+    backlight_policy_set_boost_duration(&p, 0);
+    backlight_policy_note_notification(&p, 79000000);
+    assert(backlight_policy_target(&p, 79000000) == 75);
+    backlight_policy_set_boost_duration(&p, 86400);
+    backlight_policy_note_notification(&p, 80000000);
+    assert(backlight_policy_boost_remaining_ms(&p, 80000000) == 86400000);
+    assert(backlight_policy_target(&p, 378000000) == 0); /* Disconnect wins over long boost. */
+    backlight_policy_note_rx(&p, 379000000);
+    backlight_policy_note_notification(&p, 379000000);
+    backlight_policy_configure(&p, 380000000, 50, 300, true, true);
+    assert(backlight_policy_target(&p, 380000000) == 75); /* Reconnect has no queued boost. */
+    backlight_policy_note_notification(&p, 381000000);
+    backlight_policy_configure(&p, 382000000, 65, 300, true, true);
+    assert(backlight_policy_target(&p, 382000000) == 65); /* Changed host baseline cancels. */
+    backlight_policy_note_notification(&p, 383000000);
+    backlight_policy_set_boost_duration(&p, 30);
+    assert(backlight_policy_target(&p, 383000000) == 65); /* Duration reload cancels. */
+
     button_debounce_349_t button;
     button_debounce_349_init(&button, false, 0);
     assert(!button_debounce_349_poll(&button, true, 1));
@@ -132,6 +176,6 @@ int main(void)
     assert(!touch_gate_349_accept(&gate, false));
     assert(!touch_gate_349_accept(&gate, false));
     assert(touch_gate_349_accept(&gate, true));
-    puts("backlight deadlines, local controls, debounce, reconnect and dark touch checks passed");
+    puts("backlight deadlines, notification boost, local controls, debounce, reconnect and dark touch checks passed");
     return 0;
 }

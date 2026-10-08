@@ -305,12 +305,18 @@ def card_status(message: dict) -> dict | None:
             if type(value) is not int or not low <= value <= high:
                 return None
         if type(power.get("host_screen_on")) is not bool or power.get("reason") not in {
-            "on", "host_screen_off", "disconnected", "awaiting_host", "manual_off"
+            "on", "host_screen_off", "disconnected", "awaiting_host", "manual_off", "notification_boost"
         }:
             return None
         result["backlight"] = {name: power[name] for name in (
             "percent", "target_percent", "brightness", "disconnect_s", "host_screen_on", "reason"
         )}
+        if "boost_s" in power or "boost_remaining_ms" in power:
+            for name, upper in (("boost_s", 86400), ("boost_remaining_ms", 86400000)):
+                value = power.get(name)
+                if type(value) is not int or not 0 <= value <= upper:
+                    return None
+                result["backlight"][name] = value
         if "host_brightness" in power or "manual_off" in power:
             host_brightness = power.get("host_brightness")
             if type(host_brightness) is not int or not 1 <= host_brightness <= 100:

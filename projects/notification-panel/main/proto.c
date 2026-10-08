@@ -49,6 +49,7 @@ void proto_send_hello(void)
     cJSON_AddItemToArray(cap, cJSON_CreateString("rtc"));
     cJSON_AddItemToArray(cap, cJSON_CreateString("backlight-v1"));
     cJSON_AddItemToArray(cap, cJSON_CreateString("backlight-buttons-v1"));
+    cJSON_AddItemToArray(cap, cJSON_CreateString("backlight-boost-v1"));
     if (state_card_sync_capacity() > 0) {
         cJSON_AddItemToArray(cap, cJSON_CreateString("card-sync-v1"));
         cJSON_AddItemToArray(cap, cJSON_CreateString("dashboard-v1"));
@@ -202,6 +203,9 @@ static void send_cards_status(void)
     cJSON_AddBoolToObject(power, "host_screen_on", backlight.host_screen_on);
     cJSON_AddNumberToObject(power, "host_brightness", backlight.host_brightness);
     cJSON_AddBoolToObject(power, "manual_off", backlight.manual_off);
+    cJSON_AddNumberToObject(power, "boost_s", backlight.boost_s);
+    cJSON_AddNumberToObject(power, "boost_remaining_ms",
+                          backlight_policy_boost_remaining_ms(&backlight, power_now));
     cJSON *buttons = cJSON_AddObjectToObject(power, "buttons");
     cJSON_AddNumberToObject(buttons, "brightness_clicks", brightness_clicks);
     cJSON_AddNumberToObject(buttons, "power_clicks", power_clicks);

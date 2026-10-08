@@ -362,16 +362,21 @@ bool state_apply_backlight(const cJSON *obj)
     const cJSON *on = cJSON_GetObjectItemCaseSensitive(obj, "on");
     const cJSON *brightness = cJSON_GetObjectItemCaseSensitive(obj, "brightness");
     const cJSON *disconnect = cJSON_GetObjectItemCaseSensitive(obj, "disconnect_s");
+    const cJSON *boost = cJSON_GetObjectItemCaseSensitive(obj, "boost_s");
     if ((!cJSON_IsBool(on) && !cJSON_IsNull(on)) ||
         !cJSON_IsNumber(brightness) || !cJSON_IsNumber(disconnect) ||
         !isfinite(brightness->valuedouble) || !isfinite(disconnect->valuedouble) ||
         brightness->valuedouble < 1 || brightness->valuedouble > 100 ||
         brightness->valuedouble != brightness->valueint ||
         disconnect->valuedouble < 1 || disconnect->valuedouble > BACKLIGHT_MAX_DISCONNECT_S ||
-        disconnect->valuedouble != disconnect->valueint) {
+        disconnect->valuedouble != disconnect->valueint ||
+        (boost != NULL && (!cJSON_IsNumber(boost) || !isfinite(boost->valuedouble) ||
+            boost->valuedouble < 0 || boost->valuedouble > BACKLIGHT_MAX_BOOST_S ||
+            boost->valuedouble != boost->valueint))) {
         return false;
     }
     state_lock();
+    if (boost != NULL) backlight_policy_set_boost_duration(&s_state.backlight, boost->valueint);
     backlight_policy_configure(&s_state.backlight, esp_timer_get_time(),
         (uint8_t)brightness->valueint, disconnect->valueint,
         cJSON_IsBool(on), cJSON_IsTrue(on));
@@ -572,6 +577,8 @@ static void apply_notify(const cJSON *obj, bool unhide)
     if (!parse_notif(obj, &parsed)) {
         return;
     }
+    const cJSON *boost = cJSON_GetObjectItemCaseSensitive(obj, "boost");
+    if (boost != NULL && !cJSON_IsBool(boost)) return;
     const int nid = parsed.id;
 
     state_lock();
@@ -677,6 +684,9 @@ static void apply_notify(const cJSON *obj, bool unhide)
             s_state.presentation.deadline_us = esp_timer_get_time();
         }
         update_grouped_overflow_locked(has_total, total_value);
+        if (unhide && cJSON_IsTrue(boost) && s_state.cache_limit > 0) {
+            backlight_policy_note_notification(&s_state.backlight, esp_timer_get_time());
+        }
         s_dirty |= STATE_DIRTY_NOTIF;
         state_unlock();
         return;
@@ -748,6 +758,9 @@ static void apply_notify(const cJSON *obj, bool unhide)
     }
 
     s_state.notifs[slot] = parsed;
+    if (unhide && cJSON_IsTrue(boost)) {
+        backlight_policy_note_notification(&s_state.backlight, esp_timer_get_time());
+    }
     if (unhide && (is_new || was_hidden || parsed.urgency >= 2)) {
         request_focus(&parsed);
     }

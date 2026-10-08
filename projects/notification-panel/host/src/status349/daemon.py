@@ -81,6 +81,7 @@ class Daemon:
         self.screen_power = ScreenPowerSource()
         self._screen_power_sample = {"on": None, "outputs": [], "error": None}
         self._backlight_capable = False
+        self._backlight_boost_capable = False
         self._last_display_sent: dict | None = None
         self.network = NetworkSource()
         self.bluetooth = BluetoothSource()
@@ -277,6 +278,7 @@ class Daemon:
                     receipt_mono = parsed_receipt
             clean_message = {key: value for key, value in message.items() if not key.startswith("_")}
             clean_message.pop("history", None)
+            clean_message.pop("boost", None)
             if self._history_mode and (now - receipt_mono) * 1000 >= self.cfg.notifications.retention_s * 1000:
                 self.notifications.forget(local_id)
                 return
@@ -340,6 +342,10 @@ class Daemon:
                     include_styles=self._body_style_enabled,
                 )
                 update["history"] = history
+            if (self._backlight_boost_capable and self.cfg.display.notification_boost_s > 0
+                    and not self.notifications.attention_expired(local_id)):
+                # This is an arrival event, never retained or replayed in sync.
+                update["boost"] = True
             sent = await self.send(update)
             if was_grouped and sent and not self.notifications.attention_expired(local_id):
                 await self._queue_presentation_locked(clean_message, now)
@@ -347,6 +353,7 @@ class Daemon:
     def _notification_projection(self, message: dict, *, history: bool, now_mono: float) -> dict | None:
         """Build one peer-specific notification projection without retained internals."""
         projected = {key: value for key, value in message.items() if not key.startswith("_") and key != "history"}
+        projected.pop("boost", None)
         body_limit = (
             proto.NOTIFICATION_BODY_HISTORY_BYTES if history else proto.NOTIFICATION_BODY_LEGACY_BYTES
         )
@@ -1118,6 +1125,7 @@ class Daemon:
             self._actions_capable = False
             self._actions_negotiated = False
             self._backlight_capable = False
+            self._backlight_boost_capable = False
             self._last_display_sent = None
             self.action_manager.invalidate_for_link_reset()
             if self._action_pending is not None and not self._action_pending.get("started"):
@@ -1214,6 +1222,7 @@ class Daemon:
                     self._card_sync_capacity = None
                     self._dashboard_capable = False
                     self._backlight_capable = False
+                    self._backlight_boost_capable = False
                     self._last_display_sent = None
                     self._sync_tx = 0
                     self._device_boot_id = None
@@ -1289,6 +1298,7 @@ class Daemon:
         new_body_style = proto.notification_body_style_capable(message)
         new_actions_capable = proto.notification_actions_capable(message)
         new_backlight = "backlight-v1" in message.get("cap", [])
+        new_backlight_boost = new_backlight and "backlight-boost-v1" in message.get("cap", [])
         new_actions_negotiated = (
             self.cfg.notifications.device_open == "dms" and new_actions_capable
         )
@@ -1303,10 +1313,12 @@ class Daemon:
             or new_body_style != self._body_style_enabled
             or new_actions_negotiated != self._actions_negotiated
             or new_backlight != self._backlight_capable
+            or new_backlight_boost != self._backlight_boost_capable
         )
         self._card_sync_capacity = new_capacity
         self._dashboard_capable = new_dashboard
         self._backlight_capable = new_backlight
+        self._backlight_boost_capable = new_backlight_boost
         self._grouped_enabled = new_grouped
         self._grouped_mode = new_grouped
         self._notification_peer_known = True
@@ -1807,9 +1819,11 @@ class Daemon:
             },
             "display": {
                 "capable": self._backlight_capable,
+                "boost_capable": self._backlight_boost_capable,
                 "brightness_percent": self.cfg.display.brightness_percent,
                 "disconnect_timeout_s": self.cfg.display.disconnect_timeout_s,
                 "follow_host_screen": self.cfg.display.follow_host_screen,
+                "notification_boost_s": self.cfg.display.notification_boost_s,
                 "host_screen": self._screen_power_sample,
                 "last_sent": self._last_display_sent if self._writer is not None else None,
             },
@@ -1968,12 +1982,15 @@ class Daemon:
                 next_sync = self._monotonic() + float(self.cfg.daemon.sync_interval_s)
 
     def _display_payload(self) -> dict:
-        return {
+        message = {
             "t": "display",
             "on": self._screen_power_sample["on"] if self.cfg.display.follow_host_screen else True,
             "brightness": self.cfg.display.brightness_percent,
             "disconnect_s": self.cfg.display.disconnect_timeout_s,
         }
+        if self._backlight_boost_capable:
+            message["boost_s"] = self.cfg.display.notification_boost_s
+        return message
 
     async def _refresh_display(self) -> None:
         sample = await asyncio.to_thread(self.screen_power.read)

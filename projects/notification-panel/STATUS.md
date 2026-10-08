@@ -71,6 +71,7 @@ records describe that run, rather than the display's connection state today.
 
 | Topic | Detailed record |
 | --- | --- |
+| Subsequent notification brightness boost on Snap (October 8) | [Boost acceptance](design/backlight-boost-acceptance.md) |
 | Subsequent backlight policy and Snap deployment (October 8) | [Backlight acceptance](design/backlight-acceptance.md) |
 | Subsequent 50% default and physical button controls on Snap (October 8) | [Button acceptance](design/backlight-buttons-acceptance.md) |
 | Current bar layout and panel feedback | [CPU/MEM utilization bars](design/telemetry-rail-usage-bars.md) |

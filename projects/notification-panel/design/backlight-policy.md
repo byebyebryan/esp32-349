@@ -3,6 +3,8 @@
 Implemented candidate: **2026-10-08**. Deployment and physical observations
 are recorded in [backlight acceptance](backlight-acceptance.md) and the subsequent
 [button/default-brightness checkpoint](backlight-buttons-acceptance.md).
+The subsequent boost deployment is recorded in
+[notification-boost acceptance](backlight-boost-acceptance.md).
 
 ## Behavior
 
@@ -67,6 +69,32 @@ Reset or power loss clears the choices and starts at 50%, then applies any
 different configured host brightness when the daemon reconnects. No button
 press writes flash or edits daemon configuration.
 
+## Notification boost
+
+A fresh live notification, including a genuine desktop replacement, boosts the
+backlight to 100% for 30 seconds by default. Each accepted arrival restarts the
+timer. Expiry restores the selected brightness, without changing that selection
+or the host baseline. Routine sync, cached-card replay, reconnect and presentation
+replay never start or extend a boost. A busy stream of arrivals can keep it at
+100% until 30 seconds after the last arrival.
+
+Manual off, host screen off, disconnect timeout and awaiting host control take
+precedence. Going dark cancels the timer; arrivals while dark do not queue a
+boost for wake. Brightness clicks cancel the timer and cycle from the selected
+level, so a boost from 50% followed by a click selects 75%. Changing the host
+baseline or boost duration also cancels an active boost. Same-value replay
+preserves its original deadline. Notifications without a usable cached card or
+whose attention has already expired do not trigger it.
+
+`display.notification_boost_s` accepts integer 0–86,400 seconds, defaults to 30,
+and disables the feature at zero. Firmware advertises `backlight-boost-v1` in
+addition to `backlight-v1`. Only a capable peer receives `boost_s` in display
+control and the ephemeral `boost:true` field on live `notify` frames. The marker
+is stripped from retained host state and never appears in a full sync. Firmware
+honors it only after accepting a live card, rather than for `present` or cached
+snapshot commands. Readback adds configured `boost_s`, `boost_remaining_ms` and
+reason `notification_boost`; selected `brightness` remains unchanged.
+
 ## Host screen state
 
 `349d` reads Linux DRM connectors once per second in a separate worker. It
@@ -107,7 +135,9 @@ Older firmware receives no display-control frames.
 `cards_status.backlight` reports the applied percentage, policy target,
 selected `brightness`, configured `host_brightness`/timeout, remembered screen
 state, `manual_off`, debounced button levels/click counters, and reason: `on`,
-`manual_off`, `host_screen_off`, `disconnected` or `awaiting_host`.
+`manual_off`, `host_screen_off`, `disconnected`, `awaiting_host` or
+`notification_boost`. Boost-capable firmware also reports configured duration
+and remaining milliseconds.
 The firmware also advertises `backlight-buttons-v1` for the physical controls.
 Readback does not renew
 the timeout. Applied means the driver call succeeded; it is not an electrical
@@ -121,7 +151,8 @@ transmission, replay order and retry. Production native protocol checks cover
 valid/invalid commands and inert readback. The firmware policy checks exercise
 the exact five-minute boundary, legacy wake, controlled reconnect, unknown
 state, long timeouts, local-selection precedence, manual-off persistence,
-button bounce/hold/startup handling and touch suppression across wake. Both
+button bounce/hold/startup handling, boost expiry/cancellation and touch
+suppression across wake. Both
 applications must build because the input support is shared board support;
 the physical-button API is opt-in and render-bench does not enable it.
 

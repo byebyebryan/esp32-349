@@ -88,6 +88,15 @@ button state and readback. Live off/wake observations remain separate
 [Snap policy](../design/backlight-acceptance.md) and
 [button acceptance](../design/backlight-buttons-acceptance.md) gates.
 
+Notification-boost checks cover the exact 30-second boundary, subsequent
+arrivals restarting it, same-value sync preserving it, Brightness/off/reload
+cancellation, disabled configuration and absence of deferred boosts. Host checks
+exercise capability negotiation and ensure cached replay carries no event
+marker. Production parser checks cover legacy/grouped accepted arrivals,
+invalid/uncached cards and inert snapshots. On Snap, observe a new notification
+raising brightness for 30 seconds and returning to the selected level, then
+press Brightness during a second boost to verify immediate cancellation.
+
 For physical button acceptance on Snap, start at 50% with host screens on.
 Press/release brightness four times: 75 → 100 → 25 → 50%. Verify a held button
 does not repeat. Press Power to go dark, then brightness to select 75% while
