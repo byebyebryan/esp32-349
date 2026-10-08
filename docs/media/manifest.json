@@ -1,0 +1,94 @@
+{
+  "description": "Production protocol/state/LVGL with synthetic messages, virtual time and pointer input; no hardware or desktop session.",
+  "source_revision": "15b718ee1254da4fb0c10ba1ca283c85cc034762",
+  "source_sha256": {
+    "projects/notification-panel/main/ui_deck.c": "735ecf77fcd305b2194e73d63b1282c0239bf10340ce34a25b57be18482380aa",
+    "projects/notification-panel/main/ui_theme.h": "87f6155c79987f676eb733a793aefd3b53e801d65940b020701233f28a8fd20d",
+    "projects/notification-panel/main/ui_fonts.c": "07c79bdaf4d07f269df08db734efb5cd628c6e3ca71a18f8e96d9f348fb8faf9",
+    "projects/notification-panel/main/proto.c": "406700cc2d37d5c5b49944dc651b3caa5cff45358ea74d7bf6ce8c422489b349",
+    "projects/notification-panel/main/state.c": "31fcf533d040b9101e63e2ef6d38f4281cd082025c7d79c8b8f968a8464a6ab8",
+    "projects/notification-panel/main/dashboard.c": "eee422a6005ed13cbeb49096ec633f65b48c62f4a78c5a15c591b76dd79c5499",
+    "projects/notification-panel/main/deck.c": "3a5e18641db711246d6e30af72b150117bd7de88a0bb094c6f3486592d33080a",
+    "projects/notification-panel/main/deck_input.c": "6212d266ce0829b43a65b8c91c6531b4b501f9789b4c684cd30b3b51bc0fd859",
+    "projects/notification-panel/main/group_input.c": "47d3fca2620140a452c0c61084c8321f8a389047218ebb45c3fbab4650685c3a",
+    "projects/notification-panel/tools/native_ui/test_ui.c": "7fb7bc4c175d45e3f8be1df8ddf6150e3270176b54732a32d93ed2129f2ed72f",
+    "projects/notification-panel/tools/native_ui/test_composed.c": "ade2533b0604f69e2f2ec0a2340280b73d72909c21cb6cf9540adae2711415bc",
+    "projects/notification-panel/tools/test_grouped_composed.py": "aa179ab03960ef44ca8532c5ec12fe1884ba8d1c66a75342845bbaaaa5f7e87a",
+    "projects/notification-panel/tools/check_native_ui.py": "17d604d38d5ca92a20ed3b58a5ff26f501692685a147db1e0ebff8c3464ae26d",
+    "projects/notification-panel/tools/render_presentation.py": "5be4ad3290f396c455d164daf2965576d3de7a8e1ac23137bbaf80920be3456d",
+    "projects/notification-panel/tools/native_ui/CMakeLists.txt": "a54d1cf64bddd839f7dfc7fcd647214b403c94fd7db293e52c006bc7d1b9d79f",
+    "projects/notification-panel/tools/native_ui/lv_conf.h": "27966c183fc165add2859c4a9c77d67f4857502413084f04aa3f77650e4a8b1d",
+    "projects/notification-panel/dependencies.lock": "c8d68de33164058f4090db14950f38c6416b37d501aad215e1a1303bc825c4bf",
+    "projects/notification-panel/host/src/status349/proto.py": "0849a43049d782c8db48d43beb8c2eb1d6f53734cb16571f876e25897af698ff",
+    "projects/notification-panel/host/src/status349/notification_text.py": "a47b180e7f07868c2f1a10b0aef3664843759e7eb5c36718ef674d1fc167b167",
+    "projects/notification-panel/main/ui_deck.h": "f9af5ae2900088a3a7cd6ff6d749322a7c9b613e0f64654762d7db19a3a1960b",
+    "projects/notification-panel/main/ui_fonts.h": "333b183863f1d4bcc417248d6f8d297b012dbba76aea87acafc69d256155d99e",
+    "projects/notification-panel/main/proto.h": "7ffa905ff5baf67befb4de0a55ea0bee8666e978ab13117643da6357638ad6cc",
+    "projects/notification-panel/main/state.h": "30a1d540c1a4209396a596d0b2b5c5a249b3c54260458b7056ff30d3fca13535",
+    "projects/notification-panel/main/dashboard.h": "f0523adb9f15d4425ff590e18cb09783307ef287e60a735ea9f27c218fe2d478",
+    "projects/notification-panel/main/deck.h": "a19979c5eb83c01198dd2cb781f644318a6f58eb2045fcdf698ea8ce05500f48",
+    "projects/notification-panel/main/deck_input.h": "7fff5ec4192d6b289bea6ae7ec6bc6fe42e67f2a989ec7cac4e84fa137358f80",
+    "projects/notification-panel/main/group_input.h": "dba8202830a46629b14fb49ed5dbe083e249b73f7720e08f80a0eb14ca589f7a",
+    "projects/notification-panel/main/fonts/status_clock_80.c": "e291f953ee6263c024cf04ac15b41108c78c3a17f051fb23e559b1df30c4105b",
+    "projects/notification-panel/main/fonts/status_symbol_14.c": "bd2ab1cc65f19f435941b203d6fc0912aa5948f34be9313d5f433b965ec15c9a",
+    "projects/notification-panel/main/fonts/status_symbol_16.c": "ca2b7c5b555b490b5d6fe70a0ffe5f4ef66a4b986e01536e155f0d4440ae4edc",
+    "projects/notification-panel/main/fonts/status_text_16.c": "66f2715fac2b1edad6b28c50e6ca4e02a706c286246e3e573e9a70af691dedca",
+    "projects/notification-panel/main/fonts/status_text_16_bold.c": "9078fc51ee37880dab07dfe2393745fe49abbcf4dcf8ff559165686d6b6a5ed2",
+    "projects/notification-panel/main/fonts/status_text_16_bold_italic.c": "749e5875fd8be5e1b75e996256775e8bb5896eb4a02365e6a911436ebd5416ab",
+    "projects/notification-panel/main/fonts/status_text_16_italic.c": "7f481db0e0fce7d042688cca0f253ab63adb864d45ff060e5ee6bc964b9fc3d9",
+    "projects/notification-panel/main/fonts/status_text_20.c": "2c93e747b340ee9d18fa29e58119ce621b6b3ed8ddaf28c37ad10b823d9d95d6",
+    "projects/notification-panel/main/fonts/status_text_22.c": "898a76f98ac0ee03d2b5e6378690ff883d4f48ebbc984822126f002ca7f261b1",
+    "projects/notification-panel/tools/native_protocol/stubs/esp_app_desc.h": "686e9db8c3f3bf8ad2985a5297637dc6be5e6529e7c58222fe043a5709035fab",
+    "projects/notification-panel/tools/native_protocol/stubs/esp_err.h": "f97652a3f03dc61e03f4c9f629c1e254488f7085ae852d124b50cba691428490",
+    "projects/notification-panel/tools/native_protocol/stubs/esp_heap_caps.h": "319b53bc3d04ae2a89ad8b704f3568a9211805e2a6ec9d772fbde2b9a1b60248",
+    "projects/notification-panel/tools/native_protocol/stubs/esp_log.h": "1407d4b4681ac6ea9074f52a43116bf2d34b8e6fb276126d1646d223683e2abb",
+    "projects/notification-panel/tools/native_protocol/stubs/esp_random.h": "25ac653fc3ebfcdcb9fe55aca32225d2c9691187879cba374eb2af63b22979b0",
+    "projects/notification-panel/tools/native_protocol/stubs/esp_timer.h": "3fecee76f39abd79ad6cda09f4c27f37941bdd6924f49ff57688baf66a628786",
+    "projects/notification-panel/tools/native_protocol/stubs/freertos/FreeRTOS.h": "48eeee65e521204ce3432670e0b2aefdf2a8408887f55002208c4bfa8e8495a7",
+    "projects/notification-panel/tools/native_protocol/stubs/freertos/semphr.h": "1df1a1ab4b5193b5ab21203673b5bd52dc9b9dfc9368d2ce86b752a2552ace17",
+    "projects/notification-panel/tools/native_protocol/stubs/native_platform.c": "17498d7cbcda56bd711b61a1d0fd9788eab7b94d7eef34849769d0e35cf08762",
+    "projects/notification-panel/tools/native_ui/stubs/driver/i2c_master.h": "404f64c38b9ad3ca7512beb85b36eb5e1852eb300bf0de582c494a68e8562b98",
+    "projects/notification-panel/tools/native_ui/stubs/esp_err.h": "d7a4af24007f1f7375287cd8f6a134c931cfae3239381ff72264ca5490050c1a",
+    "projects/notification-panel/tools/native_ui/stubs/esp_timer.h": "3fecee76f39abd79ad6cda09f4c27f37941bdd6924f49ff57688baf66a628786",
+    "projects/notification-panel/main/fonts/assets/montserrat-cc8daf2/Montserrat-Bold.ttf": "bc6e854971cea46b463be6f9eef4d9cd52f51cfc1fc0dd90c9d3e6483dc0ec61"
+  },
+  "native_executable_sha256": "96894aaa84f83e299edafc80cda8225cb884a9324f5cad35b2afdaf45a46151d",
+  "pillow_version": "12.0.0",
+  "screen_size": [
+    640,
+    172
+  ],
+  "hero_screen_scale": 2,
+  "animation": {
+    "frames_sampled": 53,
+    "duration_ms": 11560,
+    "transition_sample_ms": 30,
+    "timing": "virtual pointer/time samples with caption holds; not measured panel performance"
+  },
+  "files": {
+    "hero.png": {
+      "sha256": "d2e4ce588b2f24276740e6422c6cc8d240e08df53ac604b29fc2436d2440cf4a",
+      "bytes": 52462
+    },
+    "notification-demo.gif": {
+      "sha256": "4b6c3c66dabd2dce23600a2204afbdd1a0b10792d3c8a83ba086e69b3b0bb987",
+      "bytes": 248369
+    },
+    "notification.png": {
+      "sha256": "79b335adc934c2fd042f2e2896644bae4a5e7964e9d26c63be11ffe2195d57f8",
+      "bytes": 15689
+    },
+    "multilingual.png": {
+      "sha256": "e94040d4932be03c27a261d228d26bb3c42228c6a6abcc012dec7747e9ff6b54",
+      "bytes": 16836
+    },
+    "empty.png": {
+      "sha256": "4ca6ebeda5216038d1496d20e6f9f1181142aaf2ee747d15c3734d313737cb8b",
+      "bytes": 9349
+    },
+    "stale.png": {
+      "sha256": "09d35ad811f1ca45a62fa577036454717cf742183336ea7c3a98072cc02f58e5",
+      "bytes": 15230
+    }
+  }
+}

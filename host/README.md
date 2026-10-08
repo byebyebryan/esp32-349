@@ -2,7 +2,7 @@
 
 The host application now lives in
 [`projects/notification-panel/host`](../projects/notification-panel/host).
-Use the [project setup guide](../projects/notification-panel/README.md#host-setup)
+Use the [project setup guide](../projects/notification-panel/docs/setup.md#host-setup)
 for new installations, development and tests.
 
 This directory contains compatibility links for existing service symlinks,

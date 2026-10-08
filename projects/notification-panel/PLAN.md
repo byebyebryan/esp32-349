@@ -1,5 +1,10 @@
 # notification-panel — plan
 
+For the current feature set and the October 8 validation/deployment baseline,
+start with [STATUS.md](STATUS.md) and the [setup guide](docs/setup.md).
+This file preserves the implementation decisions and dated milestones below;
+their build identities and validation counts belong to those checkpoints.
+
 This record predates the multi-project layout. Historical `349-status` and
 `349-hello` names refer to notification-panel and render-bench respectively;
 the shared board component now lives at `../../components/display_349/`.
@@ -35,7 +40,7 @@ Automated acceptance and Starship's short physical check passed on firmware
 The larger close-control follow-up passed its focused Starship check on
 `604fd70da`. Subsequent Snap rollout checkpoints are recorded below.
 
-### Current direction — notification-only right pane (2026-09-28)
+### Notification-only right pane (2026-09-28)
 
 Horizontal Home/app navigation is parked for `notification-history-v1` peers.
 Keep the fixed HH:MM/CPU/MEM/UP/DN rail and dedicate the right side to recent
@@ -70,7 +75,7 @@ images, tables and body scrolling remain outside this pass. Snap received the
 same accepted binary and host/helper source on 2026-10-01; its rollout evidence
 is recorded separately in the acceptance document.
 
-## Current validation boundary (2026-09-26)
+## Historical validation boundary (2026-09-26)
 
 The hardware findings below describe the 2026-09-23 builds. The fresh
 on-device run for the later review fixes is recorded in

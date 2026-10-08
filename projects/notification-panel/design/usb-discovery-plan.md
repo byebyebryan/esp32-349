@@ -16,7 +16,7 @@ repeating pairing. The currently tested firmware supports this exchange.
 
 ## Evidence and current behavior
 
-The [README validation record](../README.md#serial-discovery) establishes that
+The [handshake validation record](usb-handshake-validation.md) establishes that
 both 349s answer hello and a fresh ping/pong exchange in about 2 ms. Three
 consecutive probe opens on each retained the same boot ID with DTR and RTS
 asserted. Starship's RLCD did not answer the protocol and continued its

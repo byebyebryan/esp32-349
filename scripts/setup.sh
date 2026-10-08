@@ -6,7 +6,8 @@ EIM_ROOT="${EIM_ROOT:-$HOME/.espressif}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 if ! command -v eim >/dev/null 2>&1; then
-    echo "error: eim not found. Install it first: yay -S eim-cli" >&2
+    echo "error: eim not found. Install the ESP-IDF Installation Manager CLI first:" >&2
+    echo "https://docs.espressif.com/projects/idf-im-ui/en/latest/" >&2
     exit 1
 fi
 

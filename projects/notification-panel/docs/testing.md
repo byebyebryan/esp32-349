@@ -1,0 +1,82 @@
+# Tests and evidence
+
+[Project overview](../README.md)
+
+Run application commands from `projects/notification-panel/`. Use the
+[development guide](../../../docs/development.md#shared-component-checks) for
+repository-level checks. [STATUS.md](../STATUS.md) records the dated validation and
+deployment baseline; the [native UI guide](../tools/native_ui/README.md) details
+individual runners.
+
+```sh
+env -u DBUS_SESSION_BUS_ADDRESS uv run --project host --frozen pytest -q host/tests tools/tests
+```
+
+Covers framing, protocol, state, composition, sources, notification handling,
+and daemon/IPC integration against a pty fake device. Clearing the desktop bus
+address skips the three live D-Bus tests; omit `env -u DBUS_SESSION_BUS_ADDRESS`
+only when desktop notification tests are intended. Tooling tests also verify
+that native checks preserve caches belonging to other checkouts.
+
+Install `dbus-broker` to run the isolated notification-server restart
+regressions. These tests create a private bus and never use the desktop bus.
+Locally they skip if the broker is absent; set
+`STATUS349_REQUIRE_DBUS_BROKER=1` to make a missing broker fail instead.
+
+The [CI workflow](../../../.github/workflows/checks.yml) runs these isolated host/tooling
+tests on Python 3.11 and 3.14 with the private broker required, plus the JavaScript
+desktop-action provider tests. Its ESP-IDF 5.5.3 matrix builds both firmware
+projects from their defaults and dependency locks. The notification-panel job
+also runs the shared framebuffer regression, font audit, and production native
+checks in Debug and Release using the build's locked LVGL and SDK cJSON sources.
+Physical acceptance remains a separate gate; a green CI run does not establish
+device rendering or touch behavior.
+
+From this project directory, native checks execute the same deck policy and
+dashboard parser compiled into firmware using the host toolchain. Run them
+in a shell without EIM activation: its `PATH` can select the ESP ULP assembler
+for host GCC. Set the SDK location for header access only:
+
+```sh
+native_idf_root="${EIM_ROOT:-$HOME/.espressif}/${IDF_VERSION:-v5.5.3}/esp-idf"
+cc -std=c11 -Wall -Wextra -Werror -I main \
+  main/deck.c tools/test_deck.c -o /tmp/349-deck-tests
+/tmp/349-deck-tests
+cc -std=c11 -Wall -Wextra -Werror -I main \
+  main/deck.c main/deck_input.c tools/test_deck_input.c -o /tmp/349-deck-input-tests
+/tmp/349-deck-input-tests
+cc -std=c11 -Wall -Wextra -Werror -I main -I "$native_idf_root/components/json/cJSON" \
+  main/dashboard.c tools/test_dashboard.c "$native_idf_root/components/json/cJSON/cJSON.c" \
+  -lm -o /tmp/349-dashboard-tests
+/tmp/349-dashboard-tests
+python tools/check_font_coverage.py
+```
+
+The shared shadow-framebuffer regression belongs to the board component; run
+it from the repository root using the [shared check command](../../../docs/development.md#shared-component-checks).
+
+The native LVGL fixture exercises the production deck through pointer input,
+including hit testing, animation, and cache changes during a gesture. It needs
+the managed LVGL dependency installed by the firmware build and ESP-IDF's
+cJSON headers. From the same host-toolchain shell:
+
+```sh
+python tools/check_native_ui.py --cjson-include "$native_idf_root/components/json/cJSON"
+# Optional desktop inspection of the same production UI:
+.cache/native-ui/debug/native_ui --viewer --grouped
+```
+
+The runner builds Debug and Release with assertions enabled, then runs the
+legacy UI, grouped gestures, serialized replay, production parser/state, SDL
+smoke, USB receiver framing, sanitized legacy bar/media rendering, and composed
+host → parser/state → LVGL → host-input checks. Captures
+and traces live under each build's `artifacts/` directory. Defaults are the
+checkout's ignored `.cache/native-ui/debug` and `.cache/native-ui/release`
+directories. Overrides with a cache from another checkout are rejected before
+either build; choose fresh paths rather than removing an unknown cache.
+UI and protocol adapters substitute allocation, mutexes, RTC time, USB transport
+and device identity. A separate RTC fixture runs the production driver against
+simulated I2C registers, including oscillator-stop, invalid BCD/calendar values
+and fallback/recovery cases. These checks do not emulate ESP32 task scheduling,
+touch hardware or panel transfer.
+See [the native test guide](../tools/native_ui/README.md) for individual runners.

@@ -1,5 +1,10 @@
 # 349-status v1 device acceptance
 
+These are the dated prototype, cache and swipe trials. For the later
+notification-only UI, host recovery, pairing and current implementation checkpoint,
+start with [STATUS.md](STATUS.md). Paths and build identities in the trial
+records describe the checkout layout used at the time.
+
 ## Short-gate closure — 2026-09-24–25 PDT
 
 This run checks the reviewed v1 fixes on Starship's ESP32-S3 3.49 V2.
@@ -437,7 +442,7 @@ Only Starship's application partition was flashed. Snap was not updated.
 - Dashboard-parser checks, the unchanged font coverage audit, the firmware
   build, and the integrated host suite (**118 tests**) pass.
 
-Reproduction commands are in [README.md](README.md). The fixture uses three
+Reproduction commands are in the [test guide](docs/testing.md). The fixture uses three
 reusable slots; movement updates positions without resizing cards or rebinding
 their text. The cache/lifetime protocol and host code are unchanged.
 
