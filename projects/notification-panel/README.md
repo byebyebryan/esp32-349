@@ -4,10 +4,10 @@ An always-on **640 × 172 desktop notification display** for the
 [Waveshare ESP32-S3-Touch-LCD-3.49 V2](https://docs.waveshare.com/ESP32-S3-Touch-LCD-3.49).
 A Linux host sends telemetry and notifications over USB Serial/JTAG.
 
-![Native notification-panel demo with arrivals, whole-card swiping and dismissal](../../docs/media/notification-demo.gif)
+![Notification panel with a clock, host telemetry and a styled notification](docs/media/hero.png)
 
 *Production LVGL with demo notifications, virtual time and pointer input.
-[Media provenance](../../docs/media/README.md).*
+[Media provenance](docs/media/README.md).*
 
 - Fixed clock, CPU/MEM utilization bars and uplink traffic readings.
 - Up to 32 recent cards, retained for ten minutes independently of popup timeout.
@@ -29,11 +29,18 @@ from `projects/notification-panel/` unless stated otherwise.
 | [Tests and evidence](docs/testing.md) | Host, provider, firmware and production native checks |
 | [Validation checkpoint](STATUS.md) | Dated source/deployment identities and physical acceptance scope |
 
+## In motion
+
+![Native notification-panel demo with arrivals, whole-card swiping and dismissal](docs/media/notification-demo.gif)
+
+*Demo notifications and virtual pointer input/time;
+[source and regeneration](docs/media/README.md).*
+
 ## Other states
 
 | Empty history | Stale host readings |
 | --- | --- |
-| ![Clock and telemetry with no recent notifications](../../docs/media/empty.png) | ![Dimmed readings with a cached notification still visible](../../docs/media/stale.png) |
+| ![Clock and telemetry with no recent notifications](docs/media/empty.png) | ![Dimmed readings with a cached notification still visible](docs/media/stale.png) |
 
 [PLAN.md](PLAN.md), [ACCEPTANCE.md](ACCEPTANCE.md) and `design/` preserve the
 dated milestones and detailed refinements. [STATUS.md](STATUS.md#evidence-map-and-remaining-scope)

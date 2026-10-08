@@ -2,7 +2,9 @@
 
 ## Scope and layout
 
-This repository targets the Waveshare ESP32-S3-Touch-LCD-3.49 **V2**.
+This is a collection of independent projects for the
+Waveshare ESP32-S3-Touch-LCD-3.49 **V2**. Keep the root README and repository
+metadata focused on the hardware, project catalog and shared support.
 `projects/notification-panel` and `projects/render-bench` are standalone
 ESP-IDF applications; run firmware builds from the selected project directory.
 The repository root is not an ESP-IDF application.
@@ -22,8 +24,8 @@ paths, and preserve unrelated work and checkout-specific caches.
 
 Keep READMEs as concise entry points. Update focused guides alongside behavior
 changes, and preserve dates and build identities in historical acceptance
-records. Use [STATUS.md](projects/notification-panel/STATUS.md) as a dated
-checkpoint rather than a claim about current deployment or connection state.
+records. Treat each project's status and acceptance records as dated
+checkpoints rather than claims about current deployment or connection state.
 
 ## Hardware and presentation
 
@@ -33,5 +35,6 @@ and follow the documented daemon pause/flash/resume procedure.
 
 Native and serial checks do not establish physical rendering or touch
 acceptance. Label synthetic media accordingly. Follow the
-[media guide](docs/media/README.md) to regenerate assets when a manifest-listed
-input changes; keep raw captures and build output in ignored cache directories.
+[media guide](docs/media/README.md), keep demos with the owning project, and
+regenerate them when a manifest-listed input changes. Keep raw captures and
+build output in ignored cache directories.

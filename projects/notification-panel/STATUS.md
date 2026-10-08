@@ -42,7 +42,7 @@ Native checks execute the production parser, state, LVGL, gesture policy and
 RTC driver with platform substitutions. They establish those code paths;
 ESP32 scheduling, actual touch input and panel transfer require device evidence.
 The later presentation pass adds a documentation/media CI gate and reproducible
-[native demo assets](../../docs/media/README.md).
+[native demo assets](docs/media/README.md).
 
 ## Recorded Starship deployment
 

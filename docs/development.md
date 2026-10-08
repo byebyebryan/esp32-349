@@ -1,6 +1,6 @@
 # Development and repository layout
 
-For the project overview and demos, see the [repository README](../README.md).
+For the hardware collection and available projects, see the [repository README](../README.md).
 Repository maintenance guidance is in [AGENTS.md](../AGENTS.md).
 The commands below start at the repository root unless a project directory is
 selected explicitly.
@@ -18,7 +18,7 @@ and reset wiring. The shared component uses the V2 pin map.
 | AXS15231B IPS capacitive-touch panel | 172 × 640 native; **640 × 172 landscape** UI |
 | ESP32-S3, 16 MiB flash, 8 MiB octal PSRAM | ESP-IDF **v5.5.3**, LVGL **9.5.0** |
 | Native USB Serial/JTAG | Host connection, firmware flashing and logs |
-| PCF85063 RTC | Local clock with a timer fallback |
+| PCF85063 RTC | On-board clock available to applications |
 
 ## Build a project
 
@@ -41,11 +41,11 @@ idf.py build
 configuration and dependency versions. Build output, local `sdkconfig` and
 `managed_components/` stay in that project and are ignored by Git.
 
-For flashing, select the intended board's serial path and release it from
-`349d` first. Follow the
-[notification-panel setup guide](../projects/notification-panel/docs/setup.md#build-and-flash)
-and [daemon pause/resume procedure](../projects/notification-panel/docs/setup.md#flashing-while-the-daemon-runs).
-The benchmark does not implement the daemon's host protocol.
+For flashing, select the intended board's serial path and follow the selected
+project's guide. If notification-panel's `349d` owns the port, use its
+[daemon pause/resume procedure](../projects/notification-panel/docs/setup.md#flashing-while-the-daemon-runs).
+Leave the daemon paused while running firmware that does not implement its
+host protocol, including render-bench.
 
 ## Repository map
 
@@ -89,13 +89,24 @@ Application checks are in the
 The [validation checkpoint](../projects/notification-panel/STATUS.md) distinguishes
 automated checks, firmware deployment and observed panel/touch behavior.
 
-When adding a project, give it its own `main/`, `CMakeLists.txt`,
+## Add a project
+
+Give each application its own `main/`, `CMakeLists.txt`,
 `sdkconfig.defaults`, partition table and README. Set `EXTRA_COMPONENT_DIRS` to
 `${CMAKE_CURRENT_LIST_DIR}/../../components` and commit its dependency lock.
-Keep machine-specific caches and captures under ignored `.cache/` directories;
-publish only selected media with a source manifest. Generated fonts and their
-[source/license records](../projects/notification-panel/main/fonts/README.md)
-remain checked in.
+Add it to the root project catalog and the firmware CI matrix. Keep its guide,
+behavior, tests and demos in its project directory. Shared code should provide
+board support or serve multiple applications. The root README introduces the
+hardware and collection; application features and acceptance records belong
+with the application.
+
+Keep machine-specific caches and captures under ignored `.cache/` directories.
+Publish selected demos under `projects/<name>/docs/media/`, with regeneration
+instructions and a `manifest.json` containing repository-relative
+`source_sha256` inputs and media-relative `files` hashes/sizes. The shared
+documentation check discovers each project's manifest. Generated fonts and
+their source/license records stay with the owning project; see the
+[notification-panel example](../projects/notification-panel/main/fonts/README.md).
 
 ## Existing checkout migration
 

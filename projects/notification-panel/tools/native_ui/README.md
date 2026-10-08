@@ -65,7 +65,7 @@ and recovery, and gestures starting on a bar. Its seven `rail-bars-*` captures
 cover normal, zero, half, full, unavailable, stale and empty-history views.
 
 The README hero and gesture animation use this same production renderer with a
-separate demo scenario. See [presentation media](../../../../docs/media/README.md)
+separate demo scenario. See [presentation media](../../docs/media/README.md)
 for its generator, source hashes and timing scope.
 
 ## Inspect the shared UI

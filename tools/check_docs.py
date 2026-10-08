@@ -62,33 +62,39 @@ def main() -> int:
                 if unquote(url.fragment) not in anchor_cache[destination]:
                     errors.append(f"missing anchor: {label}")
 
-    media = ROOT / "docs/media"
-    manifest_path = media / "manifest.json"
-    try:
-        manifest = json.loads(manifest_path.read_text())
-        for group, base in [("source_sha256", ROOT), ("files", media)]:
-            for name, record in manifest[group].items():
-                expected = record["sha256"] if isinstance(record, dict) else record
-                path = base / name
-                if not path.is_file():
-                    errors.append(f"missing presentation input/output: {name}")
-                    continue
-                if hashlib.sha256(path.read_bytes()).hexdigest() != expected:
-                    errors.append(f"presentation hash changed: {name}; regenerate media")
-                if isinstance(record, dict) and path.stat().st_size != record["bytes"]:
-                    errors.append(f"presentation size changed: {name}")
-        asset_names = {p.name for p in media.iterdir() if p.suffix in {".png", ".gif"}}
-        if asset_names != set(manifest["files"]):
-            errors.append("presentation assets and manifest file list differ")
-    except (OSError, ValueError, KeyError, TypeError) as exc:
-        errors.append(f"invalid presentation manifest: {exc}")
+    manifests = sorted(ROOT.glob("projects/*/docs/media/manifest.json"))
+    assets = 0
+    for manifest_path in manifests:
+        media = manifest_path.parent
+        label = str(manifest_path.relative_to(ROOT))
+        try:
+            manifest = json.loads(manifest_path.read_text())
+            for group, base in [("source_sha256", ROOT), ("files", media)]:
+                for name, record in manifest[group].items():
+                    expected = record["sha256"] if isinstance(record, dict) else record
+                    path = base / name
+                    if not path.is_file():
+                        errors.append(f"{label}: missing presentation input/output: {name}")
+                        continue
+                    if hashlib.sha256(path.read_bytes()).hexdigest() != expected:
+                        errors.append(f"{label}: presentation hash changed: {name}; regenerate media")
+                    if isinstance(record, dict) and path.stat().st_size != record["bytes"]:
+                        errors.append(f"{label}: presentation size changed: {name}")
+            media_suffixes = {".png", ".gif", ".jpg", ".jpeg", ".webp", ".svg", ".mp4", ".webm"}
+            asset_names = {p.name for p in media.iterdir() if p.suffix.lower() in media_suffixes}
+            if asset_names != set(manifest["files"]):
+                errors.append(f"{label}: presentation assets and manifest file list differ")
+            assets += len(manifest["files"])
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            errors.append(f"{label}: invalid presentation manifest: {exc}")
 
     for error in errors:
         print(error)
     if errors:
         return 1
     print(f"Documentation: {len(docs)} files, {links} local links/anchors; "
-          f"presentation source and {len(manifest['files'])} asset hashes verified")
+          f"presentation source and {assets} asset hashes verified "
+          f"across {len(manifests)} project manifests")
     return 0
 
 

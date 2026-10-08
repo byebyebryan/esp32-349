@@ -3,7 +3,7 @@
 
 Uses synthetic messages, virtual time and pointer input. No USB, desktop bus,
 daemon IPC or live notifications are opened. Pillow is an optional authoring
-dependency; see docs/media/README.md at the repository root.
+dependency; see this project's docs/media/README.md.
 """
 from __future__ import annotations
 
@@ -186,7 +186,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--native", type=Path,
                         default=PROJECT / ".cache/native-ui/debug/native_ui_composed")
-    parser.add_argument("--output", type=Path, default=ROOT / "docs/media")
+    parser.add_argument("--output", type=Path, default=PROJECT / "docs/media")
     parser.add_argument("--artifacts", type=Path, default=PROJECT / ".cache/presentation")
     args = parser.parse_args()
     executable = args.native.resolve()

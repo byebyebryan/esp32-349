@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1408" height="360" viewBox="0 0 1408 360" role="img" aria-labelledby="title description">
+  <title id="title">ESP32-349 hardware project collection</title>
+  <desc id="description">Independent ESP-IDF and LVGL projects with shared board support for the Waveshare ESP32-S3-Touch-LCD-3.49 V2.</desc>
+  <rect width="1408" height="360" rx="20" fill="#161b19"/>
+  <g font-family="sans-serif">
+    <text x="64" y="66" fill="#bdceab" font-size="22" font-weight="700" letter-spacing="2">ESP32-349</text>
+    <text x="60" y="132" fill="#edf0e9" font-size="48" font-weight="700">Projects for one board.</text>
+    <text x="64" y="181" fill="#a4b1a7" font-size="25">Waveshare ESP32-S3-Touch-LCD-3.49 V2</text>
+    <path d="M64 217H1344" stroke="#39433d" stroke-width="2"/>
+    <text x="64" y="265" fill="#edf0e9" font-size="23">Independent applications</text>
+    <text x="535" y="265" fill="#edf0e9" font-size="23">Shared board support</text>
+    <text x="1070" y="265" fill="#edf0e9" font-size="23">ESP-IDF + LVGL</text>
+    <text x="64" y="316" fill="#a4b1a7" font-size="18">ESP32-S3</text>
+    <text x="253" y="316" fill="#a4b1a7" font-size="18">Touch display</text>
+    <text x="535" y="316" fill="#a4b1a7" font-size="18">172 × 640 panel</text>
+    <text x="804" y="316" fill="#a4b1a7" font-size="18">16 MiB flash</text>
+    <text x="1070" y="316" fill="#a4b1a7" font-size="18">8 MiB PSRAM</text>
+  </g>
+</svg>
