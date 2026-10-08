@@ -33,5 +33,6 @@ esp_err_t rtc_pcf_init(void);
 /* Set the hardware RTC from a UTC epoch + offset; always updates the fallback. */
 esp_err_t rtc_pcf_set(int64_t epoch_utc, int offset_sec);
 
-/* Local broken-down time; returns where the time came from. */
+/* Local broken-down time; stopped, invalid or unreadable hardware falls back
+ * to the last host sync plus elapsed timer time. Returns the source used. */
 rtc_source_t rtc_pcf_get_local(struct tm *out);

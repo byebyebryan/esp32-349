@@ -500,7 +500,9 @@ and traces live under each build's `artifacts/` directory. Defaults are the
 checkout's ignored `.cache/native-ui/debug` and `.cache/native-ui/release`
 directories. Overrides with a cache from another checkout are rejected before
 either build; choose fresh paths rather than removing an unknown cache.
-Platform adapters substitute allocation, mutexes, RTC time, USB transport and
-device identity; they do not emulate ESP32 task scheduling, touch hardware or
-panel transfer.
+UI and protocol adapters substitute allocation, mutexes, RTC time, USB transport
+and device identity. A separate RTC fixture runs the production driver against
+simulated I2C registers, including oscillator-stop, invalid BCD/calendar values
+and fallback/recovery cases. These checks do not emulate ESP32 task scheduling,
+touch hardware or panel transfer.
 See [the native test guide](tools/native_ui/README.md) for individual runners.

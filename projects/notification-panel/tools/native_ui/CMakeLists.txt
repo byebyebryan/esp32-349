@@ -81,6 +81,13 @@ target_link_libraries(native_protocol PRIVATE native_cjson m)
 target_compile_definitions(native_protocol PRIVATE _DEFAULT_SOURCE)
 target_compile_options(native_protocol PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 
+add_executable(native_rtc ../native_rtc/test_rtc.c "${STATUS_MAIN}/rtc.c")
+target_include_directories(native_rtc PRIVATE "../native_rtc/stubs" "${STATUS_MAIN}")
+target_compile_definitions(native_rtc PRIVATE _DEFAULT_SOURCE)
+target_compile_options(native_rtc PRIVATE -Wall -Wextra -Werror -UNDEBUG
+    -fsanitize=undefined -fno-sanitize-recover=all)
+target_link_options(native_rtc PRIVATE -fsanitize=undefined -fno-sanitize-recover=all)
+
 add_executable(native_link_receiver ../native_link/test_link_receiver.c)
 target_include_directories(native_link_receiver PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/../native_link/stubs"
@@ -143,6 +150,7 @@ add_test(NAME native_ui_viewer_smoke
 set_tests_properties(native_ui_viewer_smoke PROPERTIES
     ENVIRONMENT "SDL_VIDEODRIVER=dummy")
 add_test(NAME native_protocol_contract COMMAND native_protocol --self-test)
+add_test(NAME native_rtc COMMAND native_rtc)
 add_test(NAME native_link_receiver COMMAND native_link_receiver)
 add_test(NAME native_legacy_renderer COMMAND native_legacy_renderer)
 add_test(NAME native_composed_replay_smoke

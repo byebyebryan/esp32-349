@@ -25,9 +25,17 @@ static int64_t s_fallback_epoch;
 static int s_fallback_offset;
 static int64_t s_fallback_us;
 
-static uint8_t bcd2dec(uint8_t value)
+static bool decode_bcd(uint8_t value, int minimum, int maximum, int *out)
 {
-    return (uint8_t)((value >> 4) * 10 + (value & 0x0F));
+    if ((value >> 4) > 9 || (value & 0x0F) > 9) {
+        return false;
+    }
+    const int decoded = (value >> 4) * 10 + (value & 0x0F);
+    if (decoded < minimum || decoded > maximum) {
+        return false;
+    }
+    *out = decoded;
+    return true;
 }
 
 static uint8_t dec2bcd(uint8_t value)
@@ -134,6 +142,39 @@ esp_err_t rtc_pcf_set(int64_t epoch_utc, int offset_sec)
     return err;
 }
 
+static bool decode_hardware_time(const uint8_t buf[7], struct tm *out)
+{
+    int second, minute, hour, day, month, year;
+    /* The oscillator-stop flag can appear after initialization or host sync.
+     * Check it on every read before trusting any of the calendar registers. */
+    if ((buf[0] & 0x80) != 0 ||
+        !decode_bcd(buf[0] & 0x7F, 0, 59, &second) ||
+        !decode_bcd(buf[1] & 0x7F, 0, 59, &minute) ||
+        !decode_bcd(buf[2] & 0x3F, 0, 23, &hour) ||
+        !decode_bcd(buf[3] & 0x3F, 1, 31, &day) ||
+        !decode_bcd(buf[5] & 0x1F, 1, 12, &month) ||
+        !decode_bcd(buf[6], 0, 99, &year)) {
+        return false;
+    }
+    year += 2000;
+    static const uint8_t month_days[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    const bool leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    if (day > month_days[month - 1] + (month == 2 && leap)) {
+        return false;
+    }
+
+    out->tm_sec = second;
+    out->tm_min = minute;
+    out->tm_hour = hour;
+    out->tm_mday = day;
+    out->tm_mon = month - 1;
+    out->tm_year = year - 1900;
+    out->tm_wday = weekday_of(year, month, day);
+    out->tm_yday = 0;
+    out->tm_isdst = 0;
+    return true;
+}
+
 rtc_source_t rtc_pcf_get_local(struct tm *out)
 {
     if (out == NULL) {
@@ -141,22 +182,9 @@ rtc_source_t rtc_pcf_get_local(struct tm *out)
     }
     if (s_dev != NULL && s_hw_ok) {
         uint8_t buf[7];
-        if (read_regs(PCF85063_SEC, buf, sizeof(buf)) == ESP_OK) {
-            const int year = (int)bcd2dec(buf[6]) + 2000;
-            const int month = (int)bcd2dec((uint8_t)(buf[5] & 0x1F));
-            const int day = (int)bcd2dec((uint8_t)(buf[3] & 0x3F));
-            if (year >= 2000 && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
-                out->tm_sec = (int)bcd2dec((uint8_t)(buf[0] & 0x7F));
-                out->tm_min = (int)bcd2dec((uint8_t)(buf[1] & 0x7F));
-                out->tm_hour = (int)bcd2dec((uint8_t)(buf[2] & 0x3F));
-                out->tm_mday = day;
-                out->tm_mon = month - 1;
-                out->tm_year = year - 1900;
-                out->tm_wday = weekday_of(year, month, day);
-                out->tm_yday = 0;
-                out->tm_isdst = 0;
-                return RTC_SOURCE_HW;
-            }
+        if (read_regs(PCF85063_SEC, buf, sizeof(buf)) == ESP_OK &&
+            decode_hardware_time(buf, out)) {
+            return RTC_SOURCE_HW;
         }
     }
 
