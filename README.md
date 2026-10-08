@@ -5,24 +5,38 @@
 Projects, examples and shared board support for the
 **Waveshare ESP32-S3-Touch-LCD-3.49 V2**, built with ESP-IDF and LVGL.
 
-## Projects
+[Build](#build) · [Hardware](#hardware) · [Development](docs/development.md)
 
-| Project | Highlights | Explore |
-| --- | --- | --- |
-| **render-bench** | 640 × 172 bouncing-ball benchmark; recorded trials reached **about 45 fps** with low CPU use. Dirty-rectangle transpose, a shadow framebuffer and GDMA staging drive the shared display pipeline. | [Build and rendering findings](projects/render-bench/README.md) |
-| **notification-panel** | Clock and CPU/MEM/network telemetry beside recent desktop notifications. Vertical swipe browsing, touch dismissal, optional Open, English and common Simplified Chinese text, styled Latin body text and remembered USB pairing. | [Demo, setup and behavior](projects/notification-panel/README.md) |
+## Project gallery
 
-Each is a standalone ESP-IDF application. One firmware project runs on the
-board at a time; both share [display_349](components/display_349/README.md).
-
-### Notification-panel preview
+### Notification panel
 
 ![Native demo: notifications arrive, a vertical swipe selects an earlier card, and touch dismissal returns to the empty pane](projects/notification-panel/docs/media/notification-demo.gif)
 
-*Native LVGL render with demo data and virtual pointer input/time.
-[Media provenance and regeneration](projects/notification-panel/docs/media/README.md).*
+Keep a clock and CPU/MEM/network readings beside recent desktop notifications.
+Swipe through cards, dismiss them, or return to an app with the optional Open
+action. English and common Simplified Chinese text, styled Latin bodies and
+remembered USB pairing make it useful as an everyday desk display.
 
-Full guides, additional previews and validation records live with each project.
+[Project and setup](projects/notification-panel/README.md) · [Display behavior](projects/notification-panel/docs/behavior.md) · [Media source](projects/notification-panel/docs/media/README.md)
+
+### Rendering benchmark
+
+![Native render-bench demo: a ball moves and reflects at the edges of the 640 by 172 landscape scene](projects/render-bench/docs/media/benchmark-demo.gif)
+
+A small bouncing-ball scene that exercises the display pipeline. Recorded
+board trials reached **about 45 fps** with low CPU use. Its shadow framebuffer,
+transpose of changed regions and GDMA staging form the shared rendering path
+used by both projects.
+
+[Project and build](projects/render-bench/README.md) · [Rendering findings](projects/render-bench/docs/rendering.md) · [Media source](projects/render-bench/docs/media/README.md)
+
+*Both previews use production LVGL code with virtual time; the notification
+demo also uses synthetic messages and pointer input. Playback timing is
+separate from measured panel performance.*
+
+Each project is a standalone firmware application. One runs on the board at a
+time; both use the shared [display component](components/display_349/README.md).
 
 ## Hardware
 
@@ -51,4 +65,4 @@ Follow the selected project's guide for flashing and any host dependencies.
 - [Development](docs/development.md): toolchain, repository layout, shared checks and checkout migration.
 - [Shared display component](components/display_349/README.md): panel, framebuffer, DMA and touch support.
 - [Adding a project](docs/development.md#add-a-project): application boundaries and integration checks.
-- [Presentation media](docs/media/README.md): collection artwork and project-owned demos.
+- [Presentation media](docs/media/README.md): gallery sources, regeneration and capture guidance.

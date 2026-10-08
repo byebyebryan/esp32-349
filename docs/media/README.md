@@ -1,15 +1,16 @@
-# Collection and project media
-
-The collection artwork, [collection.svg](collection.svg), introduces the hardware
-and shared project structure. It is editable vector artwork, not a device
-photograph or a render of an application's UI.
+# Project gallery media
 
 Application screenshots and animations live with their owning project:
 
 | Project | Media and regeneration |
 | --- | --- |
 | notification-panel | [Native hero, screenshots and gesture demo](../../projects/notification-panel/docs/media/README.md) |
-| render-bench | [Recorded hardware and rendering findings](../../projects/render-bench/docs/rendering.md); no published demo media yet |
+| render-bench | [Native bouncing-ball scene and animation](../../projects/render-bench/docs/media/README.md) |
+
+The root gallery follows the same format for each project: a preview, a short
+description and links to the project, behavior/findings and media source.
+Animations share a 640 × 172 screen area and a caption band identifying native
+rendering. The source pages keep playback timing separate from device results.
 
 For new projects, place selected assets and their regeneration instructions in
 `projects/<name>/docs/media/`. Include a source/output manifest for generated

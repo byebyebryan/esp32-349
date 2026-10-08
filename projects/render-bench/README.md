@@ -2,6 +2,12 @@
 
 A landscape **640 × 172 bouncing-ball benchmark** for the
 [Waveshare ESP32-S3-Touch-LCD-3.49 V2](https://docs.waveshare.com/ESP32-S3-Touch-LCD-3.49).
+
+![Native benchmark scene with a moving ball and reflections at the screen edges](docs/media/benchmark-demo.gif)
+
+*Native LVGL with virtual time; [media source and regeneration](docs/media/README.md).
+Playback timing is separate from measured panel performance.*
+
 Recorded board trials reached about **45 fps**, with low CPU use and no
 observed artifacts. The [rendering findings](docs/rendering.md) preserve the
 experiment history; those measurements describe this benchmark.
