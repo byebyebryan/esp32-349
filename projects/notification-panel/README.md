@@ -454,9 +454,12 @@ Locally they skip if the broker is absent; set
 
 The [CI workflow](../../.github/workflows/checks.yml) runs these isolated host/tooling
 tests on Python 3.11 and 3.14 with the private broker required, plus the JavaScript
-desktop-action provider tests.
-Native LVGL/font checks, ESP-IDF builds and physical acceptance remain separate
-local gates; a green CI run does not establish device rendering or touch behavior.
+desktop-action provider tests. Its ESP-IDF 5.5.3 matrix builds both firmware
+projects from their defaults and dependency locks. The notification-panel job
+also runs the shared framebuffer regression, font audit, and production native
+checks in Debug and Release using the build's locked LVGL and SDK cJSON sources.
+Physical acceptance remains a separate gate; a green CI run does not establish
+device rendering or touch behavior.
 
 From this project directory, native checks execute the same deck policy and
 dashboard parser compiled into firmware using the host toolchain. Run them

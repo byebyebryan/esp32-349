@@ -64,7 +64,10 @@ cc -std=c11 -Wall -Wextra -Werror -I components/display_349 \
 ```
 
 Application tests and hardware acceptance are documented in each project's
-README. CI runs the notification-panel host and desktop-provider tests.
+README. CI runs the notification-panel host and desktop-provider tests,
+production native checks in Debug and Release, font audits, this shared
+framebuffer regression, and ESP-IDF builds for both projects. Physical panel
+and touch acceptance remain separate.
 
 ## Add a project
 

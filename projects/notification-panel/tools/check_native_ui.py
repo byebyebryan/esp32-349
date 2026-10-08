@@ -65,14 +65,14 @@ def main() -> int:
         ("Release", args.release_build_dir),
     ):
         build_dir = build_dir.resolve()
-        command = ["rtk", "cmake", "-S", str(source), "-B", str(build_dir),
+        command = ["cmake", "-S", str(source), "-B", str(build_dir),
                    f"-DCMAKE_BUILD_TYPE={configuration}"]
         cjson = configured_cjson or cached_cjson(build_dir)
         if cjson is not None:
             command.append(f"-DCJSON_INCLUDE_DIR={cjson}")
         subprocess.run(command, check=True)
-        subprocess.run(["rtk", "cmake", "--build", str(build_dir)], check=True)
-        subprocess.run(["rtk", "ctest", "--test-dir", str(build_dir),
+        subprocess.run(["cmake", "--build", str(build_dir)], check=True)
+        subprocess.run(["ctest", "--test-dir", str(build_dir),
                         "--output-on-failure"], check=True)
     return 0
 

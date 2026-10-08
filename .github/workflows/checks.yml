@@ -1,4 +1,4 @@
-name: Host and provider checks
+name: Project checks
 
 on:
   push:
@@ -49,3 +49,58 @@ jobs:
       - name: Desktop action provider regressions
         working-directory: projects/notification-panel
         run: node integrations/dms/349NotificationActions/tests/provider_core_test.js
+
+  firmware:
+    name: Firmware / ${{ matrix.project }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [notification-panel, render-bench]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        if: matrix.project == 'notification-panel'
+        with:
+          version: "0.8.22"
+          python-version: "3.11"
+          enable-cache: true
+          cache-dependency-glob: projects/notification-panel/host/uv.lock
+          cache-suffix: native
+      - name: Prepare native checks
+        if: matrix.project == 'notification-panel'
+        working-directory: projects/notification-panel
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y build-essential cmake libsdl2-dev pkg-config
+          # Keep the cache parent owned by the runner before the container writes SDK files.
+          mkdir -p .cache/ci-cjson
+      - name: Build firmware with ESP-IDF 5.5.3
+        uses: espressif/esp-idf-ci-action@e6f5c74232b1ccd4c97ed641f1e48553853f1fd5 # v1.2.0
+        with:
+          esp_idf_version: v5.5.3
+          target: esp32s3
+          path: projects/${{ matrix.project }}
+          # Use the same SDK cJSON and locked LVGL sources for the host checks.
+          command: |
+            idf.py build &&
+            if [ -d .cache/ci-cjson ]; then
+              cp "$IDF_PATH/components/json/cJSON/cJSON.c" "$IDF_PATH/components/json/cJSON/cJSON.h" .cache/ci-cjson/
+            fi
+      - name: Shared framebuffer regression
+        if: matrix.project == 'notification-panel'
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -I components/display_349 \
+            components/display_349/shadow_349.c tools/test_shadow_349.c \
+            -o "$RUNNER_TEMP/349-shadow-tests"
+          "$RUNNER_TEMP/349-shadow-tests"
+      - name: Font coverage and metrics
+        if: matrix.project == 'notification-panel'
+        run: python3 projects/notification-panel/tools/check_font_coverage.py
+      - name: Production native checks in Debug and Release
+        if: matrix.project == 'notification-panel'
+        working-directory: projects/notification-panel
+        run: uv run --project host --frozen python tools/check_native_ui.py --cjson-include .cache/ci-cjson
