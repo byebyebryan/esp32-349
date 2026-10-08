@@ -134,17 +134,18 @@ static void assert_rail_geometry(void)
     assert(!lv_obj_has_flag(s_rail_clock, LV_OBJ_FLAG_HIDDEN));
     assert(lv_obj_get_y(s_rail_footer) == 156);
     const char *const names[] = {"CPU", "MEM", "UP", "DN"};
+    const int row_y[] = {52, 84, 116, 136};
     for (int i = 0; i < 4; i++) {
         assert(strcmp(label_storage(s_metric_names[i]), names[i]) == 0);
         assert(lv_obj_get_x(s_metric_names[i]) == 12);
-        assert(lv_obj_get_y(s_metric_names[i]) == 61 + 24 * i);
+        assert(lv_obj_get_y(s_metric_names[i]) == row_y[i] + 3);
         assert(lv_obj_get_width(s_metric_names[i]) == 36);
         const lv_font_t *font = lv_obj_get_style_text_font(s_metric_values[i], 0);
         const bool full_usage = i < 2 && strcmp(label_storage(s_metric_values[i]), "100%") == 0;
         const int baseline_offset = status_text_16.line_height - status_text_16.base_line
             - font->line_height + font->base_line;
         assert(lv_obj_get_x(s_metric_values[i]) == (i < 2 ? 110 : 52));
-        assert(lv_obj_get_y(s_metric_values[i]) == 58 + 24 * i + baseline_offset);
+        assert(lv_obj_get_y(s_metric_values[i]) == row_y[i] + baseline_offset);
         assert(lv_obj_get_width(s_metric_values[i]) == (i < 2 ? 38 : 96));
         assert(text_width(label_storage(s_metric_names[i]), s_meta) <= 36);
         const int width = text_width(label_storage(s_metric_values[i]), font);
@@ -158,7 +159,7 @@ static void assert_rail_geometry(void)
     assert(text_width("99%", &status_text_16) + text_width(" ", &status_text_16) == 38);
     for (int i = 0; i < 2; i++) {
         assert(lv_obj_get_x(s_metric_details[i]) == 52);
-        assert(lv_obj_get_y(s_metric_details[i]) == 58 + 24 * i);
+        assert(lv_obj_get_y(s_metric_details[i]) == row_y[i]);
         assert(lv_obj_get_width(s_metric_details[i]) == 58);
         assert(lv_obj_get_style_text_align(s_metric_details[i], 0) == LV_TEXT_ALIGN_RIGHT);
         assert(text_width(label_storage(s_metric_details[i]), &status_text_16) <= 58);
@@ -1326,6 +1327,115 @@ static void simplified_chinese_capture(void)
     assert(capture_frame("fonts-simplified-chinese"));
 }
 
+static uint16_t metric_bar_pixel(int metric, int quarter)
+{
+    lv_area_t coords;
+    lv_obj_get_coords(s_metric_bars[metric], &coords);
+    const int x = coords.x1 + quarter * lv_area_get_width(&coords) / 4;
+    const int y = (coords.y1 + coords.y2) / 2;
+    return s_framebuffer[y * DISPLAY_WIDTH + x];
+}
+
+static void rail_usage_progress(void)
+{
+    const int ids[] = {1};
+    groups_reset(ids, 1);
+    s_state.history_enabled = true;
+    s_state.actions_enabled = true;
+    status_notif_t *n = &s_state.notifs[0];
+    n->history_revision = 1;
+    n->history_updated_us = s_now_us - 300000000;
+    n->history_deadline_us = s_now_us + 300000000;
+    n->open_revision = 1;
+    n->open_ready = true;
+    snprintf(n->app, sizeof(n->app), "Codex");
+    snprintf(n->summary, sizeof(n->summary), "System utilization");
+    snprintf(n->body, sizeof(n->body),
+        "CPU and MEM bars show current usage.\n"
+        "The footer bar shows notification time remaining.");
+    ui_deck_tick(STATE_DIRTY_NOTIF | STATE_DIRTY_DASHBOARD);
+    group_finish();
+    assert_rail_geometry();
+    assert(lv_bar_get_value(s_metric_bars[0]) == 180);
+    assert(lv_bar_get_value(s_metric_bars[1]) == 430);
+    for (int i = 0; i < 2; i++) {
+        assert(lv_obj_get_x(s_metric_bars[i]) == 12);
+        assert(lv_obj_get_y(s_metric_bars[i]) == 76 + 32 * i);
+        assert(lv_obj_get_width(s_metric_bars[i]) == 136);
+        assert(lv_obj_get_height(s_metric_bars[i]) == 4);
+        assert(!lv_obj_has_flag(s_metric_bars[i], LV_OBJ_FLAG_CLICKABLE));
+        assert(!lv_obj_has_flag(s_metric_bars[i], LV_OBJ_FLAG_SCROLLABLE));
+    }
+    assert(capture_frame("rail-bars-normal"));
+
+    const uint16_t track = lv_color_to_u16(lv_color_hex(UI_THEME_DIVIDER));
+    const uint16_t fill = lv_color_to_u16(lv_color_hex(UI_THEME_TEXT_SECONDARY));
+    const float levels[] = {0, .5f, 1};
+    const char *captures[] = {"rail-bars-zero", "rail-bars-half", "rail-bars-full"};
+    for (int level = 0; level < 3; level++) {
+        s_state.dashboard.cpu = s_state.dashboard.mem = levels[level];
+        s_state.dashboard.mem_used_bytes = levels[level] * 21474836480.0;
+        ui_deck_tick(STATE_DIRTY_DASHBOARD); repaint();
+        assert_rail_geometry();
+        for (int i = 0; i < 2; i++) {
+            /* Rendered pixels distinguish zero, left-filled half and full. */
+            assert(metric_bar_pixel(i, 1) == (level == 0 ? track : fill));
+            assert(metric_bar_pixel(i, 3) == (level == 2 ? fill : track));
+        }
+        assert(capture_frame(captures[level]));
+    }
+
+    s_state.dashboard.cpu = s_state.dashboard.mem = .5f;
+    s_state.dashboard.mem_used_bytes = 10737418240.0;
+    s_state.dashboard.cpu_freq_mhz_valid = false;
+    s_state.dashboard.mem_used_bytes_valid = false;
+    ui_deck_tick(STATE_DIRTY_DASHBOARD); repaint();
+    assert(strcmp(label_storage(s_metric_details[0]), "--") == 0);
+    assert(strcmp(label_storage(s_metric_details[1]), "--") == 0);
+    for (int i = 0; i < 2; i++) assert(metric_bar_pixel(i, 1) == fill);
+
+    /* Each utilization validity bit is independent of the other row/details. */
+    s_state.dashboard.cpu_valid = false;
+    ui_deck_tick(STATE_DIRTY_DASHBOARD); repaint();
+    assert(strcmp(label_storage(s_metric_values[0]), "--") == 0);
+    assert(metric_bar_pixel(0, 1) == track && metric_bar_pixel(0, 3) == track);
+    assert(metric_bar_pixel(1, 1) == fill);
+    s_state.dashboard.mem_valid = false;
+    ui_deck_tick(STATE_DIRTY_DASHBOARD); repaint();
+    assert(strcmp(label_storage(s_metric_values[1]), "--") == 0);
+    assert(metric_bar_pixel(1, 1) == track && metric_bar_pixel(1, 3) == track);
+    assert(capture_frame("rail-bars-unavailable"));
+
+    s_state.dashboard.cpu_valid = s_state.dashboard.mem_valid = true;
+    s_state.dashboard.cpu_freq_mhz_valid = s_state.dashboard.mem_used_bytes_valid = true;
+    s_host_connected = false;
+    ui_deck_tick(STATE_DIRTY_DASHBOARD); repaint();
+    group_finish();
+    assert(s_view.stale);
+    for (int i = 0; i < 2; i++) {
+        assert(lv_bar_get_value(s_metric_bars[i]) == 500);
+        assert(metric_bar_pixel(i, 1) != fill && metric_bar_pixel(i, 1) != track);
+        assert(metric_bar_pixel(i, 3) == track);
+    }
+    assert(capture_frame("rail-bars-stale"));
+    s_host_connected = true;
+    ui_deck_tick(STATE_DIRTY_DASHBOARD); repaint();
+    group_finish();
+    for (int i = 0; i < 2; i++) assert(metric_bar_pixel(i, 1) == fill);
+
+    /* A gesture starting on a bar stays owned by the rail. */
+    const int selected = current_id();
+    const int dismisses = s_dismiss_count, activations = s_activate_count;
+    group_swipe(40, 78, 300, 0);
+    assert(current_id() == selected && s_dismiss_count == dismisses);
+    assert(s_activate_count == activations);
+    groups_reset(NULL, 0);
+    s_state.history_enabled = true;
+    ui_deck_tick(STATE_DIRTY_NOTIF); repaint();
+    group_finish();
+    assert(capture_frame("rail-bars-empty"));
+}
+
 int main(int argc, char **argv)
 {
     s_artifact_dir = argc > 2 && strcmp(argv[1], "--artifacts") == 0
@@ -1350,6 +1460,7 @@ int main(int argc, char **argv)
     history_layout_and_navigation();
     history_age_progress();
     simplified_chinese_capture();
+    rail_usage_progress();
     fixture_shutdown();
     fclose(s_trace_file);
     puts("grouped production LVGL: passed");

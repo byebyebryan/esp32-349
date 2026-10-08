@@ -417,6 +417,13 @@ History mode keeps the cached right-side cards browsable, disables Open, and
 shows the connection message in the rail footer; older grouped mode uses the
 right content area for that message.
 
+CPU and MEM have thin neutral utilization bars beneath their existing readings.
+Each uses a 32 px block with separate space for its bar and surrounding gaps.
+They fill from the left, use the same sampled percentages, and retain a dimmed
+level when readings are stale. Unavailable usage leaves an empty track with
+`--` in the percentage column. See the [usage-bar refinement](design/telemetry-rail-usage-bars.md)
+for native captures and the firmware candidate's validation boundary.
+
 ## Flashing while the daemon runs
 
 The daemon holds the serial port. Flashing resets the chip; use the

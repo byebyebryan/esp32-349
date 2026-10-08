@@ -41,6 +41,9 @@ LV_FONT_DECLARE(status_clock_80);
 static lv_obj_t *s_root, *s_rail_clock, *s_rail_footer;
 static lv_obj_t *s_metric_names[4], *s_metric_values[4];
 static lv_obj_t *s_metric_details[2];
+static lv_obj_t *s_metric_bars[2];
+/* CPU/MEM get 32 px blocks, including a separate bar band and breathing room. */
+static const int s_metric_y[] = {52, 84, 116, 136};
 static lv_obj_t *s_idle, *s_idle_clock, *s_date, *s_message, *s_idle_transient;
 typedef struct {
     lv_obj_t *root, *accent, *app, *age, *title, *body, *position, *age_bar;
@@ -603,11 +606,9 @@ static void metrics(const snapshot_t *view, bool active)
 {
     const status_dashboard_t *d = &view->dashboard;
     char value[32];
-    const int top = 58;
-    const int step = 24;
     for (int i = 0; i < 4; i++) {
-        lv_obj_set_y(s_metric_names[i], top + i * step + 3);
-        lv_obj_set_y(s_metric_values[i], top + i * step);
+        lv_obj_set_y(s_metric_names[i], s_metric_y[i] + 3);
+        lv_obj_set_y(s_metric_values[i], s_metric_y[i]);
     }
     format_frequency(value, sizeof(value), d->cpu_freq_mhz_valid, d->cpu_freq_mhz);
     metric_text(s_metric_details[0], value, !view->stale && strcmp(value, "--") != 0);
@@ -628,8 +629,14 @@ static void metrics(const snapshot_t *view, bool active)
         const int baseline_offset = status_text_16.line_height - status_text_16.base_line
             - font->line_height + font->base_line;
         lv_obj_set_style_text_font(s_metric_values[i], font, 0);
-        lv_obj_set_y(s_metric_values[i], top + i * step + baseline_offset);
+        lv_obj_set_y(s_metric_values[i], s_metric_y[i] + baseline_offset);
         metric_text(s_metric_values[i], value, !view->stale && usage_valid[i]);
+        lv_bar_set_value(s_metric_bars[i],
+            usage_valid[i] ? (int)(usage[i] * 1000 + .5f) : 0, LV_ANIM_OFF);
+        const lv_opa_t bar_opacity = view->stale ? LV_OPA_50 : LV_OPA_COVER;
+        if (lv_obj_get_style_bg_opa(s_metric_bars[i], LV_PART_INDICATOR) != bar_opacity) {
+            lv_obj_set_style_bg_opa(s_metric_bars[i], bar_opacity, LV_PART_INDICATOR);
+        }
     }
     format_rate(value, sizeof(value), d->tx_bytes_per_s_valid, d->tx_bytes_per_s);
     metric_text(s_metric_values[2], value, !view->stale && strcmp(value, "--") != 0);
@@ -1646,19 +1653,32 @@ void ui_deck_init(lv_obj_t *parent, const lv_font_t *small, const lv_font_t *met
                           UI_THEME_TEXT_SECONDARY, "");
     const char *names[] = {"CPU", "MEM", "UP", "DN"};
     for (int i = 0; i < 4; i++) {
-        s_metric_names[i] = label(rail, 12, 61 + 24 * i, 36, 21, s_meta,
+        s_metric_names[i] = label(rail, 12, s_metric_y[i] + 3, 36, 21, s_meta,
                                   UI_THEME_RAIL_LABEL, names[i]);
         const int value_x = i < 2 ? 110 : 52;
         /* 38 px reserves "99%" (34 px) plus one space (4 px). */
         const int value_width = i < 2 ? 38 : 96;
-        s_metric_values[i] = label(rail, value_x, 58 + 24 * i, value_width, 26,
+        s_metric_values[i] = label(rail, value_x, s_metric_y[i], value_width, 26,
                                    &status_text_16, UI_THEME_RAIL_LABEL, "--");
         lv_obj_set_style_text_align(s_metric_values[i], LV_TEXT_ALIGN_RIGHT, 0);
     }
     for (int i = 0; i < 2; i++) {
-        s_metric_details[i] = label(rail, 52, 58 + 24 * i, 58, 26,
+        s_metric_details[i] = label(rail, 52, s_metric_y[i], 58, 26,
                                    &status_text_16, UI_THEME_RAIL_LABEL, "--");
         lv_obj_set_style_text_align(s_metric_details[i], LV_TEXT_ALIGN_RIGHT, 0);
+        s_metric_bars[i] = lv_bar_create(rail);
+        lv_obj_remove_style_all(s_metric_bars[i]);
+        lv_obj_remove_flag(s_metric_bars[i], LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_pos(s_metric_bars[i], 12, s_metric_y[i] + 24);
+        lv_obj_set_size(s_metric_bars[i], 136, 4);
+        lv_obj_set_style_bg_opa(s_metric_bars[i], LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_set_style_bg_color(s_metric_bars[i], lv_color_hex(UI_THEME_DIVIDER), LV_PART_MAIN);
+        lv_obj_set_style_radius(s_metric_bars[i], 2, LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(s_metric_bars[i], LV_OPA_COVER, LV_PART_INDICATOR);
+        lv_obj_set_style_bg_color(s_metric_bars[i],
+            lv_color_hex(UI_THEME_TEXT_SECONDARY), LV_PART_INDICATOR);
+        lv_obj_set_style_radius(s_metric_bars[i], 2, LV_PART_INDICATOR);
+        lv_bar_set_range(s_metric_bars[i], 0, 1000);
     }
     s_content = box(s_root, 160, 0, 480, 172, UI_THEME_BACKGROUND, 0);
     s_idle = box(s_content, 0, 0, 480, 172, UI_THEME_BACKGROUND, 0);

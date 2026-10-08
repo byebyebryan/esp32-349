@@ -58,6 +58,11 @@ The historical grouped/action scenarios project only the new history capability
 out of the real firmware hello, keeping their old-peer compatibility assertions.
 The history scenario uses the complete hello.
 
+The grouped fixture also checks CPU/MEM utilization bars at zero, half and full
+using rendered pixels, independent missing usage/detail readings, stale dimming
+and recovery, and gestures starting on a bar. Its seven `rail-bars-*` captures
+cover normal, zero, half, full, unavailable, stale and empty-history views.
+
 ## Inspect the shared UI
 
 ```sh
