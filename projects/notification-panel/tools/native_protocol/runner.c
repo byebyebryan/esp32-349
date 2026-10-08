@@ -1309,6 +1309,53 @@ static void test_notification_body_style_ranges(void)
     state_unlock();
 }
 
+static void test_json_depth_and_recovery(void)
+{
+    state_init();
+    const int depths[] = {PROTO_JSON_MAX_DEPTH, PROTO_JSON_MAX_DEPTH + 1, 129};
+    for (size_t index = 0; index < sizeof(depths) / sizeof(depths[0]); index++) {
+        const int depth = depths[index];
+        /* The top-level object counts as one level. */
+        char wire[512] = "{\"t\":\"hello\",\"padding\":";
+        size_t used = strlen(wire);
+        for (int i = 1; i < depth; i++) wire[used++] = '[';
+        wire[used++] = '0';
+        for (int i = 1; i < depth; i++) wire[used++] = ']';
+        wire[used++] = '}';
+        wire[used] = '\0';
+        if (depth > PROTO_JSON_MAX_DEPTH) {
+            sync_begin_clock(80, NULL);
+            CHECK(state_sync_pending());
+        }
+        cJSON *response = send_wire(wire);
+        CHECK(response != NULL);
+        if (depth == PROTO_JSON_MAX_DEPTH) {
+            CHECK(strcmp(string(response, "t"), "hello") == 0);
+        } else {
+            CHECK(strcmp(string(response, "t"), "resync") == 0);
+            CHECK(strcmp(string(response, "reason"), "parse_error") == 0);
+            CHECK(!state_sync_pending());
+        }
+        cJSON_Delete(response);
+        /* A rejected frame does not poison the next connection handshake. */
+        response = send_wire("{\"t\":\"hello\"}");
+        CHECK(response != NULL && strcmp(string(response, "t"), "hello") == 0);
+        cJSON_Delete(response);
+    }
+
+    cJSON *message = cJSON_CreateObject();
+    cJSON_AddStringToObject(message, "t", "hello");
+    cJSON_AddStringToObject(message, "padding",
+        "[[[[[[[[[[[[[[[[[[[[{{{{{{{{{{{{{{{{{{{{\\\"quoted\\\"}}]]\\");
+    char *wire = cJSON_PrintUnformatted(message);
+    CHECK(wire != NULL);
+    cJSON *response = send_wire(wire);
+    CHECK(response != NULL && strcmp(string(response, "t"), "hello") == 0);
+    cJSON_Delete(response);
+    cJSON_free(wire);
+    cJSON_Delete(message);
+}
+
 static int run_line_json(void)
 {
     state_init();
@@ -1338,6 +1385,7 @@ int main(int argc, char **argv)
         return 0;
     }
     if (argc == 2 && strcmp(argv[1], "--self-test") == 0) {
+        test_json_depth_and_recovery();
         test_progress_zone_validation();
         test_staged_validation_and_deltas();
         test_presentation_and_session_reset();

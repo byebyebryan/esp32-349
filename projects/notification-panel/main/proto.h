@@ -1,6 +1,10 @@
 #pragma once
 #include <stdbool.h>
 
+/* Bound recursive parsing/deletion within the 6 KiB link-task stack. Current
+ * messages need at most five container levels, including styled card arrays. */
+#define PROTO_JSON_MAX_DEPTH 16
+
 /* Handle one JSON message from the host (prefix already stripped). */
 void proto_handle_line(const char *json);
 

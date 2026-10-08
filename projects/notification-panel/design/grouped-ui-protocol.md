@@ -100,7 +100,10 @@ for cache inspection.
 
 All writes use the existing wire lock. A begin/cards/commit sequence remains
 atomic against deltas and presentation/input responses. Frames retain the
-8192-byte hard line limit and 2048-byte soft chunk target. Invalid staged
+8192-byte hard line limit and 2048-byte soft chunk target. Incoming JSON is
+limited to 16 object/array levels, including the root, before recursive parsing
+to fit the link-task stack. Deeper frames follow the existing `parse_error`
+recovery path; delimiters inside strings do not count. Invalid staged
 metadata leaves the committed cache unchanged and requests one recovery sync.
 
 ## Navigation geometry

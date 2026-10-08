@@ -408,6 +408,39 @@ static bool reject_interleaved(void)
     return true;
 }
 
+/* Check container depth without recursion or allocation before cJSON can use
+ * the link-task stack. Quoted delimiters and escaped quotes are ordinary data;
+ * cJSON remains responsible for validating the JSON syntax. */
+static bool json_depth_safe(const char *json)
+{
+    if (json == NULL) {
+        return false;
+    }
+    unsigned int depth = 0;
+    bool in_string = false;
+    bool escaped = false;
+    for (const char *cursor = json; *cursor != '\0'; cursor++) {
+        if (in_string) {
+            if (escaped) {
+                escaped = false;
+            } else if (*cursor == '\\') {
+                escaped = true;
+            } else if (*cursor == '"') {
+                in_string = false;
+            }
+        } else if (*cursor == '"') {
+            in_string = true;
+        } else if (*cursor == '{' || *cursor == '[') {
+            if (++depth > PROTO_JSON_MAX_DEPTH) {
+                return false;
+            }
+        } else if ((*cursor == '}' || *cursor == ']') && depth > 0) {
+            depth--;
+        }
+    }
+    return true;
+}
+
 void proto_handle_line(const char *json)
 {
     if (state_sync_timeout()) {
@@ -416,7 +449,7 @@ void proto_handle_line(const char *json)
             send_resync("sync_timeout");
         }
     }
-    cJSON *obj = cJSON_Parse(json);
+    cJSON *obj = json_depth_safe(json) ? cJSON_Parse(json) : NULL;
     if (obj == NULL) {
         ESP_LOGW(TAG, "bad json: %.64s", json);
         state_sync_abort();
