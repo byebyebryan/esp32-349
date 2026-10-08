@@ -74,6 +74,7 @@ async def scenario(native: Native):
     daemon._writer = object()
     source = daemon.notifications
     source._server_owner, source._server_pid = ":1.40", provider.pid
+    source._identity_state = "ready"
 
     async def write(message):
         native.wire(message)
