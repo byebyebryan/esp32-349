@@ -805,7 +805,7 @@ def default_config_path() -> str | None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="349d", description=__doc__)
     parser.add_argument("--config", help="TOML config file (default: ~/.config/349d/config.toml)")
-    parser.add_argument("--port", help="serial port (default: auto-detect by-id)")
+    parser.add_argument("--port", help="serial port override (default: configured port or saved USB pairing)")
     parser.add_argument("-v", "--verbose", action="store_true", help="debug logging")
     args = parser.parse_args(argv)
 

@@ -154,7 +154,10 @@ async def proof(artifacts: Path):
                 process.kill()
             await process.wait()
             raise
-        assert process.returncode == 0 and b"RELOAD_TRIGGERED" in output
+        assert (
+            process.returncode == 0
+            and b"PLUGIN_RELOAD_SUCCESS: status349NotificationActions" in output
+        ), output
         deadline = time.monotonic() + 3
         while True:
             current = await status()
