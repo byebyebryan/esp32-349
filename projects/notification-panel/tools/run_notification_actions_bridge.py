@@ -144,7 +144,7 @@ async def proof(artifacts: Path):
         assert action_count() == 1
 
         # Scoped reload must establish a new epoch and reject every old token.
-        process = await asyncio.create_subprocess_exec("dms", "ipc", "call", "plugin-scan",
+        process = await asyncio.create_subprocess_exec("dms", "ipc", "call", "plugins",
             "reload", "status349NotificationActions", stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE)
         try:

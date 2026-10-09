@@ -93,3 +93,7 @@ The producer does not activate the action. A proof controller must bind the
 reported ID with the live raw identity, activate only through the bridge, and
 confirm an `ActionInvoked` event with action key `default`; no app-window or
 focus behavior is implied.
+
+The [live bridge proof](../../../tools/README.md#desktop-open-proof) exercises
+binding/replacement/release, duplicate dispatch and a scoped provider reload
+with owned fixtures. It is opt-in and separate from the offline provider tests.

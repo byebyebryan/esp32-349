@@ -20,7 +20,7 @@ from dbus_next.aio import MessageBus
 from status349.__main__ import ipc_request
 from status349.actions import BridgeClient, validate_status
 
-APP = '349-Snap-Acceptance'
+APP = '349-Open-Smoke'
 NAME = 'org.freedesktop.Notifications'
 INTERFACE = 'org.freedesktop.Notifications'
 FIXTURES = (

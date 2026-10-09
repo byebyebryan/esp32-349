@@ -29,7 +29,7 @@ from `projects/notification-panel/` unless stated otherwise.
 | [Setup and daily commands](docs/setup.md) | Prerequisites, firmware, host service, pairing, flashing and `349ctl` |
 | [Configuration](docs/configuration.md) | TOML settings, bounds and reload behavior |
 | [Display behavior](docs/behavior.md) | History, text, touch/Open, telemetry, connection states and older peers |
-| [Tests and evidence](docs/testing.md) | Host, provider, firmware and production native checks |
+| [Tests and evidence](docs/testing.md) | Host, provider, firmware and production native checks; [manual tools](tools/README.md) |
 | [Validation checkpoint](STATUS.md) | Dated source, automated results and physical acceptance scope |
 | [Architecture](docs/architecture.md) | Host/firmware ownership, USB sessions, Open identity and rendering decisions |
 | [Wire protocol](docs/protocol.md) | Capabilities, atomic snapshots, retention, styles and action correlation |

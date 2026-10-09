@@ -4,9 +4,10 @@
 
 Run application commands from `projects/notification-panel/`. Use the
 [development guide](../../../docs/development.md#shared-component-checks) for
-repository-level checks. [STATUS.md](../STATUS.md) records the dated validation and
-source and physical-check baseline; the [native UI guide](../tools/native_ui/README.md) details
-individual runners.
+repository-level checks. [STATUS.md](../STATUS.md) records the dated source and
+physical-check baseline; the [native UI guide](../tools/native_ui/README.md) details
+individual runners. The [tools index](../tools/README.md) covers the optional
+serial probes, physical recorders, bridge proof and connected soak recorder.
 
 ```sh
 env -u DBUS_SESSION_BUS_ADDRESS uv run --project host --frozen pytest -q host/tests tools/tests
@@ -79,7 +80,8 @@ and device identity. A separate RTC fixture runs the production driver against
 simulated I2C registers, including oscillator-stop, invalid BCD/calendar values
 and fallback/recovery cases. These checks do not emulate ESP32 task scheduling,
 touch hardware or panel transfer.
-See [the native test guide](../tools/native_ui/README.md) for individual runners.
+See [the native test guide](../tools/native_ui/README.md) for individual runners. The [tools index](../tools/README.md) covers the optional
+serial probes, physical recorders, bridge proof and connected soak recorder.
 
 The backlight fixture checks exact timeout boundaries, screen following,
 reconnect control, local brightness/manual-off precedence, shared button
@@ -97,8 +99,9 @@ marker. Production parser checks cover legacy/grouped accepted arrivals,
 invalid/uncached cards and inert snapshots. On the selected board, observe a new
 notification raising brightness for 30 seconds and returning to the selected
 level, then press Brightness during a second boost to verify immediate cancellation.
-[STATUS.md](../STATUS.md) records the dated user-confirmed behavior. Serial boost/restore readback remains separate from
-physical illumination and button acceptance.
+[STATUS.md](../STATUS.md) records the dated user-confirmed behavior. Serial
+boost/restore readback remains separate from physical illumination and button
+acceptance.
 
 For physical button acceptance, start at 50% with host screens on.
 Press/release brightness four times: 75 → 100 → 25 → 50%. Verify a held button
