@@ -17,7 +17,7 @@ Backlight calls run under the LVGL lock. Turning it off cancels pointer input;
 wake waits for a held finger to be released before accepting a fresh press.
 V2 brightness percentages use the AP3032's filtered-PWM feedback network to
 map nominal LED current, rather than full-range inverted PWM. See the
-[backlight circuit/model](../../projects/notification-panel/design/backlight-policy.md)
+[backlight circuit/model](../../projects/notification-panel/docs/backlight.md)
 and its physical validation. Zero always disables BL_EN.
 
 Applications may opt into `display_349_buttons_init()` and poll every 20 ms.

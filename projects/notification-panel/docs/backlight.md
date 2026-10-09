@@ -1,10 +1,6 @@
 # Backlight policy
 
-Implemented: **2026-10-08**. Deployment and physical observations
-are recorded in [backlight acceptance](backlight-acceptance.md) and the subsequent
-[button/default-brightness checkpoint](backlight-buttons-acceptance.md).
-The subsequent boost deployment is recorded in
-[notification-boost acceptance](backlight-boost-acceptance.md).
+[Project overview](../README.md) · [Configuration](configuration.md) · [Tests](testing.md)
 
 ## Behavior
 
@@ -23,7 +19,8 @@ therefore made the old 25% step dark. The corrected mapping uses that usable
 range: 25/50/75/100% select duty counts 123/82/41/0 out of 256 at 50 kHz.
 Percentages describe nominal fractions of full LED current, not measured lux
 or a calibrated perceptual scale; component tolerances affect actual output.
-The corrected 50% setting can look brighter than the earlier 50% mapping.
+This mapping preserves a visibly lit lowest step; its percentage is a current
+setting rather than a perceptual brightness measurement.
 
 The firmware starts with a 300-second grace period. Recognized host traffic
 renews that deadline; USB presence alone does not. After 300 seconds without

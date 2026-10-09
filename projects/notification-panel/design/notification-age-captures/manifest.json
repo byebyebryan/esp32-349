@@ -1,8 +1,0 @@
-{
-  "description": "Production LVGL, virtual clock/data; Debug and Release pixel-identical; not panel photographs.",
-  "files": {
-    "history-age-fresh.png": "5254cedafeb2be4c407e29f41fb6b43ba70d43180eddc2d23609bf68ecdd652c",
-    "history-age-half.png": "2f83f489f3dc38aea45918b7ce4f48aaf6fea3856f8324c73f8ded0acd67efe4",
-    "history-age-near-expiry.png": "dfeef634eddb0414b0b070a755732c44a84839aa8e403fdb2f9279a33219ea40"
-  }
-}

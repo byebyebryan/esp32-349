@@ -63,7 +63,7 @@ default. With screen following enabled, the backlight is off
 when all known host monitors are off and on when any is on. Unknown monitor
 state preserves the board's previous screen decision. These settings require
 firmware advertising `backlight-v1`; older firmware keeps its existing
-brightness behavior. See [the backlight policy](../design/backlight-policy.md)
+brightness behavior. See [the backlight policy](backlight.md)
 for timeout, reconnect and screen-state details.
 
 On button-capable firmware, the brightness button chooses 25/50/75/100% in RAM.
@@ -83,4 +83,4 @@ later boost. Each subsequent arrival restarts the interval. Changing the duratio
 or configured brightness cancels an active boost; reloading the same values
 preserves its deadline. This setting defaults to 30 seconds and can be disabled
 with 0. Peers without the boost capability receive no boost fields or event
-marker. See [the boost contract](../design/backlight-policy.md#notification-boost).
+marker. See [the boost contract](backlight.md#notification-boost).

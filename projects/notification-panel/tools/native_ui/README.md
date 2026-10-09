@@ -53,7 +53,7 @@ disabled states, a long English title, a CJK title, and the legacy geometry.
 The grouped fixture also captures arrival, dismissal and last-card return
 to Home in 15 ms samples. It checks immediate cache removal, frozen outgoing
 geometry, inert touch during transitions and concurrent-update cancellation;
-see [the motion evidence](../../design/card-motion.md).
+see [motion ownership](../../docs/ui.md#gesture-and-motion-ownership).
 History captures cover the notification-only empty/single/multiple layouts,
 smaller text, age metadata, disconnected browsing, and arrival/removal motion.
 The historical grouped/action scenarios project only the new history capability
@@ -114,19 +114,22 @@ validated by the host parser. The composed Python scenario returns actual
 `input` messages to daemon handling; its held replacement check compares
 captured title/body pixels as well as state.
 
-Physical checks are reduced to the brief checklist in
-[grouped-ui-execution.md](../../design/grouped-ui-execution.md). Serial board
-probes are separate and require a paused daemon; they do not certify pixels
-or physical touch.
+The physical recorder below supplies isolated browse/dismiss/empty-state and
+reconnect checks. Also follow the [button/backlight checklist](../../docs/testing.md)
+when those behaviors change. Serial board probes require a paused daemon;
+they do not certify pixels or physical touch.
 
 ## Opt-in physical recorder
 
-Run only when the observer is ready at Starship's board:
+Run only when an observer is ready at the selected board. Set the exact stable
+USB path and expected firmware ELF prefix from its retained build artifacts:
 
 ```sh
+board_port='/dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_<serial>-if00'
+board_build='<expected-ELF-prefix>'
 uv run --project host --frozen python tools/run_grouped_smoke.py \
-  --port /dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_28:84:85:92:C2:20-if00 \
-  --expected-build-sha 604fd70da --artifacts /tmp/349-physical-smoke
+  --port "$board_port" --expected-build-sha "$board_build" \
+  --artifacts /tmp/349-physical-smoke
 ```
 
 The tool checks the firmware identity, takes its own sticky pause, and uses an

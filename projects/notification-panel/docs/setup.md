@@ -152,14 +152,10 @@ validates only that target, with no fallback. To migrate an existing pin, run
 `349ctl pair` while connected, verify the saved serial in status, then remove
 the pin and reload. Initial pairing reuses the verified session and confirms
 a fresh pong. PTY targets remain supported for development but require USB
-metadata to become a persistent binding. The [implementation plan](../design/usb-discovery-plan.md)
-records the ownership and rollout contract.
-The [pairing acceptance record](../design/usb-pairing-acceptance.md) separates
-automated checks, deployed host behavior and physical recovery gates.
-
-The [initial handshake validation](../design/usb-handshake-validation.md) preserves
-the prototype's two-board timings, mixed-device rejection and control-line
-observations.
+metadata to become a persistent binding. See
+[USB ownership](architecture.md#usb-session-ownership) for persistence and
+cancellation decisions, [handshake](protocol.md#handshake-and-capabilities)
+for verification bounds, and [STATUS.md](../STATUS.md) for dated validation.
 
 ## Project layout
 
@@ -167,8 +163,7 @@ observations.
 main/               ESP-IDF app: link, proto, state, ui, rtc
 host/               Python daemon (349d) and control CLI (349ctl)
 tools/              firmware checks, native UI runner and test fixtures
-docs/               setup, configuration, behavior and testing guides
-design/              current design notes and acceptance captures
+docs/               user guides, architecture, protocol, UI and backlight design
 integrations/        optional desktop notification action bridge
 ../../components/display_349/   shared panel/LVGL/touch component
 ../../scripts/       common ESP-IDF v5.5.3 setup and environment activation

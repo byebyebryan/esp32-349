@@ -30,7 +30,11 @@ from `projects/notification-panel/` unless stated otherwise.
 | [Configuration](docs/configuration.md) | TOML settings, bounds and reload behavior |
 | [Display behavior](docs/behavior.md) | History, text, touch/Open, telemetry, connection states and older peers |
 | [Tests and evidence](docs/testing.md) | Host, provider, firmware and production native checks |
-| [Validation checkpoint](STATUS.md) | Dated source/deployment identities and physical acceptance scope |
+| [Validation checkpoint](STATUS.md) | Dated source, automated results and physical acceptance scope |
+| [Architecture](docs/architecture.md) | Host/firmware ownership, USB sessions, Open identity and rendering decisions |
+| [Wire protocol](docs/protocol.md) | Capabilities, atomic snapshots, retention, styles and action correlation |
+| [UI design](docs/ui.md) | Geometry, palette, typography, gestures and motion |
+| [Backlight policy](docs/backlight.md) | Dimming circuit, physical controls, screen following and notification boosts |
 
 ## In motion
 
@@ -45,7 +49,5 @@ from `projects/notification-panel/` unless stated otherwise.
 | --- | --- |
 | ![Clock and telemetry with no recent notifications](docs/media/empty.png) | ![Dimmed readings with a cached notification still visible](docs/media/stale.png) |
 
-[PLAN.md](PLAN.md), [ACCEPTANCE.md](ACCEPTANCE.md) and `design/` preserve the
-dated milestones and detailed refinements. [STATUS.md](STATUS.md#evidence-map-and-remaining-scope)
-provides the evidence map. Shared board support and repository development
-commands are in the [repository guide](../../docs/development.md).
+Shared board support and repository development commands are in the
+[repository guide](../../docs/development.md).

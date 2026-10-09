@@ -5,7 +5,7 @@
 Run application commands from `projects/notification-panel/`. Use the
 [development guide](../../../docs/development.md#shared-component-checks) for
 repository-level checks. [STATUS.md](../STATUS.md) records the dated validation and
-deployment baseline; the [native UI guide](../tools/native_ui/README.md) details
+source and physical-check baseline; the [native UI guide](../tools/native_ui/README.md) details
 individual runners.
 
 ```sh
@@ -84,9 +84,10 @@ See [the native test guide](../tools/native_ui/README.md) for individual runners
 The backlight fixture checks exact timeout boundaries, screen following,
 reconnect control, local brightness/manual-off precedence, shared button
 debounce and the touch gate. Production parser checks validate display commands,
-button state and readback. Live off/wake observations remain separate
-[Snap policy](../design/backlight-acceptance.md) and
-[button acceptance](../design/backlight-buttons-acceptance.md) gates.
+button state and readback. Physical checks must separately observe screen-off/on,
+manual off and wake after the full five-minute daemon-loss interval. Screen-state
+snapshots and serial counters do not establish visible behavior. See
+[backlight policy](backlight.md) and [recorded validation](../STATUS.md).
 
 Notification-boost checks cover the exact 30-second boundary, subsequent
 arrivals restarting it, same-value sync preserving it, Brightness/off/reload
@@ -96,8 +97,7 @@ marker. Production parser checks cover legacy/grouped accepted arrivals,
 invalid/uncached cards and inert snapshots. On the selected board, observe a new
 notification raising brightness for 30 seconds and returning to the selected
 level, then press Brightness during a second boost to verify immediate cancellation.
-The [Snap boost checkpoint](../design/backlight-boost-acceptance.md) records
-user-confirmed behavior. Serial boost/restore readback remains separate from
+[STATUS.md](../STATUS.md) records the dated user-confirmed behavior. Serial boost/restore readback remains separate from
 physical illumination and button acceptance.
 
 For physical button acceptance, start at 50% with host screens on.
