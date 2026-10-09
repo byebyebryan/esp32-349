@@ -138,6 +138,22 @@ target_sources(native_ui_composed PRIVATE
     "${STATUS_MAIN}/dashboard.c")
 
 enable_testing()
+
+function(add_policy_check target fixture_source)
+    add_executable(${target} ${fixture_source} ${ARGN})
+    target_include_directories(${target} PRIVATE "${STATUS_MAIN}")
+    target_link_libraries(${target} PRIVATE native_cjson)
+    target_compile_options(${target} PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+    add_test(NAME ${target} COMMAND ${target})
+endfunction()
+
+add_policy_check(native_deck_policy ../test_deck.c "${STATUS_MAIN}/deck.c")
+add_policy_check(native_deck_input ../test_deck_input.c
+    "${STATUS_MAIN}/deck.c" "${STATUS_MAIN}/deck_input.c")
+add_policy_check(native_group_input ../test_group_input.c
+    "${STATUS_MAIN}/deck.c" "${STATUS_MAIN}/deck_input.c" "${STATUS_MAIN}/group_input.c")
+add_policy_check(native_dashboard ../test_dashboard.c "${STATUS_MAIN}/dashboard.c")
+
 add_executable(native_backlight ../test_backlight.c "${STATUS_MAIN}/backlight_policy.c")
 target_include_directories(native_backlight PRIVATE "${STATUS_MAIN}"
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../../components/display_349")

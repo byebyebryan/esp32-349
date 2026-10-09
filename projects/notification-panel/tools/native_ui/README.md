@@ -11,8 +11,9 @@ native_idf_root="${EIM_ROOT:-$HOME/.espressif}/${IDF_VERSION:-v5.5.3}/esp-idf"
 python tools/check_native_ui.py --cjson-include "$native_idf_root/components/json/cJSON"
 ```
 
-This builds Debug and Release with assertions enabled and runs fifteen CTests
-per configuration. The default CTest gate includes the production USB line
+This builds Debug and Release with assertions enabled and runs nineteen CTests
+per configuration, including standalone deck, deck-input, group-input and
+dashboard policy checks. The default CTest gate includes the production USB line
 receiver and legacy renderer safety checks. Override `--debug-build-dir` and
 `--release-build-dir` to choose build/artifact directories. The default directories are
 the checkout's ignored `.cache/native-ui/debug` and `.cache/native-ui/release`
@@ -24,6 +25,7 @@ The cache is preserved; choose fresh override paths to continue.
 
 | Target | Production path | Substitutions |
 |---|---|---|
+| `native_deck_policy`, `native_deck_input`, `native_group_input`, `native_dashboard` | Production focus/gesture policy and bounded dashboard parser | Deterministic inputs; assertions enabled in Debug and Release |
 | `native_ui` | LVGL, `ui_deck.c`, deck/input policy and font fallback/assets | Direct state fixture, virtual clock, link and dismissal capture |
 | `native_groups` | Same UI with grouped gesture/lifecycle cases | Same direct fixture |
 | `native_protocol` | `proto.c`, `state.c`, dashboard parser and IDF cJSON | Native allocation, locks, clock/RTC, USB output and descriptor identity |

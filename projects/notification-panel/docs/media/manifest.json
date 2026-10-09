@@ -1,6 +1,6 @@
 {
   "description": "Production protocol/state/LVGL with synthetic messages, virtual time and pointer input; no hardware or desktop session.",
-  "source_revision": "133abd4c917c2c18896bcea7d87bef310ca1eab2",
+  "source_revision": "6dfc30338b07280b44ade58b218cab9863d18dbe",
   "source_sha256": {
     "projects/notification-panel/main/ui_deck.c": "735ecf77fcd305b2194e73d63b1282c0239bf10340ce34a25b57be18482380aa",
     "projects/notification-panel/main/ui_theme.h": "87f6155c79987f676eb733a793aefd3b53e801d65940b020701233f28a8fd20d",
@@ -17,7 +17,7 @@
     "projects/notification-panel/tools/test_grouped_composed.py": "aa179ab03960ef44ca8532c5ec12fe1884ba8d1c66a75342845bbaaaa5f7e87a",
     "projects/notification-panel/tools/check_native_ui.py": "17d604d38d5ca92a20ed3b58a5ff26f501692685a147db1e0ebff8c3464ae26d",
     "projects/notification-panel/tools/render_presentation.py": "492a00c02e34ccd38b5ae3b94286ccacf7c4c66fb30226560083de880692a8d0",
-    "projects/notification-panel/tools/native_ui/CMakeLists.txt": "509c882f319492eea3cb031db8660ad37dd0f83c66e7df75e9fb2ced919b3bbe",
+    "projects/notification-panel/tools/native_ui/CMakeLists.txt": "155a388d0d5e41e7ce5c4595cd36d852617fc571958077a5a52fc4c095b54820",
     "projects/notification-panel/tools/native_ui/lv_conf.h": "27966c183fc165add2859c4a9c77d67f4857502413084f04aa3f77650e4a8b1d",
     "projects/notification-panel/dependencies.lock": "c8d68de33164058f4090db14950f38c6416b37d501aad215e1a1303bc825c4bf",
     "projects/notification-panel/host/src/status349/proto.py": "4c04eaa69798d3d98f13f40d26e68b8f096dd971c7b9347efb0a74e8a9358538",

@@ -33,23 +33,14 @@ checks in Debug and Release using the build's locked LVGL and SDK cJSON sources.
 Physical acceptance remains a separate gate; a green CI run does not establish
 device rendering or touch behavior.
 
-From this project directory, native checks execute the same deck policy and
-dashboard parser compiled into firmware using the host toolchain. Run them
-in a shell without EIM activation: its `PATH` can select the ESP ULP assembler
-for host GCC. Set the SDK location for header access only:
+The native gate includes the standalone deck, deck-input, group-input and
+bounded-dashboard fixtures, plus the production LVGL/parser paths. They keep
+assertions enabled in both Debug and Release. Use a host-toolchain shell
+without EIM activation: its `PATH` can select the ESP ULP assembler for host
+GCC. Set the SDK location for header access only:
 
 ```sh
 native_idf_root="${EIM_ROOT:-$HOME/.espressif}/${IDF_VERSION:-v5.5.3}/esp-idf"
-cc -std=c11 -Wall -Wextra -Werror -I main \
-  main/deck.c tools/test_deck.c -o /tmp/349-deck-tests
-/tmp/349-deck-tests
-cc -std=c11 -Wall -Wextra -Werror -I main \
-  main/deck.c main/deck_input.c tools/test_deck_input.c -o /tmp/349-deck-input-tests
-/tmp/349-deck-input-tests
-cc -std=c11 -Wall -Wextra -Werror -I main -I "$native_idf_root/components/json/cJSON" \
-  main/dashboard.c tools/test_dashboard.c "$native_idf_root/components/json/cJSON/cJSON.c" \
-  -lm -o /tmp/349-dashboard-tests
-/tmp/349-dashboard-tests
 python tools/check_font_coverage.py
 ```
 
