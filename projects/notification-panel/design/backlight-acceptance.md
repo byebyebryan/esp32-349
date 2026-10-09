@@ -24,9 +24,9 @@ The paired V2 board on Snap was flashed at approximately **14:09 PDT on
 deployment or hardware tests.
 
 Snap's clean checkout was advanced from `f5a31a4` to the published `b188cf6`
-base before installing the locally tested changes. The candidate remains
-uncommitted. The existing service was restarted while its sticky serial pause
-was set, then resumed after the application write and verification.
+base before installing the locally tested changes. The candidate was uncommitted
+at this checkpoint. The existing service was restarted while its sticky serial
+pause was set, then resumed after the application write and verification.
 
 | Artifact | Identity |
 | --- | --- |
@@ -84,3 +84,11 @@ User observation of the bar going fully dark and waking remains pending.
 The held-finger wake check is also pending: input should remain cancelled
 until release, and the next fresh press should work normally. No physical
 illumination or touch acceptance is claimed by the automated checks.
+
+## Subsequent checkpoints
+
+The [button/default checkpoint](backlight-buttons-acceptance.md) records the
+later 50% default, dimming correction, full timeout and user-observed physical
+controls. The [boost checkpoint](backlight-boost-acceptance.md) records the
+subsequent notification feature and source publication. The dates, 100% default
+and artifact identities above belong to this initial trial.

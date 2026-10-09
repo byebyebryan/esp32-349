@@ -206,6 +206,17 @@ its configured level. Buttons act once on release and do not repeat while held.
 The board has no ambient-light sensor. See the
 [button validation checkpoint](../design/backlight-buttons-acceptance.md).
 
+With `backlight-boost-v1`, a fresh accepted notification or genuine replacement
+raises the backlight to 100% for 30 seconds by default. Each arrival restarts
+that interval; expiry restores the user-selected brightness. Sync and cached
+replay do not trigger it. Manual off, host screen off and disconnect take
+precedence, and arrivals while dark do not queue a boost for wake. Pressing
+Brightness cancels the boost and cycles from the selected level, so a boost
+from 50% followed by a click selects 75%. Configure the duration or disable it
+with `notification_boost_s`; see the
+[boost contract](../design/backlight-policy.md#notification-boost),
+[physical acceptance](../design/backlight-boost-acceptance.md).
+
 The daemon sends a ping every four seconds even when the bar does not change.
 While the board stays powered, it shows `host asleep` when USB activity stops
 and `host disconnected` when USB is active but host messages stop for ten

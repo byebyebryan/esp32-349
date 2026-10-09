@@ -93,11 +93,14 @@ arrivals restarting it, same-value sync preserving it, Brightness/off/reload
 cancellation, disabled configuration and absence of deferred boosts. Host checks
 exercise capability negotiation and ensure cached replay carries no event
 marker. Production parser checks cover legacy/grouped accepted arrivals,
-invalid/uncached cards and inert snapshots. On Snap, observe a new notification
-raising brightness for 30 seconds and returning to the selected level, then
-press Brightness during a second boost to verify immediate cancellation.
+invalid/uncached cards and inert snapshots. On the selected board, observe a new
+notification raising brightness for 30 seconds and returning to the selected
+level, then press Brightness during a second boost to verify immediate cancellation.
+The [Snap boost checkpoint](../design/backlight-boost-acceptance.md) records
+user-confirmed behavior. Serial boost/restore readback remains separate from
+physical illumination and button acceptance.
 
-For physical button acceptance on Snap, start at 50% with host screens on.
+For physical button acceptance, start at 50% with host screens on.
 Press/release brightness four times: 75 → 100 → 25 → 50%. Verify a held button
 does not repeat. Press Power to go dark, then brightness to select 75% while
 staying dark; Power should return to automatic mode at 75%. Leave a local

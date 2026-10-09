@@ -74,9 +74,13 @@ RESET/power loss clears both local choices, restoring the default and then the
 configured host level on reconnect. Power-on returns to automatic screen and
 timeout following; it does not force a dark host's bar to light up.
 
-`notification_boost_s` accepts integer 0–86,400 seconds. With boost-capable
-firmware, each fresh accepted notification raises brightness to 100% for this
-duration, then restores the selected level. Replays do not trigger it. Off
-decisions and Brightness input cancel it; arrivals while dark do not queue a
-later boost. Changing the duration cancels an active boost. This setting defaults
-to 30 seconds and can be disabled with 0.
+`notification_boost_s` accepts integer 0–86,400 seconds. With firmware
+advertising `backlight-boost-v1`, each fresh accepted notification raises
+brightness to 100% for this duration, then restores the selected level. Replays
+do not trigger it. Off decisions and Brightness input cancel it; arrivals while
+dark do not queue a
+later boost. Each subsequent arrival restarts the interval. Changing the duration
+or configured brightness cancels an active boost; reloading the same values
+preserves its deadline. This setting defaults to 30 seconds and can be disabled
+with 0. Peers without the boost capability receive no boost fields or event
+marker. See [the boost contract](../design/backlight-policy.md#notification-boost).

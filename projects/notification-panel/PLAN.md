@@ -75,6 +75,20 @@ images, tables and body scrolling remain outside this pass. Snap received the
 same accepted binary and host/helper source on 2026-10-01; its rollout evidence
 is recorded separately in the acceptance document.
 
+### Implemented refinement — backlight policy and controls (2026-10-08)
+
+Keep USB, rendering and notification expiry running while the backlight follows
+host monitor power or turns off after five minutes without daemon traffic.
+Use 50% as the default, the physical Brightness button for 25/50/75/100%, Power
+for manual off and RESET for its hardware restart. Fresh notifications boost
+to 100% for 30 seconds, then restore the selection; replay and off precedence
+are defined in the [backlight policy](design/backlight-policy.md).
+Snap's [policy](design/backlight-acceptance.md),
+[button](design/backlight-buttons-acceptance.md) and
+[boost](design/backlight-boost-acceptance.md) checkpoints preserve their
+individual automated, serial and physical results. The reviewed source was
+published in `b9046f4`.
+
 ## Historical validation boundary (2026-09-26)
 
 The hardware findings below describe the 2026-09-23 builds. The fresh

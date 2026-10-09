@@ -92,8 +92,8 @@ It therefore adds no sustained host-screen-off acceptance; the earlier
 [policy checkpoint](backlight-acceptance.md) records a brief real-source off/on
 transition. The new direct board commands and native host-source cases passed.
 
-Final deployment source matches the local candidate. Configuration, saved
-pairing and the service unit retain their pre-deployment hashes. The daemon is
+Final deployment source matched the local candidate. Configuration, saved
+pairing and the service unit retained their pre-deployment hashes. The daemon was
 active, unpaused and linked through the paired stable serial path; manual off
 is clear, brightness is 50%, and both external monitors are on. At that
 checkpoint, no commit or push had been made. Private source manifests, probes
@@ -157,8 +157,17 @@ logs. After daemon resume, a **75.004-second** observation at its configured
 external monitors on and the same boot identity. This is automated scheduling
 and driver evidence; it adds no new optical or held-touch acceptance.
 
-The daemon remains active, unpaused and linked. Final source hashes match the
-reviewed candidate, and configuration, pairing and service-unit hashes retain
-their pre-deployment values. Structured review evidence is kept privately with
+At completion of this review, the daemon was active, unpaused and linked.
+Final source hashes matched the reviewed candidate, and configuration, pairing
+and service-unit hashes retained their pre-deployment values. Structured review
+evidence is kept privately with
 the new backup. The full 300-second and physical-button results above remain
 their own dated observations.
+
+## Publication and follow-up
+
+The reviewed policy and physical-control source was committed and pushed as
+[`133abd4`](https://github.com/byebyebryan/esp32-349/commit/133abd4c917c2c18896bcea7d87bef310ca1eab2).
+Publication preserved the tested Snap binary identified above. The subsequent
+[boost checkpoint](backlight-boost-acceptance.md) records the subsequent
+notification feature and its physical acceptance.

@@ -35,13 +35,37 @@ The generated 16/20/22 px text and 80 px clock fonts are checked in.
 ## Flashing while the daemon runs
 
 The daemon holds the serial port. Flashing resets the chip; use the
-sticky pause so a `Restart=always` unit cannot grab the port mid-flash:
+sticky pause so a `Restart=always` unit cannot grab the port mid-flash.
+
+Retain a rollback application and copies of configuration and saved pairing
+before updating. Verify a retained application against the selected board or
+read its current flash before writing; a local build alone does not identify
+the running firmware. Keep device identities, backup paths and flash logs with
+the local rollback artifacts.
 
 ```sh
 349ctl pause          # releases the tty (flag file survives daemon restarts)
+# Back up or verify the selected board while the daemon is paused.
 idf.py -p "$board_port" flash  # exact path selected above
+# If host code changed, run the update commands below before resuming.
 349ctl resume         # verifies and reconnects without an extra device reset
 ```
+
+For an application-only update with an unchanged partition table, use
+`idf.py -p "$board_port" app-flash` in place of `flash`; it writes the application
+without replacing the bootloader or partition table.
+
+If host source or dependencies changed, load the updated code after flashing
+and before `349ctl resume`, while the sticky pause is still set:
+
+```sh
+uv sync --project host --frozen
+systemctl --user restart 349d
+```
+
+A configuration reload does not load changed Python code. Restarting the
+daemon clears its retained in-memory cards; ordinary pause/resume preserves
+them. Neither operation changes saved USB pairing.
 
 ## Host setup
 

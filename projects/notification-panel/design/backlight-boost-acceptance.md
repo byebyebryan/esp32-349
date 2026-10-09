@@ -3,7 +3,7 @@
 Candidate date: **2026-10-08**; base source `133abd4` with uncommitted changes.
 This follows the [button/default checkpoint](backlight-buttons-acceptance.md)
 and records the [notification-boost contract](backlight-policy.md#notification-boost).
-Hardware writes and live service checks target **Snap only**.
+Hardware writes and live service checks in this trial targeted **Snap only**.
 
 ## Automated checks
 
@@ -76,9 +76,19 @@ pressing Brightness during the repeated boost immediately settled at 75% and
 stayed there. These observations are separate from serial counters and native
 assertions. Electrical current and lux were not measured.
 
-The daemon is active, unpaused and linked, with manual off clear, selected
-brightness 75%, host baseline 50%, timeout 300 seconds and boost duration 30
-seconds. Final source hashes match the local candidate and preserved host-file
-hashes remain unchanged. Structured observations and source/artifact manifests
-are retained privately with the backup. This is an uncommitted validation
+At the end of this Snap trial, the daemon was active, unpaused and linked,
+with manual off clear, selected brightness 75%, host baseline 50%, timeout 300
+seconds and boost duration 30 seconds. Final source hashes matched the local
+candidate and preserved host-file hashes remained unchanged. Structured
+observations and source/artifact manifests are retained privately with the
+backup. The candidate was uncommitted at this validation
 checkpoint; earlier screen-off/held-touch acceptance limits remain unchanged.
+
+## Publication
+
+The reviewed source was committed and pushed as
+[`b9046f4`](https://github.com/byebyebryan/esp32-349/commit/b9046f4417a0bed22ff5c07cc6f2ca101ef2b87d).
+Review repeated all 24 host display tests and the native backlight/protocol
+checks in Debug and Release; documentation/media provenance and Snap source
+parity passed. Publication did not rebuild or replace the Snap application
+identified above.

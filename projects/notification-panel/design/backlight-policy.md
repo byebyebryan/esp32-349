@@ -1,6 +1,6 @@
 # Backlight policy
 
-Implemented candidate: **2026-10-08**. Deployment and physical observations
+Implemented: **2026-10-08**. Deployment and physical observations
 are recorded in [backlight acceptance](backlight-acceptance.md) and the subsequent
 [button/default-brightness checkpoint](backlight-buttons-acceptance.md).
 The subsequent boost deployment is recorded in
@@ -114,10 +114,10 @@ in `349ctl status`, rather than silently treated as off.
 ## Configuration and protocol
 
 `[display]` accepts `brightness_percent` (integer 1–100),
-`disconnect_timeout_s` (integer 1–86,400) and `follow_host_screen` (boolean).
-Defaults are 50, 300 and true. Reload sends the updated policy without changing
-pairing. Settings live in daemon configuration and board RAM, without repeated
-flash writes.
+`disconnect_timeout_s` (integer 1–86,400), `follow_host_screen` (boolean) and
+`notification_boost_s` (integer 0–86,400). Defaults are 50, 300, true and 30.
+Reload sends the updated policy without changing pairing. Settings live in
+daemon configuration and board RAM, without repeated flash writes.
 
 Firmware advertises the independent `backlight-v1` capability. Only capable
 peers receive this command:
@@ -131,6 +131,12 @@ fields are required and validated atomically. Invalid settings leave the old
 policy intact and request resync with `display_invalid`. The daemon sends
 changes and replays control before each full sync under the same wire lock.
 Older firmware receives no display-control frames.
+
+For peers additionally advertising `backlight-boost-v1`, the daemon adds
+`"boost_s":30` (or the configured duration) to that command. The optional field
+is validated atomically with the required fields; omitting it preserves the
+firmware's existing duration. Live `notify` frames carry the separate ephemeral
+`boost:true` marker described above; display control itself never starts a boost.
 
 `cards_status.backlight` reports the applied percentage, policy target,
 selected `brightness`, configured `host_brightness`/timeout, remembered screen
@@ -156,6 +162,6 @@ suppression across wake. Both
 applications must build because the input support is shared board support;
 the physical-button API is opt-in and render-bench does not enable it.
 
-Physical acceptance requires seeing the Snap bar go dark and wake, including
-after the full five-minute daemon-loss interval. Serial readback and
-monitor-power snapshots establish their respective code paths only.
+Physical acceptance on each deployed host requires seeing the bar go dark and
+wake, including after the full five-minute daemon-loss interval. Serial readback
+and monitor-power snapshots establish their respective code paths only.

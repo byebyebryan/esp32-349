@@ -1,8 +1,8 @@
 # Notification-panel implementation and validation
 
 Checkpoint: **2026-10-08**, source revision
-[`15b718e`](https://github.com/byebyebryan/esp32-349/commit/15b718ee1254da4fb0c10ba1ca283c85cc034762).
-This is a dated implementation/deployment record. Setup commands are in the
+[`b9046f4`](https://github.com/byebyebryan/esp32-349/commit/b9046f4417a0bed22ff5c07cc6f2ca101ef2b87d).
+This is a dated implementation and validation record. Setup commands are in the
 [setup guide](docs/setup.md); supported behavior is in the
 [behavior reference](docs/behavior.md).
 
@@ -17,7 +17,8 @@ This is a dated implementation/deployment record. Setup commands are in the
 | Text | English and 3,500 common Simplified Chinese characters, bounded host conversion and capability-gated bold/italic spans; visible placeholders outside the selected repertoire |
 | Open | Optional DMS bridge; fresh owner/PID and per-notification identity proof; archived cards keep their text with Open disabled |
 | USB | Explicit one-time pairing, exact saved-serial selection, hello/pong verification and same-handle adoption; normal reconnect/resume does not reset the board |
-| Compatibility | Capability-gated history, styles, actions and dashboard; older grouped/active-card and generic-zone paths remain available |
+| Backlight | 50% default; host-screen following and five-minute daemon-loss timeout; local 25/50/75/100% brightness and manual off; fresh notifications boost to 100% for 30 seconds, then restore the selection |
+| Compatibility | Capability-gated history, styles, actions, dashboard and backlight controls/boost; older grouped/active-card and generic-zone paths remain available |
 
 The latest UI refinement is the
 [accepted CPU/MEM bar spacing](design/telemetry-rail-usage-bars.md).
@@ -28,6 +29,17 @@ restart recovery was introduced in the
 [October 5 host checkpoint](design/notification-actions-acceptance.md#notification-server-restart-recovery-2026-10-05).
 
 ## Recorded automated validation
+
+The published boost source passed **417 host/tooling tests**, with three optional
+live-desktop checks skipped, and **15/15 native CTests in both Debug and Release**.
+Its notification-panel build passed with ESP-IDF v5.5.3; the shared component
+and render-bench were unchanged from the preceding successful builds. See the
+[boost checkpoint](design/backlight-boost-acceptance.md) for the full scope.
+
+### Earlier review checkpoint (`15b718e`)
+
+These results belong to
+[`15b718e`](https://github.com/byebyebryan/esp32-349/commit/15b718ee1254da4fb0c10ba1ca283c85cc034762).
 
 | Gate | Result at this checkpoint |
 | --- | --- |
@@ -44,36 +56,29 @@ ESP32 scheduling, actual touch input and panel transfer require device evidence.
 The later presentation pass adds a documentation/media CI gate and reproducible
 [native demo assets](docs/media/README.md).
 
-## Recorded Starship deployment
+## Recorded device validation
 
-Starship's paired V2 board received the `15b718e` application at **22:26 PDT on
-2026-10-07**. The application write was verified; configuration and saved
-pairing remained unchanged. Resume restored a fresh link without an extra
-reset, and host/device telemetry matched with a non-stale, empty deck.
+Physical observations confirmed four visible brightness levels, the 50%
+default, Power turning the backlight off and RESET restarting the device.
+The notification boost visibly returned to the selected level, and pressing
+Brightness during a boost canceled it immediately. The detailed
+[button](design/backlight-buttons-acceptance.md) and
+[boost](design/backlight-boost-acceptance.md) checkpoints distinguish those
+observations from native assertions and serial counters.
 
-| Artifact | Identity |
-| --- | --- |
-| Application | 3,822,624 bytes; SHA-256 `2aa4d9818b18420ba0c817e29988e6f24bf84b7478d984827729c4ffb6b0bb04` |
-| ELF | SHA-256 `1147137877ff70be54262535fd485c786cc8372d490c9551c156e21236bce916` |
-| Device hello | Build `15b718e`, ELF prefix `114713787` |
-
-A physical serial probe accepted container depth 16, rejected a 128-level
-nested-array frame with `parse_error`, and returned a fresh pong without
-changing boot ID. Verified previous-application/partition artifacts and raw
-deployment records are retained in the operator's local backup directory,
-`~/.local/share/esp32-349/backups/review-fixes-starship-20261008T052022Z/`.
-
-The earlier spaced-bar layout has user-confirmed panel acceptance. This
-backend-fix deployment did not repeat the visual/touch trial. Deployment
-records describe that run, rather than the display's connection state today.
+At the earlier `15b718e` review checkpoint, a device serial probe accepted
+container depth 16, rejected a 128-level nested-array frame with `parse_error`,
+and returned a fresh pong without changing boot ID. The spaced-bar layout
+already had user-confirmed panel acceptance; that backend review did not
+repeat visual/touch acceptance.
 
 ## Evidence map and remaining scope
 
 | Topic | Detailed record |
 | --- | --- |
-| Subsequent notification brightness boost on Snap (October 8) | [Boost acceptance](design/backlight-boost-acceptance.md) |
-| Subsequent backlight policy and Snap deployment (October 8) | [Backlight acceptance](design/backlight-acceptance.md) |
-| Subsequent 50% default and physical button controls on Snap (October 8) | [Button acceptance](design/backlight-buttons-acceptance.md) |
+| Notification brightness boost (October 8) | [Boost acceptance](design/backlight-boost-acceptance.md) |
+| Backlight policy (October 8) | [Backlight acceptance](design/backlight-acceptance.md) |
+| 50% default and physical button controls (October 8) | [Button acceptance](design/backlight-buttons-acceptance.md) |
 | Current bar layout and panel feedback | [CPU/MEM utilization bars](design/telemetry-rail-usage-bars.md) |
 | Paired reconnect, mixed devices and hub power cycle | [USB pairing acceptance](design/usb-pairing-acceptance.md) |
 | Retention and notification-only UI | [History acceptance](design/notification-history-acceptance.md) |
