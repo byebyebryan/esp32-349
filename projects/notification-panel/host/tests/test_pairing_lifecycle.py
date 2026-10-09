@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from status349 import daemon as daemon_module, discovery, pairing, proto
+from status349 import daemon_link as link_module, discovery, pairing, proto
 from status349.config import default_config
 from status349.daemon import Daemon
 from status349.ipc import pause_path
@@ -323,7 +323,7 @@ def test_active_writes_have_deadline_and_release_wire_lock(monkeypatch):
             await asyncio.Future()
 
         daemon._writer = SimpleNamespace(write=lambda data: None, drain=drain)
-        monkeypatch.setattr(daemon_module, "WRITE_TIMEOUT_S", 0.02)
+        monkeypatch.setattr(link_module, "WRITE_TIMEOUT_S", 0.02)
         assert not await asyncio.wait_for(daemon.send({"t": "ping", "ts": 1}), 0.2)
         assert not daemon._wire_lock.locked()
         assert daemon._link_failed
@@ -356,7 +356,7 @@ def test_debug_logs_do_not_prevent_keepalive_expiry(monkeypatch):
         daemon._writer = object()
         daemon._last_pong_mono = 1
         daemon._monotonic = lambda: 20
-        monkeypatch.setattr(daemon_module, "PING_INTERVAL_S", 0.001)
+        monkeypatch.setattr(link_module, "PING_INTERVAL_S", 0.001)
 
         async def no_pong():
             await daemon._on_line("device is still printing debug logs")

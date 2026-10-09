@@ -4,7 +4,8 @@ import asyncio
 import time
 
 from status349.config import default_config
-from status349.daemon import Daemon, PING_INTERVAL_S
+from status349.daemon import Daemon
+from status349.daemon_link import PING_INTERVAL_S
 from status349.fake import FakeDevice
 
 
@@ -39,7 +40,7 @@ def test_daemon_talks_to_fake_device():
 
 
 def test_ping_loop_sends_periodically_only_while_connected(monkeypatch):
-    monkeypatch.setattr("status349.daemon.PING_INTERVAL_S", 0.02)
+    monkeypatch.setattr("status349.daemon_link.PING_INTERVAL_S", 0.02)
 
     async def scenario():
         daemon = Daemon(default_config(), asyncio.Event())

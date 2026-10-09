@@ -368,7 +368,7 @@ def test_device_cards_ipc_returns_readback_ids_and_times_out_cleanly(monkeypatch
             return True
 
         daemon.send = no_reply
-        monkeypatch.setattr("status349.daemon.CARD_STATUS_TIMEOUT_S", 0.01)
+        monkeypatch.setattr("status349.daemon_link.CARD_STATUS_TIMEOUT_S", 0.01)
         timeout = await daemon._ipc_handler({"cmd": "device_cards"})
         assert timeout == {"ok": False, "error": "timed out waiting for cards_status"}
         assert daemon._cards_status_waiter is None

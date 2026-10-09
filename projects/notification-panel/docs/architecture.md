@@ -31,6 +31,22 @@ cards without treating the snapshot as a new arrival or restarting retention
 and boost deadlines. An unexpired presentation can resume with its remaining
 time.
 
+Host implementation is split by responsibility:
+
+| Module | Owns |
+| --- | --- |
+| [daemon.py](../host/src/status349/daemon.py) | Construction, shared state/locks, worker lifecycle, capability negotiation, sync, IPC and scheduling |
+| [daemon_cards.py](../host/src/status349/daemon_cards.py) | Retention, peer text projection, card callbacks and presentation attention |
+| [daemon_link.py](../host/src/status349/daemon_link.py) | Pairing, verified session ownership, transport, readback and keepalive |
+| [daemon_actions.py](../host/src/status349/daemon_actions.py) | Activation correlation, pending requests and dispatch results |
+| [daemon_telemetry.py](../host/src/status349/daemon_telemetry.py) | Serialized source sampling, dashboard smoothing and monitor-power following |
+
+The four implementation mixins are assembled by `Daemon`; they share its
+model and locks rather than introducing separate state owners. Cross-worker
+operations retain the same lock boundaries, cancellation and shutdown order.
+The CLI remains `349d`/`349ctl`, and configuration, pairing and wire identities
+are unchanged by this split.
+
 Telemetry has its own one-second cadence. Notification/action wakeups do not
 resample it. Slow commands run in background workers; after collection the
 next sample is due one tick later, avoiding catch-up bursts. Full sync uses
@@ -80,7 +96,7 @@ detects silent sessions independently of console logs. Relevant code:
 [discovery](../host/src/status349/discovery.py),
 [pairing](../host/src/status349/pairing.py),
 [serial ownership](../host/src/status349/serial_session.py) and
-[daemon lifecycle](../host/src/status349/daemon.py).
+[link lifecycle](../host/src/status349/daemon_link.py).
 
 ## Desktop Open identity
 
