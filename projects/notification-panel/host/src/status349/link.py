@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import glob
 import time
 from collections.abc import Iterator
@@ -42,18 +41,6 @@ def reset_to_normal_boot(port: serial.Serial) -> None:
         time.sleep(0.1)
         port.rts = False  # Both deasserted: clear download mode flag
         time.sleep(0.05)
-        port.dtr = False
-    except (OSError, serial.SerialException):
-        pass
-
-
-async def reset_to_normal_boot_async(port: serial.Serial) -> None:
-    try:
-        port.dtr = False
-        port.rts = True
-        await asyncio.sleep(0.1)
-        port.rts = False
-        await asyncio.sleep(0.05)
         port.dtr = False
     except (OSError, serial.SerialException):
         pass
@@ -117,5 +104,4 @@ __all__ = [
     "find_port",
     "open_port",
     "reset_to_normal_boot",
-    "reset_to_normal_boot_async",
 ]
