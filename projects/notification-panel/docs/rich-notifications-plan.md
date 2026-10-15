@@ -276,15 +276,15 @@ configuration and relevant firmware versions separately.
 | Agreed product boundaries and ownership | Captured; generic 349 center, codex-plus helper, chezmoi distribution, optional lifecycle adapter |
 | Existing missing-notification investigation | Helper parity and fourteen isolated checks pass; detached `/dev/tty` failure reproduced on both hosts |
 | G0 ordinary execution and recovery | Native basic completion alerts selected on both hosts; fresh installed-default local/SSH desktop checks pass; notification-only rollback/reselection passes |
-| G1 ownership | codex-plus owns the helper; preview.1 independently checksum-pinned through chezmoi, with twelve-file byte/executable readback on both hosts and prior helper retained |
+| G1 ownership | codex-plus owns the helper; preview.5 independently checksum-pinned through chezmoi, with fourteen-file byte/executable readback on both hosts and prior helpers retained |
 | G2-G5 implementation | Explicit rich native TUI route, v1 metadata, narrow read-only turn-history inspector and optional local retirement implemented; local/SSH full sequences and tmux passthrough pass |
 | G2 config-first reopening | Normal launcher retained; configured hooks work in isolated shared 0.162.1 study. Remote TUI override inference corrected. Candidate episode deduplication is bounded; originating-client routing remains unavailable |
 | G2 desktop-route candidate | Config hook and explicit local/SSH desktop transport implemented and qualified in controlled contexts. Always-notify/new-terminal defaults remain unselected |
-| G2 selected launcher follow-up | Bryan verified native desktop clicks focus Kitty in session and Command Center views, then accepted a launch helper. Owner plan covers explicit bindings, one publisher per wrapped client, Command Center coverage, failure behavior and staged daily integration; implementation remains unchanged |
+| G2 selected launcher follow-up | Implemented terminal relay with positive root bindings, preserved native event filters and per-viewer actions. Preview 4 desktop Open passed in local/SSH session and Command Center views; preview 5 current-server delivery passes, with a later local click repeat unresolved |
 | Launcher/consumer source hardening | The selected goal loop adds conservative launch dispatch, preserved native event filters, positive root bindings and distinct viewer action IDs. Private native Command Center/switch/legacy-resume cases pass. Bounded 349 admission suppresses stale first arrivals without blocking generic delivery; 433 host/tooling tests pass, three live desktop tests skip. Installed selection remains unchanged |
 | Config-route lifecycle follow-up | October 15 local `100053` and SSH `100054` each reached the board, remained after panel presentation expiry, then disappeared from exact device-cache readback after newer interrupted turns; same board boot throughout. No physical acceptance claimed |
-| Safe default transition | Pending: loaded hook settings and fresh TUI settings can differ. Preserve basic recovery and ongoing owners; do not disable native completion alerts for loaded `notify=[]` threads |
-| G6-G7 | Host/producer/distribution checks, source publication, installed device readback and host/helper/config rollback/reselection pass; source reviews remain drafts |
+| Safe default transition | Fresh interactive user Zsh shells select the qualified helper on Starship/Snap; native configuration and existing sessions remain intact. Unsupported, agent and noninteractive calls stay native; both shell rollback/reselection checks pass |
+| G6-G7 | Host/producer/distribution checks, source publication, installed device readback and helper/shell/config rollback/reselection pass. Live admission-queue activation awaits explicit 349d restart authorization; source reviews remain drafts |
 | Physical and wider acceptance | Pending physical/touch confirmation; existing DMS Open unavailable; additional native/UI contexts listed in the dated record |
 
 The loop is complete only when agreed delivery, optional enrichment and local
@@ -335,3 +335,36 @@ utility/automation dispatch and explicit `/usr/bin/codex` available. Both host
 activation switches remain false pending desktop acceptance. Installed helper
 bytes and helper-only rollback/reselection pass on both hosts. Source branches
 remain reviewable candidates; source publication is not fleet activation.
+
+## Desktop and daily launcher follow-up
+
+Preview 4 added a visible Open button through the originating Kitty terminal.
+Actual local and Snap SSH session/Command Center checks correlated the returned
+DMS notification ID, action 1 and focus of the exact Kitty window. Card body
+clicks may expand text according to DMS preferences. Terminal Open does not switch
+the native Command Center thread or repair the separate DMS panel Open provider.
+
+Fresh interactive user shells on both hosts now select the helper. Exact shell
+apply, rollback and reselection passed; agent and noninteractive shells remain
+native. Both canonical chezmoi sources preserve unrelated Observer work, and no
+broad apply ran. Existing sessions retain their original route.
+
+Preview 5 at `8d1fea8e5f25bb71e0ef18ff424a73d7578ac8c0` is installed on both
+hosts with fourteen-file readback and rollback/reselection to preview 4. Private
+native checks qualify TUI/server pairs 0.162.1/0.162.1, 0.162.1/0.163.0 and
+0.163.0/0.163.0. Other pairs and additional workspace-root launches stay native.
+The managed servers independently transitioned to 0.163.0 during qualification;
+no restart command was issued by this work and the cause was not established.
+
+Actual fresh-shell `codex` delivery on both current owners reached the desktop
+from Command Center with one rich notification, host title, separate body and
+exact metadata. Owned threads were archived and owner identity remained stable
+within these runs. A local click repeat captured no ActionInvoked signal and
+remains unresolved; the Snap repeat was explicitly delivery-only. Earlier preview
+4 Open results remain dated evidence, rather than new current-server acceptance.
+
+The 349 pre-admission source fix and its rollback archives are prepared, but the
+running service has not adopted it. Its activation requires a 349d-only restart
+under repository instructions; user authorization remains outstanding. Firmware
+and live services are unchanged by this work. Physical readability, visible
+retirement and touch acceptance remain open.
