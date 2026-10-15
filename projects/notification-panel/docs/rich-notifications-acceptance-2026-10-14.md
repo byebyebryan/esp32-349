@@ -3,6 +3,8 @@
 This is a dated installed-candidate checkpoint. Physical panel/touch acceptance
 remains pending. The [guide](rich-notifications.md) describes usage and failure
 behavior; the [plan](rich-notifications-plan.md) records the agreed scope.
+Subsequent launcher review reopened config-driven routing; the correction below
+does not invalidate the opt-in relay's recorded native/device sequences.
 
 ## Selected tuple
 
@@ -28,8 +30,9 @@ its older configuration/helper until this candidate is incorporated there.
 - **Basic recovery:** fresh stock shared/remote TUIs, with installed defaults and
   a deliberate focus-away before a separate-client turn, produced native desktop
   alerts locally and over Snap SSH. Earlier direct desktop/349 serial admission
-  also passed. Shared/remote callback non-publication, rather than just the
-  detached-terminal reproduction, determined the recovery choice.
+  also passed. The recovery choice used an inference of shared/remote callback
+  non-publication that the later config study corrected; basic native delivery
+  itself remains demonstrated.
 - **Local rich loop:** one desktop notification per completed turn carried the
   exact host/instance/thread/turn identity. Card `100011` remained after popup
   expiry (`notifs=0`, retained history present); a separate client started T2,
@@ -95,3 +98,61 @@ The test monitor initially disconnected after its first observed D-Bus method
 call; that harness was corrected to consume monitored calls without replying.
 Only completed runs with exact native and board identities support the sequences
 above. Raw callback bodies and terminal captures are not committed.
+
+## Subsequent config-first correction
+
+Bryan prefers ordinary launching over requiring `codex-notify run`. An isolated
+study with the same installed native version demonstrated configured completion
+hooks under a detached shared app-server, including a stock remote TUI. Its
+`-c notify=...` override was not forwarded to the server, explaining why the
+earlier remote capture test did not establish missing hook dispatch. New threads
+read changed server-side user config without a restart; a loaded thread retained
+its hook until the tested unload/resume boundary.
+
+All callbacks inherited server context and had no controlling terminal. The
+helper still needs an explicit delivery route; the successful relay is optional
+evidence, not acceptance of a launcher change. Config-first local/SSH delivery,
+focus/Open and duplicate/fallback behavior remain unqualified. See the full
+[incident correction](codex-notifications-incident.md#config-first-correction-after-launcher-review).
+Only private owned test processes were started/stopped; ordinary daemon identity
+and config hash were unchanged. No installed source or preferences were updated.
+
+## Config-driven desktop candidate follow-up
+
+The second goal loop implements an opt-in codex-plus `hook` / `desktop` route.
+The source candidate is `7d05b07ffc82c76ba62bee52f9c8c0edf2f8894b`; it has not
+replaced the independently pinned installed helper in the selected tuple above.
+It keeps normal launching and publishes a bounded rich envelope to a configured
+desktop, locally or over SSH. It requires explicit always-notify behavior. Open,
+when configured for an exact source, resumes the native thread in a new terminal;
+it does not claim to find or focus its original viewer. Those semantics remain a
+pending choice, so global native settings, managed routes and helper pins were
+not changed by this checkpoint.
+
+| Evidence | Accepted scope |
+| --- | --- |
+| Private stock 0.162.1 TUI, private server/user config, loopback model and private notification bus | Config hook reaches native `notify-send`; metadata/body survive the 349 parser; duplicate admission does not republish; default action passes the exact UUID to a trusted configured command |
+| Internal title-generation completion | Excluded by positive read-only native user-thread classification; absence of an SQLite child record is insufficient |
+| Actual Starship shared owner, fresh owned RPC hook configuration | Desktop arrival, exact rich association and board card `100021` admitted before disconnect |
+| Actual Snap shared owner, explicit SSH desktop destination | Desktop arrival and exact rich host card `100022`; board was already disconnected |
+| Scoped later turns | Both earlier host cards retired after their panel presentation expired with history retained; native descending history established exact newer interrupted turns |
+| Preservation | Original Codex owner identities and config hashes unchanged on both hosts; all owned live test threads archived; no service, firmware or launcher change performed |
+
+The actual-owner tests configured only owned RPC threads; they are not installed
+default/normal-launch acceptance. The stock-TUI config path was proved separately
+against the private fixture. The initial live harness incorrectly required a DMS
+desktop-close signal; it was corrected to distinguish panel timer expiry from
+graphical popup observation. The later progress checks continued only those same
+owned archived test threads, then re-archived them. No unrelated thread was used.
+
+The board USB link dropped before final local deletion readback and before SSH
+board acceptance. Host retirement does not establish that the disconnected board
+removed a card. Device deletion/readback and physical rendering/touch remain
+pending. DMS popup expiry, graphical Open and focused suppression are unaccepted.
+No installed default change or restarted owner was used to work around these
+gaps. Private evidence is under `~/.cache/codex-notify-config-loop-20261014`.
+
+Native adoption also needs care: a newly opened TUI may read approval-only alerts
+while its loaded thread still retains `notify=[]`, causing missing completions.
+Keep basic recovery until the behavior and safe transition are selected; do not
+restart or unload ongoing work to force adoption.

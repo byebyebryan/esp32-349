@@ -1,7 +1,8 @@
 # Rich notifications and delivery recovery plan
 
-Date: 2026-10-14. Status: installed candidate validated locally and over Snap SSH;
-physical/touch acceptance and draft review/merge remain explicit gates. See the
+Date: 2026-10-14. Status: installed opt-in candidate validated locally and over
+Snap SSH; config-driven producer routing reopened after launcher review.
+Physical/touch acceptance and draft review/merge remain explicit gates. See the
 [dated acceptance record](rich-notifications-acceptance-2026-10-14.md).
 
 [Project overview](../README.md) · [Architecture](architecture.md) · [Behavior](behavior.md)
@@ -18,10 +19,11 @@ optional richness and card lifecycle handling. At the initial incident checkpoin
 both Starship-local and Snap-to-Starship SSH notifications disappeared before
 desktop/349 presentation, while Claude notifications still worked. The
 [incident investigation](codex-notifications-incident.md) records the initial
-detached-terminal reproduction and the later native correction: embedded CLI
-callbacks have a terminal, while tested shared/remote TUI completions emitted
-native alerts without invoking the configured callback. Native TUI recovery is
-selected on both hosts; installed-default and rollback checks now pass. Physical
+detached-terminal reproduction and a subsequent config-first correction:
+completion hooks work in the isolated shared-daemon study, while a remote TUI's
+`-c notify=...` override does not reach the server. Callback publication and
+attached-terminal delivery must be tested separately. Native TUI recovery is
+selected on both hosts; installed-default and rollback checks pass. Physical
 checks remain separate. Delivery recovery was the first execution gate.
 
 The Codex notification helper is a generic utility for augmenting native Codex
@@ -70,12 +72,27 @@ rich body/metadata parity. The producer and lifecycle paths must each prove thei
 own identity and delivery. The 349 consumes optional enrichment; source discovery
 and native Codex protocol handling belong to the producer/adapter.
 
+The preferred integration keeps ordinary Codex launching and invokes the generic
+helper through `notify` config. The installed `codex-notify run` relay is an
+opt-in experiment; its successful rich sequences do not justify making it a
+launcher requirement. The isolated 0.162.1 study proved that new threads read
+changed user config without restarting the server, while loaded threads preserve
+their hook config until the tested unload/resume boundary. Do not interrupt
+ongoing work to force adoption.
+
 The shared daemon's inherited environment is not an attached-client route.
 Evaluate a supported client-side notification facility or explicit thread/client
 route registration. Never guess an origin from a PID, most recent TTY, focused
 window or daemon startup environment. Define behavior for multiple viewers,
 thread switching, detached/closed clients and remote attachment before selecting
 the richer route.
+
+Also evaluate whether a configured desktop destination, with an explicit remote
+transport, is sufficient for the helper. This can separate publication from an
+originating TTY, but originating-terminal focus/Open and duplicate/fallback policy
+remain gates. The current native OSC 9 alert carries no native thread/turn
+identity; matching its text or timing to a hook event is not a safe enrichment
+contract. Keep the basic recovery selected until a replacement route is proved.
 
 ## Rich metadata and card identity
 
@@ -236,6 +253,10 @@ configuration and relevant firmware versions separately.
 | G0 ordinary execution and recovery | Native basic completion alerts selected on both hosts; fresh installed-default local/SSH desktop checks pass; notification-only rollback/reselection passes |
 | G1 ownership | codex-plus owns the helper; independently checksum-pinned chezmoi artifact installed and ten-file readback verified on both hosts |
 | G2-G5 implementation | Explicit rich native TUI route, v1 metadata, narrow read-only turn-history inspector and optional local retirement implemented; local/SSH full sequences and tmux passthrough pass |
+| G2 config-first reopening | Normal launcher preferred; configured hooks work in isolated shared 0.162.1 study. Remote TUI override inference corrected; desktop/client routing and duplicate/fallback policy remain unresolved |
+| G2 desktop-route candidate | Config hook and explicit local/SSH desktop transport implemented in codex-plus; private stock-TUI/native-bus path and actual-owner desktop/host association pass. Always-notify/new-terminal Open semantics remain unselected; original-terminal binding is unavailable |
+| Config-route lifecycle follow-up | Local card `100021` reached the board; local and SSH (`100022`) host cards retired on exact newer interrupted turns after panel presentation expiry. USB disconnected before final deletion and SSH device readback; no physical acceptance claimed |
+| Safe default transition | Pending: loaded hook settings and fresh TUI settings can differ. Preserve basic recovery and ongoing owners; do not disable native completion alerts for loaded `notify=[]` threads |
 | G6-G7 | Host/producer/distribution checks, source publication, installed device readback and host/helper/config rollback/reselection pass; source reviews remain drafts |
 | Physical and wider acceptance | Pending physical/touch confirmation; existing DMS Open unavailable; additional native/UI contexts listed in the dated record |
 
