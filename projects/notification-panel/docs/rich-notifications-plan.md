@@ -1,8 +1,9 @@
 # Rich notifications and delivery recovery plan
 
-Created: 2026-10-14. Updated: 2026-10-15. Status: preserve native unfocused-only
-alerts and original-terminal Open; rich delivery stays experimental until native
-client support exists. Controlled config-route local/SSH device checks pass.
+Created: 2026-10-14. Updated: 2026-10-15. Status: a launch helper is now accepted
+as the route to richer notifications with unfocused-only delivery and original
+terminal focus. Launcher hardening/daily-use qualification is planned; installed
+native defaults remain selected. Controlled config-route device checks pass.
 See the [October 15 checkpoint](rich-notifications-acceptance-2026-10-15.md) and
 the [October 14 record](rich-notifications-acceptance-2026-10-14.md).
 Physical/touch acceptance and draft review/merge remain explicit release gates.
@@ -53,6 +54,17 @@ The 349 integration must keep unrelated notification content and actions useful.
 On October 15 Bryan selected this policy explicitly: retain native basic alerts
 and leave rich delivery experimental until native client support can preserve it.
 The always-notify/new-terminal desktop candidate is not selected for defaults.
+Later desktop tests confirmed native clicks focus Kitty both in a session and
+in Command Center. Bryan then accepted a launch helper to preserve that behavior
+while adding richness. The [codex-plus launcher plan](https://github.com/byebyebryan/codex-plus/blob/feat/notifications/docs/notification-launcher-plan.md)
+owns the next pass. Existing dated acceptance records retain their earlier scope.
+
+The launcher becomes the completion publisher for its wrapped client and obtains
+content/identity from that native connection. A daemon hook is optional for this
+route. Keep native completion and approval recovery for unwrapped clients;
+separately qualify loaded-thread hook adoption and safe fallback. Desktop Open
+focuses the originating terminal; selecting a thread inside Command Center stays
+a native TUI interaction. Panel Open through DMS is a separate bridge gate.
 
 ## Proposed runtime flow
 
@@ -78,10 +90,11 @@ rich body/metadata parity. The producer and lifecycle paths must each prove thei
 own identity and delivery. The 349 consumes optional enrichment; source discovery
 and native Codex protocol handling belong to the producer/adapter.
 
-The preferred integration keeps ordinary Codex launching and invokes the generic
-helper through `notify` config. The installed `codex-notify run` relay is an
-opt-in experiment; its successful rich sequences do not justify making it a
-launcher requirement. The isolated 0.162.1 study proved that new threads read
+The initial preference was ordinary launching plus a configured `notify` helper.
+After terminal association and desktop focus were clarified, the selected next
+direction is the launch helper. The installed `codex-notify run` relay remains an
+opt-in prototype until the owner plan's desktop/daily-use gates pass. The isolated
+0.162.1 study proved that new threads read
 changed user config without restarting the server, while loaded threads preserve
 their hook config until the tested unload/resume boundary. Do not interrupt
 ongoing work to force adoption.
@@ -261,7 +274,9 @@ configuration and relevant firmware versions separately.
 | G1 ownership | codex-plus owns the helper; preview.1 independently checksum-pinned through chezmoi, with twelve-file byte/executable readback on both hosts and prior helper retained |
 | G2-G5 implementation | Explicit rich native TUI route, v1 metadata, narrow read-only turn-history inspector and optional local retirement implemented; local/SSH full sequences and tmux passthrough pass |
 | G2 config-first reopening | Normal launcher retained; configured hooks work in isolated shared 0.162.1 study. Remote TUI override inference corrected. Candidate episode deduplication is bounded; originating-client routing remains unavailable |
-| G2 desktop-route candidate | Config hook and explicit local/SSH desktop transport implemented; private stock-TUI/native-bus path and actual-owner/device checks pass. Bryan selected native unfocused-only/original-terminal behavior; rich defaults await the missing client binding |
+| G2 desktop-route candidate | Config hook and explicit local/SSH desktop transport implemented and qualified in controlled contexts. Always-notify/new-terminal defaults remain unselected |
+| G2 selected launcher follow-up | Bryan verified native desktop clicks focus Kitty in session and Command Center views, then accepted a launch helper. Owner plan covers explicit bindings, one publisher per wrapped client, Command Center coverage, failure behavior and staged daily integration; implementation remains unchanged |
+| Launcher/consumer source hardening | The selected goal loop adds conservative launch dispatch, preserved native event filters, positive root bindings and distinct viewer action IDs. Private native Command Center/switch/legacy-resume cases pass. Bounded 349 admission suppresses stale first arrivals without blocking generic delivery; 433 host/tooling tests pass, three live desktop tests skip. Installed selection remains unchanged |
 | Config-route lifecycle follow-up | October 15 local `100053` and SSH `100054` each reached the board, remained after panel presentation expiry, then disappeared from exact device-cache readback after newer interrupted turns; same board boot throughout. No physical acceptance claimed |
 | Safe default transition | Pending: loaded hook settings and fresh TUI settings can differ. Preserve basic recovery and ongoing owners; do not disable native completion alerts for loaded `notify=[]` threads |
 | G6-G7 | Host/producer/distribution checks, source publication, installed device readback and host/helper/config rollback/reselection pass; source reviews remain drafts |

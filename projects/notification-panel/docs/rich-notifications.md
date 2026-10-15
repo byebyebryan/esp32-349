@@ -26,10 +26,13 @@ rich_sources = [
 Run `codex-notify identity` on each source to obtain its host/instance. Ordinary
 Codex launches keep native generic notifications with unfocused-only delivery and
 original-terminal Open. Rich delivery remains experimental pending native client
-support: the optional `codex-notify run` relay supplies an attached TUI route,
-while the configured `hook`/`desktop` route has different focus/Open behavior.
-See the helper guide for setup and limits. Reload config with `349ctl reload`;
-new host code requires a scoped service restart.
+support or a qualified launcher. The selected next direction is the
+[codex-plus launch helper](https://github.com/byebyebryan/codex-plus/blob/feat/notifications/docs/notification-launcher-plan.md),
+using the existing `codex-notify run` prototype to supply an attached TUI route.
+The configured `hook`/`desktop` alternative has different focus/Open behavior.
+Desktop clicks focus the originating Kitty window; panel Open separately needs
+the DMS action bridge. See the helper guide for setup and limits. Reload config
+with `349ctl reload`; new host code requires a scoped service restart.
 
 At most four unique source routes are allowed, each with an absolute executable
 and bounded argv. Routes are trusted local configuration, never incoming metadata.
@@ -38,8 +41,15 @@ Unconfigured hosts/instances are displayed without lifecycle queries. Empty
 
 ## Lifecycle and failure behavior
 
-Every five seconds, 349d groups only outstanding matching rich cards and sends a
-bounded stdin request to each helper. Queries have an eight-second deadline,
+Configured rich first arrivals enter a bounded 32-card admission queue. The
+rich worker wakes to inspect them before sending display or attention output.
+Proved stale completions are suppressed; uncertain results keep normal retention.
+Generic/unconfigured notifications bypass this queue. Replacements recheck source
+version and pending identity before delivery, so a late result cannot publish an
+older replacement. Source inspection runs outside the model lock.
+
+Every five seconds, 349d also groups outstanding matching retained cards and sends
+bounded stdin requests to each helper. Queries have an eight-second deadline,
 8 KiB stdout limit and fresh nonce; cancellation kills the process group. No shell
 evaluates notification contents. There is no full-fleet subscription or resident
 source observer.
@@ -61,8 +71,8 @@ period; it resets with 349d. Associations follow the bounded retained card set.
 Expiry, eviction and manual removal stop further queries for that card.
 
 `349ctl status` reports source count, tracked cards, a bounded local-card/event
-mapping, queries and superseded count under `rich_notifications`. Helper outages
-remain ordinary uncertainty. Generic
+mapping, pending arrivals, queries and superseded count under `rich_notifications`.
+Helper outages remain ordinary uncertainty. Generic
 retention, wire negotiation and firmware remain unchanged.
 
 ## Validation and operation

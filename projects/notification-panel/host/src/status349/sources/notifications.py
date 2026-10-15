@@ -362,6 +362,9 @@ class NotificationSource:
                 self._by_serial.pop(key, None)
                 self._open_reply_versions.pop(key, None)
 
+    def current_version(self, local_id: int) -> int | None:
+        return self._open_info.get(int(local_id), {}).get('version')
+
     def forget(self, local_id: int, *, expected_version: int | None = None) -> bool:
         """Release all bounded source metadata for an evicted/removed record."""
         if expected_version is not None and self._open_info.get(int(local_id), {}).get("version") != expected_version:

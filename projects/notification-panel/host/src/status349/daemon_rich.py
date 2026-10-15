@@ -6,6 +6,7 @@ import asyncio
 from collections import OrderedDict
 from dataclasses import dataclass
 import json
+import math
 import os
 import secrets
 import signal
@@ -66,6 +67,61 @@ class RichNotificationsMixin:
         self._rich_seen = OrderedDict()
         self._rich_checks = 0
         self._rich_superseded = 0
+        self._rich_pending = OrderedDict()
+        self._rich_wakeup = asyncio.Event()
+
+    async def _queue_notification(self, message):
+        """Hold only configured rich arrivals; generic delivery never waits on a source."""
+        try:
+            rich = validate(message.get('_rich'))
+            version = message.get('_source_version')
+            if type(version) is not int or version <= 0:
+                raise ValueError('missing source version')
+        except (ValueError, TypeError, UnicodeError):
+            await self._device_notify(message)
+            return
+        async with self._state_lock:
+            matched = any((rich['host'], rich['instance']) == (s['host'], s['instance'])
+                          for s in self.cfg.notifications.rich_sources)
+            if matched:
+                nid = int(message['id'])
+                self._rich_pending.pop(nid, None)
+                self._rich_pending[nid] = message
+                while len(self._rich_pending) > 32:
+                    old_id, old = self._rich_pending.popitem(last=False)
+                    self.notifications.forget(old_id, expected_version=old['_source_version'])
+                self._rich_wakeup.set()
+        if not matched:
+            await self._device_notify(message)
+
+    def _source_version_current(self, message):
+        version = self.notifications.current_version(int(message['id']))
+        return version is None or version == message.get('_source_version')
+
+    async def _finish_rich_arrival(self, message, relation, source):
+        async with self._state_lock:
+            nid = int(message['id'])
+            if self._rich_pending.get(nid) is not message:
+                return
+            self._rich_pending.pop(nid)
+            if (not self._source_version_current(message) or self.notifications.is_locally_removed(nid)
+                    or self.notifications.is_forgotten(nid)):
+                return
+            if relation == 'superseded' and source in self.cfg.notifications.rich_sources:
+                receipt = message.get('_received_mono', self._monotonic())
+                if (isinstance(receipt, bool) or not isinstance(receipt, (float, int))
+                        or not math.isfinite(receipt)):
+                    receipt = self._monotonic()
+                key = event_id(message['_rich'])
+                if self._rich_seen.get(key, 0) <= self._monotonic():
+                    self._rich_seen[key] = receipt + self.cfg.notifications.retention_s
+                while len(self._rich_seen) > 256:
+                    self._rich_seen.popitem(last=False)
+                self.notifications.forget(nid, expected_version=message['_source_version'])
+                self._cancel_unsent_action(nid)
+                self._rich_superseded += 1
+                return
+        await self._device_notify(message)
 
     def _admit_rich_locked(self, message, receipt, now):
         local_id = int(message['id'])
@@ -113,20 +169,37 @@ class RichNotificationsMixin:
     async def _check_rich(self):
         async with self._state_lock:
             snapshot = self._rich_snapshot_locked()
+            pending = dict(self._rich_pending)
             sources = [dict(source, command=list(source['command'])) for source in self.cfg.notifications.rich_sources]
         for source in sources:
             selected = {nid: card for nid, card in snapshot.items()
                         if (card.metadata['host'], card.metadata['instance']) == (source['host'], source['instance'])}
-            if not selected:
+            arrivals = {nid: message for nid, message in pending.items()
+                        if (message['_rich']['host'], message['_rich']['instance']) == (source['host'], source['instance'])}
+            if not selected and not arrivals:
                 continue
-            results = await query(source, [card.metadata for card in selected.values()])
-            self._rich_checks += 1
+            cards = [message['_rich'] for message in arrivals.values()] + [card.metadata for card in selected.values()]
+            results = {}
+            for at in range(0, len(cards), 32):
+                results.update(await query(source, cards[at:at + 32]))
+                self._rich_checks += 1
             for nid, card in selected.items():
                 if results.get(event_id(card.metadata)) == 'superseded':
                     await self._retire_rich(nid, card, source)
+            for nid, message in arrivals.items():
+                await self._finish_rich_arrival(message, results.get(event_id(message['_rich'])), source)
+                pending.pop(nid, None)
+        # Routes can be removed while an arrival is pending. Preserve ordinary
+        # retention when there is no longer a configured authority to inspect it.
+        for message in pending.values():
+            await self._finish_rich_arrival(message, 'unknown', None)
 
     async def _rich_loop(self):
         # Daemon.run owns cancellation, as it does for its other long-lived workers.
         while True:
+            self._rich_wakeup.clear()
             await self._check_rich()
-            await asyncio.sleep(5)
+            try:
+                await asyncio.wait_for(self._rich_wakeup.wait(), 5)
+            except TimeoutError:
+                pass

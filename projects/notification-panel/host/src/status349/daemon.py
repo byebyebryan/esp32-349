@@ -87,7 +87,7 @@ class Daemon(CardPresentationMixin, LinkLifecycleMixin, ActionDispatchMixin, Tel
         self._notification_peer_known = False
         self.notifications = NotificationSource(
             cfg.notifications,
-            self._device_notify,
+            self._queue_notification,
             self._device_close,
             on_active_expire=self._device_active_expire,
             on_expire=self._device_expire,
@@ -602,6 +602,7 @@ class Daemon(CardPresentationMixin, LinkLifecycleMixin, ActionDispatchMixin, Tel
             "notification_history": self._history_enabled,
             "rich_notifications": {"sources": len(self.cfg.notifications.rich_sources),
                                    "tracked": len(self._rich_snapshot_locked()),
+                                   "pending": len(self._rich_pending),
                                    "cards": [{"id": nid, "event": rich_event_id(card.metadata)}
                                              for nid, card in self._rich_cards.items()],
                                    "checks": self._rich_checks, "superseded": self._rich_superseded},

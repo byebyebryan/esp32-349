@@ -63,6 +63,89 @@ def test_native_supersession_closes_only_local_card_after_popup_expiry(monkeypat
     asyncio.run(scenario())
 
 
+def test_delayed_first_arrival_is_suppressed_before_any_device_output(monkeypatch):
+    async def scenario():
+        daemon, writer = _history_daemon()
+        daemon.cfg.notifications.rich_sources = [SOURCE]
+        async def evidence(source, cards):
+            return {event_id(c): 'superseded' for c in cards}
+        monkeypatch.setattr(daemon_rich, 'query', evidence)
+        await daemon._queue_notification(card())
+        assert not writer.frames and len(daemon._rich_pending) == 1
+        await daemon._check_rich()
+        assert not writer.frames and not daemon.model.retained_notifs
+        assert not daemon._rich_pending and daemon._rich_superseded == 1
+        expiry = daemon._rich_seen[event_id(card()['_rich'])]
+        await daemon._queue_notification(card(nid=2, version=2))
+        await daemon._check_rich()
+        assert daemon._rich_seen[event_id(card()['_rich'])] == expiry
+        assert not writer.frames
+    asyncio.run(scenario())
+
+
+def test_slow_rich_admission_does_not_block_generic_delivery(monkeypatch):
+    async def scenario():
+        daemon, writer = _history_daemon()
+        daemon.cfg.notifications.rich_sources = [SOURCE]
+        entered, release = asyncio.Event(), asyncio.Event()
+        async def evidence(source, cards):
+            entered.set()
+            await release.wait()
+            return {}  # Uncertainty keeps ordinary retention.
+        monkeypatch.setattr(daemon_rich, 'query', evidence)
+        await daemon._queue_notification(card())
+        checking = asyncio.create_task(daemon._check_rich())
+        try:
+            async with asyncio.timeout(1):
+                await entered.wait()
+                await daemon._queue_notification(proto.notify(2, 'Other app', 'Useful', 'body', 1, 1000, 1))
+            assert 2 in daemon.model.retained_notifs and 1 not in daemon.model.retained_notifs
+            release.set()
+            await checking
+            assert 1 in daemon.model.retained_notifs and 2 in daemon.model.retained_notifs
+        finally:
+            checking.cancel()
+            await asyncio.gather(checking, return_exceptions=True)
+    asyncio.run(scenario())
+
+
+def test_replacement_during_admission_cannot_publish_the_old_card(monkeypatch):
+    async def scenario():
+        daemon, writer = _history_daemon()
+        daemon.cfg.notifications.rich_sources = [SOURCE]
+        newer = card(turn=NEW, version=2)
+        calls = []
+        async def evidence(source, cards):
+            calls.append(cards)
+            if len(calls) == 1:
+                daemon.notifications._open_info[1] = {'version': 2}
+                await daemon._queue_notification(newer)
+            return {event_id(c): 'current' for c in cards}
+        monkeypatch.setattr(daemon_rich, 'query', evidence)
+        await daemon._queue_notification(card())
+        await daemon._check_rich()
+        assert not writer.frames and daemon._rich_pending[1] is newer
+        await daemon._check_rich()
+        assert daemon._rich_cards[1].metadata['turn'] == NEW
+        assert len([f for f in writer.frames if f['t'] == 'notify']) == 1
+    asyncio.run(scenario())
+
+
+def test_pending_arrivals_are_bounded_and_removed_routes_fall_back(monkeypatch):
+    async def scenario():
+        daemon, writer = _history_daemon()
+        daemon.cfg.notifications.rich_sources = [SOURCE]
+        for nid in range(1, 34):
+            await daemon._queue_notification(card(nid=nid))
+        assert len(daemon._rich_pending) == 32 and 1 not in daemon._rich_pending
+        daemon.cfg.notifications.rich_sources = []
+        async def forbidden(*args): pytest.fail('removed route was queried')
+        monkeypatch.setattr(daemon_rich, 'query', forbidden)
+        await daemon._check_rich()
+        assert not daemon._rich_pending and daemon.model.retained_notifs
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize('relation', ['current', 'unknown', None])
 def test_uncertain_evidence_does_not_renew_or_remove_card(monkeypatch, relation):
     async def scenario():

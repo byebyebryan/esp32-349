@@ -39,6 +39,8 @@ class CardPresentationMixin:
         async with self._state_lock:
             if self.notifications.is_locally_removed(local_id) or self.notifications.is_forgotten(local_id):
                 return
+            if '_source_version' in message and not self._source_version_current(message):
+                return
             now = self._monotonic()
             receipt_mono = message.get("_received_mono", now)
             try:

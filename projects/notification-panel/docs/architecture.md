@@ -40,10 +40,14 @@ Host implementation is split by responsibility:
 | [daemon_link.py](../host/src/status349/daemon_link.py) | Pairing, verified session ownership, transport, readback and keepalive |
 | [daemon_actions.py](../host/src/status349/daemon_actions.py) | Activation correlation, pending requests and dispatch results |
 | [daemon_telemetry.py](../host/src/status349/daemon_telemetry.py) | Serialized source sampling, dashboard smoothing and monitor-power following |
+| [daemon_rich.py](../host/src/status349/daemon_rich.py) | Bounded rich-arrival admission and outstanding-card native inspection |
 
-The four implementation mixins are assembled by `Daemon`; they share its
+The five implementation mixins are assembled by `Daemon`; they share its
 model and locks rather than introducing separate state owners. Cross-worker
 operations retain the same lock boundaries, cancellation and shutdown order.
+Configured rich arrivals wait for bounded source evidence in the rich worker;
+generic delivery bypasses that queue. Queries run outside the model lock, then
+admission/removal rechecks identity and serializes model changes with wire output.
 The CLI remains `349d`/`349ctl`, and configuration, pairing and wire identities
 are unchanged by this split.
 
