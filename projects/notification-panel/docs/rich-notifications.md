@@ -23,11 +23,13 @@ rich_sources = [
 ]
 ```
 
-Run `codex-notify identity` on each source to obtain its host/instance. Use
-`codex-notify run` for an explicit rich native TUI. Ordinary Codex launches keep
-native generic notifications. See the helper guide for supported native launch
-modes and limits. Reload config with `349ctl reload`; new host code requires a
-scoped service restart.
+Run `codex-notify identity` on each source to obtain its host/instance. Ordinary
+Codex launches keep native generic notifications with unfocused-only delivery and
+original-terminal Open. Rich delivery remains experimental pending native client
+support: the optional `codex-notify run` relay supplies an attached TUI route,
+while the configured `hook`/`desktop` route has different focus/Open behavior.
+See the helper guide for setup and limits. Reload config with `349ctl reload`;
+new host code requires a scoped service restart.
 
 At most four unique source routes are allowed, each with an absolute executable
 and bounded argv. Routes are trusted local configuration, never incoming metadata.
@@ -75,4 +77,7 @@ routes, restores prior host source and restarts only 349d. The helper and native
 Codex config have independent selectors; preserve unrelated settings and native
 sessions. Physical card/touch acceptance is separate from serial readback.
 
-The [execution plan](rich-notifications-plan.md) records dated acceptance evidence.
+The [execution plan](rich-notifications-plan.md) records scope and release gates.
+The [October 15 checkpoint](rich-notifications-acceptance-2026-10-15.md) records
+local/SSH device-cache removal and the decision to preserve native attention/Open
+behavior. Physical rendering/touch acceptance remains pending.

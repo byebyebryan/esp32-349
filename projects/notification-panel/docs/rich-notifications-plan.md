@@ -1,9 +1,11 @@
 # Rich notifications and delivery recovery plan
 
-Date: 2026-10-14. Status: installed opt-in candidate validated locally and over
-Snap SSH; config-driven producer routing reopened after launcher review.
-Physical/touch acceptance and draft review/merge remain explicit gates. See the
-[dated acceptance record](rich-notifications-acceptance-2026-10-14.md).
+Created: 2026-10-14. Updated: 2026-10-15. Status: preserve native unfocused-only
+alerts and original-terminal Open; rich delivery stays experimental until native
+client support exists. Controlled config-route local/SSH device checks pass.
+See the [October 15 checkpoint](rich-notifications-acceptance-2026-10-15.md) and
+the [October 14 record](rich-notifications-acceptance-2026-10-14.md).
+Physical/touch acceptance and draft review/merge remain explicit release gates.
 
 [Project overview](../README.md) · [Architecture](architecture.md) · [Behavior](behavior.md)
 
@@ -30,9 +32,10 @@ The Codex notification helper is a generic utility for augmenting native Codex
 notifications, useful independently of a physical display. Its canonical source,
 behavioral tests and documentation should move to `codex-plus`. Chezmoi continues
 to own pinned distribution, the installed `codex-notify` command and provider
-configuration. The source ownership move began at candidate 6b1dbb6; rich runtime
-fa46330 is now independently pinned and installed through chezmoi. The dated
-acceptance record identifies the exact selected tuple and remaining boundaries.
+configuration. The source ownership move began at candidate 6b1dbb6. Preview.1
+runtime 7d05b07 is independently pinned and installed through chezmoi on both
+hosts; earlier fa46330 remains available for rollback. Installing the helper
+does not select rich default delivery. The dated records identify each tuple.
 
 ## Ownership
 
@@ -47,6 +50,9 @@ acceptance record identifies the exact selected tuple and remaining boundaries.
 The helper must retain originating-terminal routing, unfocused-only delivery,
 native Open/focus behavior, child/noninteractive suppression and quiet failure.
 The 349 integration must keep unrelated notification content and actions useful.
+On October 15 Bryan selected this policy explicitly: retain native basic alerts
+and leave rich delivery experimental until native client support can preserve it.
+The always-notify/new-terminal desktop candidate is not selected for defaults.
 
 ## Proposed runtime flow
 
@@ -139,14 +145,15 @@ reader could inspect only exact threads with outstanding cards and stop when
 their cards disappear. Cross-host use needs an explicit route to the owning daemon
 or delivery from a source-host tracker. Existing Observer/Mesh can be an optional
 adapter; it is not a mandatory dependency of the generic helper or notification
-center. No lightweight adapter has been qualified for this path yet.
+center. The implemented scoped native-history reader now passes controlled local
+and SSH retirement through exact device-cache removal; see the dated checkpoints.
 
 Kitty's OSC notification identifier is not forwarded as D-Bus correlation data
 by the inspected installed code. Its notification-type metadata reaches the
-D-Bus category, providing a candidate for carrying a versioned tag. This is a
-transport hypothesis, not an accepted contract. Prove bounded decoding and
-identity preservation through local, SSH and tmux delivery, including focus
-filtering and Open. Choose a separate explicit metadata route if necessary.
+D-Bus category. The implemented v1 category preserves exact identity through the
+qualified local/SSH/tmux relay paths and direct desktop candidate. Focus filtering
+and original-terminal Open remain independent producer gates; passing category
+transport does not supply a client binding.
 
 Lifecycle updates are control data, not new visible notification cards. Their
 route must work after a desktop popup has timed out while its 349 history card
@@ -246,16 +253,16 @@ configuration and relevant firmware versions separately.
 
 ## Current ledger
 
-| Checkpoint | Status on 2026-10-14 |
+| Checkpoint | Status on 2026-10-15 |
 | --- | --- |
 | Agreed product boundaries and ownership | Captured; generic 349 center, codex-plus helper, chezmoi distribution, optional lifecycle adapter |
 | Existing missing-notification investigation | Helper parity and fourteen isolated checks pass; detached `/dev/tty` failure reproduced on both hosts |
 | G0 ordinary execution and recovery | Native basic completion alerts selected on both hosts; fresh installed-default local/SSH desktop checks pass; notification-only rollback/reselection passes |
-| G1 ownership | codex-plus owns the helper; independently checksum-pinned chezmoi artifact installed and ten-file readback verified on both hosts |
+| G1 ownership | codex-plus owns the helper; preview.1 independently checksum-pinned through chezmoi, with twelve-file byte/executable readback on both hosts and prior helper retained |
 | G2-G5 implementation | Explicit rich native TUI route, v1 metadata, narrow read-only turn-history inspector and optional local retirement implemented; local/SSH full sequences and tmux passthrough pass |
-| G2 config-first reopening | Normal launcher preferred; configured hooks work in isolated shared 0.162.1 study. Remote TUI override inference corrected; desktop/client routing and duplicate/fallback policy remain unresolved |
-| G2 desktop-route candidate | Config hook and explicit local/SSH desktop transport implemented in codex-plus; private stock-TUI/native-bus path and actual-owner desktop/host association pass. Always-notify/new-terminal Open semantics remain unselected; original-terminal binding is unavailable |
-| Config-route lifecycle follow-up | Local card `100021` reached the board; local and SSH (`100022`) host cards retired on exact newer interrupted turns after panel presentation expiry. USB disconnected before final deletion and SSH device readback; no physical acceptance claimed |
+| G2 config-first reopening | Normal launcher retained; configured hooks work in isolated shared 0.162.1 study. Remote TUI override inference corrected. Candidate episode deduplication is bounded; originating-client routing remains unavailable |
+| G2 desktop-route candidate | Config hook and explicit local/SSH desktop transport implemented; private stock-TUI/native-bus path and actual-owner/device checks pass. Bryan selected native unfocused-only/original-terminal behavior; rich defaults await the missing client binding |
+| Config-route lifecycle follow-up | October 15 local `100053` and SSH `100054` each reached the board, remained after panel presentation expiry, then disappeared from exact device-cache readback after newer interrupted turns; same board boot throughout. No physical acceptance claimed |
 | Safe default transition | Pending: loaded hook settings and fresh TUI settings can differ. Preserve basic recovery and ongoing owners; do not disable native completion alerts for loaded `notify=[]` threads |
 | G6-G7 | Host/producer/distribution checks, source publication, installed device readback and host/helper/config rollback/reselection pass; source reviews remain drafts |
 | Physical and wider acceptance | Pending physical/touch confirmation; existing DMS Open unavailable; additional native/UI contexts listed in the dated record |
