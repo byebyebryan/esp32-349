@@ -280,7 +280,7 @@ configuration and relevant firmware versions separately.
 | G2-G5 implementation | Explicit rich native TUI route, v1 metadata, narrow read-only turn-history inspector and optional local retirement implemented; local/SSH full sequences and tmux passthrough pass |
 | G2 config-first reopening | Normal launcher retained; configured hooks work in isolated shared 0.162.1 study. Remote TUI override inference corrected. Candidate episode deduplication is bounded; originating-client routing remains unavailable |
 | G2 desktop-route candidate | Config hook and explicit local/SSH desktop transport implemented and qualified in controlled contexts. Always-notify/new-terminal defaults remain unselected |
-| G2 selected launcher follow-up | Implemented terminal relay with positive root bindings, preserved native event filters and per-viewer actions. Preview 4 desktop Open passed in local/SSH session and Command Center views; preview 5 current-server delivery passes, with a later local click repeat unresolved |
+| G2 selected launcher follow-up | Implemented terminal relay with positive root bindings, preserved native event filters and per-viewer actions. Preview 5 daily desktop Open passes on current owners in all four local/SSH and session/Command Center cases; original failed fixture attempts remain dated evidence |
 | Launcher/consumer source hardening | The selected goal loop adds conservative launch dispatch, preserved native event filters, positive root bindings and distinct viewer action IDs. Private native Command Center/switch/legacy-resume cases pass. Bounded 349 admission suppresses stale first arrivals without blocking generic delivery; 433 host/tooling tests pass, three live desktop tests skip. Installed selection remains unchanged |
 | Config-route lifecycle follow-up | October 15 local `100053` and SSH `100054` each reached the board, remained after panel presentation expiry, then disappeared from exact device-cache readback after newer interrupted turns; same board boot throughout. No physical acceptance claimed |
 | Safe default transition | Fresh interactive user Zsh shells select the qualified helper on Starship/Snap; native configuration and existing sessions remain intact. Unsupported, agent and noninteractive calls stay native; both shell rollback/reselection checks pass |
@@ -359,9 +359,13 @@ no restart command was issued by this work and the cause was not established.
 Actual fresh-shell `codex` delivery on both current owners reached the desktop
 from Command Center with one rich notification, host title, separate body and
 exact metadata. Owned threads were archived and owner identity remained stable
-within these runs. A local click repeat captured no ActionInvoked signal and
-remains unresolved; the Snap repeat was explicitly delivery-only. Earlier preview
-4 Open results remain dated evidence, rather than new current-server acceptance.
+within these runs. The initial local click repeat captured no ActionInvoked signal,
+and the initial Snap repeat was explicitly delivery-only. Corrected preview 5
+daily-shell repeats now pass Open on both hosts in both session and Command Center
+views: desktop IDs 611/613/614/615 each emitted exact action 1 and focused its
+originating Kitty window. A continuous pointer connection and popup-scoped marker
+lookup corrected the fixture; no producer or desktop preference change was needed.
+Original failed attempts remain available and are not counted as acceptance.
 
 The 349 pre-admission source fix and its rollback archives are prepared, but the
 running service has not adopted it. Its activation requires a 349d-only restart
