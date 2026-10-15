@@ -2,8 +2,10 @@
 
 Created: 2026-10-14. Updated: 2026-10-15. Status: a launch helper is now accepted
 as the route to richer notifications with unfocused-only delivery and original
-terminal focus. Launcher hardening/daily-use qualification is planned; installed
-native defaults remain selected. Controlled config-route device checks pass.
+terminal focus. The hardened explicit launcher is installed on Starship/Snap;
+ordinary launches keep native basic alerts. Local/SSH/tmux delivery and native
+viewer lifetime checks pass. Daily shell activation and physical acceptance remain
+open. The admission fix is source-qualified and has not replaced live 349d.
 See the [October 15 checkpoint](rich-notifications-acceptance-2026-10-15.md) and
 the [October 14 record](rich-notifications-acceptance-2026-10-14.md).
 Physical/touch acceptance and draft review/merge remain explicit release gates.
@@ -31,11 +33,14 @@ checks remain separate. Delivery recovery was the first execution gate.
 
 The Codex notification helper is a generic utility for augmenting native Codex
 notifications, useful independently of a physical display. Its canonical source,
-behavioral tests and documentation should move to `codex-plus`. Chezmoi continues
+behavioral tests and documentation now live in `codex-plus`. Chezmoi continues
 to own pinned distribution, the installed `codex-notify` command and provider
 configuration. The source ownership move began at candidate 6b1dbb6. Preview.1
-runtime 7d05b07 is independently pinned and installed through chezmoi on both
-hosts; earlier fa46330 remains available for rollback. Installing the helper
+runtime 7d05b07 was independently pinned and installed through chezmoi on both
+hosts. Preview 3 (`2e6366c`) is now selected for the explicit launcher pilot, with
+previews 1/2 retained and rollback/reselection qualified. Preview 3 preserves
+native daemon feature policy in automatic dispatch; explicit delivery and
+inspection retain preview 2 behavior. Installing the helper
 does not select rich default delivery. The dated records identify each tuple.
 
 ## Ownership
@@ -289,3 +294,44 @@ checks or reaching a publication checkpoint alone does not close the loop.
 
 The [completion notification investigation](codex-notifications-incident.md)
 records the existing detached-helper failure and remaining recovery proof.
+
+
+## Terminal-associated pilot checkpoint: 2026-10-15
+
+The [producer launcher plan](https://github.com/byebyebryan/codex-plus/blob/feat/notifications/docs/notification-launcher-plan.md#installed-explicit-pilot-checkpoint-2026-10-15)
+records the preview 2 delivery qualification and preview 3 policy follow-up,
+native scope, rollback and acceptance
+limits. The earlier October 15 config-route checkpoint retains its dated policy;
+Bryan subsequently accepted the explicit launcher to supply terminal binding.
+
+Actual installed local Kitty, Snap SSH and local tmux runs each suppressed a
+foreground completion, then delivered one Codex notification in Command Center
+with a host title, separate body and exact episode metadata. Device cards 100106,
+100108 and 100110 respectively remained after 31 seconds and were absent after
+the next exact turn started. Direct local/SSH viewer closure left the owned
+native turn running; each completed after its loopback provider was released.
+No real external model or credential was needed. All owned threads/windows were
+cleaned up, native-created test-folder trust entries removed with exact config
+hash restoration, and both native owner identities retained.
+
+The candidate pre-admission fix at a46ccc8 holds configured rich arrivals in a
+bounded queue while generic notifications bypass it. Its tests cover delayed
+first arrivals, replacement races, slow evidence, removed routes and bounds.
+An additional integration used the installed local/SSH inspectors and actual
+native history from those owned cases: superseded delayed arrivals emitted zero
+fake-wire packets. Full host/tooling checks passed 433 tests with three live
+desktop skips; all six CI jobs passed, including both firmware builds.
+
+This establishes candidate behavior; live 349d has not adopted that queue. No
+firmware, DMS, native owner or protected service was restarted. Desktop click
+confirmation, physical panel readability/removal, canonical distribution-source
+convergence and daily-shell activation remain open. A local probe recorded the
+target Kitty window gaining focus but did not capture the activating input; an
+unobserved SSH click probe is not a failure result. The separate unavailable DMS
+panel Open provider remains outside this loop's window-focus fix.
+
+Chezmoi's prepared interactive entry point keeps typing `codex`, with native
+utility/automation dispatch and explicit `/usr/bin/codex` available. Both host
+activation switches remain false pending desktop acceptance. Installed helper
+bytes and helper-only rollback/reselection pass on both hosts. Source branches
+remain reviewable candidates; source publication is not fleet activation.
