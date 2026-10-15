@@ -27,6 +27,7 @@ from .daemon_actions import ActionDispatchMixin
 from .daemon_cards import CardPresentationMixin
 from .daemon_link import LinkLifecycleMixin
 from .daemon_rich import RichNotificationsMixin
+from .rich_protocol import event_id as rich_event_id
 from .daemon_telemetry import TelemetryMixin, _TelemetrySample
 from .ipc import IpcServer, pause_path
 from .sources.bluetooth import BluetoothSource
@@ -601,6 +602,8 @@ class Daemon(CardPresentationMixin, LinkLifecycleMixin, ActionDispatchMixin, Tel
             "notification_history": self._history_enabled,
             "rich_notifications": {"sources": len(self.cfg.notifications.rich_sources),
                                    "tracked": len(self._rich_snapshot_locked()),
+                                   "cards": [{"id": nid, "event": rich_event_id(card.metadata)}
+                                             for nid, card in self._rich_cards.items()],
                                    "checks": self._rich_checks, "superseded": self._rich_superseded},
             "notification_body_style": self._body_style_enabled,
             "notification_actions": {
