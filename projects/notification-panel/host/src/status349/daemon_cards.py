@@ -57,6 +57,8 @@ class CardPresentationMixin:
                 self.notifications.forget(local_id)
                 return
             await self._expire_history_locked(now, exclude_ids={local_id})
+            if not self._admit_rich_locked(message, receipt_mono, now):
+                return
             was_grouped = self._grouped_enabled
             previous_cached = self.model.cached_notification_ids(
                 self._card_sync_capacity, retained=was_grouped
@@ -184,34 +186,37 @@ class CardPresentationMixin:
 
     async def _device_close(self, local_id: int) -> None:
         async with self._state_lock:
-            self._cancel_unsent_action(local_id)
-            self._injected_expiry.pop(local_id, None)
-            grouped = self._grouped_enabled
-            collection = self.model.retained_notifs if grouped else self.model.notifs
-            cached_ids = self.model.cached_notification_ids(self._card_sync_capacity, retained=grouped)
-            overflowed = len(collection) > len(cached_ids)
-            if self.model.close_notification(local_id):
-                if self._pending_present_id == local_id:
-                    self._pending_present_id = None
-                    self._pending_present_due = None
-                if self._presentation is not None and self._presentation["id"] == local_id:
-                    await self._end_presentation_locked(send_end=False)
-                if grouped and not self.model.retained_notifs:
-                    if not self._history_mode:
-                        self._grouped_group = "home"
-                    self._manual_notifications = False
-                await self.send(
-                    proto.close(
-                        local_id,
-                        total=len(self.model.retained_notifs if grouped else self.model.notifs),
-                        session=self.grouped_session if grouped else None,
-                    )
+            await self._device_close_locked(local_id)
+
+    async def _device_close_locked(self, local_id: int) -> None:
+        self._cancel_unsent_action(local_id)
+        self._injected_expiry.pop(local_id, None)
+        grouped = self._grouped_enabled
+        collection = self.model.retained_notifs if grouped else self.model.notifs
+        cached_ids = self.model.cached_notification_ids(self._card_sync_capacity, retained=grouped)
+        overflowed = len(collection) > len(cached_ids)
+        if self.model.close_notification(local_id):
+            if self._pending_present_id == local_id:
+                self._pending_present_id = None
+                self._pending_present_due = None
+            if self._presentation is not None and self._presentation["id"] == local_id:
+                await self._end_presentation_locked(send_end=False)
+            if grouped and not self.model.retained_notifs:
+                if not self._history_mode:
+                    self._grouped_group = "home"
+                self._manual_notifications = False
+            await self.send(
+                proto.close(
+                    local_id,
+                    total=len(self.model.retained_notifs if grouped else self.model.notifs),
+                    session=self.grouped_session if grouped else None,
                 )
-                if self._card_sync_capacity is not None and overflowed and local_id in cached_ids:
-                    # Closing a cached card exposes a vacancy when older active
-                    # cards were omitted. The tick loop coalesces close bursts.
-                    self._needs_sync = True
-                    self._tick_wakeup.set()
+            )
+            if self._card_sync_capacity is not None and overflowed and local_id in cached_ids:
+                # Closing a cached card exposes a vacancy when older active
+                # cards were omitted. The tick loop coalesces close bursts.
+                self._needs_sync = True
+                self._tick_wakeup.set()
 
     async def _device_expire(self, local_id: int, *, complete_presentation: bool = True) -> None:
         """End popup attention while retaining grouped record text."""

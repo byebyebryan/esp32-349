@@ -79,6 +79,8 @@ class NotificationsConfig:
     retention_s: int = 600  # notification history retention, independent of popup timeout
     popup_timeout_ms: int = 10000  # normal fallback when Notify requests server default (-1)
     critical_popup_timeout_ms: int = 0  # 0 keeps critical cards until close
+    # Fixed, trusted read-only helper routes. Empty means no lifecycle queries.
+    rich_sources: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -328,6 +330,24 @@ def validate_config(cfg: Config) -> None:
         timeout = getattr(cfg.notifications, field_name)
         if isinstance(timeout, bool) or not isinstance(timeout, int) or not 0 <= timeout <= 86_400_000:
             raise ValueError(f"notifications.{field_name} must be an integer from 0 to 86400000")
+
+    from .rich_protocol import label
+    sources = cfg.notifications.rich_sources
+    if not isinstance(sources, list) or len(sources) > 4:
+        raise ValueError("notifications.rich_sources must contain at most four routes")
+    identities = set()
+    for source in sources:
+        if not isinstance(source, dict) or set(source) != {"host", "instance", "command"}:
+            raise ValueError("rich source requires host, instance and command")
+        identity = label(source["host"], 63), label(source["instance"], 128)
+        if identity in identities:
+            raise ValueError("duplicate rich source identity")
+        identities.add(identity)
+        command = source["command"]
+        if (not isinstance(command, list) or not 1 <= len(command) <= 16
+                or any(not isinstance(arg, str) or not arg or len(arg) > 1024 or '\0' in arg for arg in command)
+                or not command[0].startswith('/')):
+            raise ValueError("rich source command requires an absolute executable and bounded argv")
 
     if not isinstance(cfg.bar.preset, list):
         raise ValueError("bar.preset must be an array of tables")

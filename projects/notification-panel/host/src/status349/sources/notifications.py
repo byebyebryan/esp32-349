@@ -32,6 +32,7 @@ from dbus_next.constants import BusType
 from .. import proto
 from ..config import NotificationsConfig
 from ..notification_text import convert_body
+from ..rich_protocol import decode as decode_rich
 
 log = logging.getLogger(__name__)
 
@@ -160,8 +161,18 @@ def parse_notify_body(body: list) -> dict | None:
         if len(summary_text) == len("Codex") and summary_text == "Codex"
         else ""
     )
+    rich = None
+    if isinstance(hints, dict):
+        category = hints.get("category")
+        try:
+            rich = decode_rich(getattr(category, "value", category))
+        except ValueError:
+            pass
+    if rich is not None:
+        # Explicit format contract; source labels are data, never command routing.
+        source_summary = "Codex" if rich["body_format"] == "markdown" else ""
     display_body, body_runs = convert_body(
-        _source_identity_hint(app_text),
+        "kitty" if rich is not None else _source_identity_hint(app_text),
         source_summary,
         str(body_text),
         _source_conversion_hints(hints),
@@ -183,6 +194,9 @@ def parse_notify_body(body: list) -> dict | None:
     }
     if body_runs:
         parsed["body_runs"] = body_runs
+    if rich is not None:
+        parsed["_rich"] = rich
+        parsed["app"] = "Codex @ " + rich["host"]
     return parsed
 
 
@@ -348,9 +362,12 @@ class NotificationSource:
                 self._by_serial.pop(key, None)
                 self._open_reply_versions.pop(key, None)
 
-    def forget(self, local_id: int) -> None:
+    def forget(self, local_id: int, *, expected_version: int | None = None) -> bool:
         """Release all bounded source metadata for an evicted/removed record."""
+        if expected_version is not None and self._open_info.get(int(local_id), {}).get("version") != expected_version:
+            return False
         self._forget_local(int(local_id))
+        return True
 
     def hide_locally(self, local_id: int) -> None:
         """Suppress queued delivery while preserving a live desktop association."""
@@ -1336,6 +1353,9 @@ class NotificationSource:
             body_runs=parsed.get("body_runs"),
         )
         self._outbox[local_id]["_received_mono"] = received_mono
+        self._outbox[local_id]["_source_version"] = version
+        if "_rich" in parsed:
+            self._outbox[local_id]["_rich"] = parsed["_rich"]
         while len(self._outbox) > NOTIFY_OUTBOX_LIMIT:
             self._outbox.pop(next(iter(self._outbox)))
         for trimmed_id in self._trim_associations():
