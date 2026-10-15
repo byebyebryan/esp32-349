@@ -23,12 +23,12 @@ rich_sources = [
 ]
 ```
 
-Run `codex-notify identity` on each source to obtain its host/instance. Ordinary
-Codex launches keep native generic notifications with unfocused-only delivery and
-original-terminal Open. Rich delivery remains experimental pending native client
-support or a qualified launcher. The selected next direction is the
-[codex-plus launch helper](https://github.com/byebyebryan/codex-plus/blob/feat/notifications/docs/notification-launcher-plan.md),
-using the existing `codex-notify run` prototype to supply an attached TUI route.
+Run `codex-notify identity` on each source to obtain its host/instance. On the
+qualified Starship/Snap deployment, fresh interactive user shells select the
+[codex-plus launch helper](https://github.com/byebyebryan/codex-plus/blob/feat/notifications/docs/notification-launcher-plan.md)
+to supply an attached TUI route, unfocused-only rich alerts and original-terminal
+desktop Open. Native configuration remains the basic fallback for unsupported
+calls, agent/noninteractive shells and existing unwrapped sessions.
 The configured `hook`/`desktop` alternative has different focus/Open behavior.
 Desktop clicks focus the originating Kitty window; panel Open separately needs
 the DMS action bridge. See the helper guide for setup and limits. Reload config
@@ -88,6 +88,7 @@ Codex config have independent selectors; preserve unrelated settings and native
 sessions. Physical card/touch acceptance is separate from serial readback.
 
 The [execution plan](rich-notifications-plan.md) records scope and release gates.
-The [October 15 checkpoint](rich-notifications-acceptance-2026-10-15.md) records
-local/SSH device-cache removal and the decision to preserve native attention/Open
-behavior. Physical rendering/touch acceptance remains pending.
+The [terminal-launcher checkpoint](notification-launcher-acceptance-2026-10-15.md)
+records the activated admission queue and daily local/SSH device lifecycle checks.
+The [earlier config-route checkpoint](rich-notifications-acceptance-2026-10-15.md)
+retains its dated scope. Physical rendering/touch acceptance remains pending.

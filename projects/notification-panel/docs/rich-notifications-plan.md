@@ -284,7 +284,7 @@ configuration and relevant firmware versions separately.
 | Launcher/consumer source hardening | The selected goal loop adds conservative launch dispatch, preserved native event filters, positive root bindings and distinct viewer action IDs. Private native Command Center/switch/legacy-resume cases pass. Bounded 349 admission suppresses stale first arrivals without blocking generic delivery; 433 host/tooling tests pass, three live desktop tests skip. Installed selection remains unchanged |
 | Config-route lifecycle follow-up | October 15 local `100053` and SSH `100054` each reached the board, remained after panel presentation expiry, then disappeared from exact device-cache readback after newer interrupted turns; same board boot throughout. No physical acceptance claimed |
 | Safe default transition | Fresh interactive user Zsh shells select the qualified helper on Starship/Snap; native configuration and existing sessions remain intact. Unsupported, agent and noninteractive calls stay native; both shell rollback/reselection checks pass |
-| G6-G7 | Host/producer/distribution checks, source publication, installed device readback and helper/shell/config rollback/reselection pass. Live admission-queue activation awaits explicit 349d restart authorization; source reviews remain drafts |
+| G6-G7 | Host/producer/distribution checks, source publication, installed device readback and helper/shell/config rollback/reselection pass. Live admission queue is active; daily local/SSH lifecycle, delayed-arrival suppression and generic regression pass. Source reviews remain drafts |
 | Physical and wider acceptance | Pending physical/touch confirmation; existing DMS Open unavailable; additional native/UI contexts listed in the dated record |
 
 The loop is complete only when agreed delivery, optional enrichment and local
@@ -367,8 +367,11 @@ originating Kitty window. A continuous pointer connection and popup-scoped marke
 lookup corrected the fixture; no producer or desktop preference change was needed.
 Original failed attempts remain available and are not counted as acceptance.
 
-The 349 pre-admission source fix and its rollback archives are prepared, but the
-running service has not adopted it. Its activation requires a 349d-only restart
-under repository instructions; user authorization remains outstanding. Firmware
-and live services are unchanged by this work. Physical readability, visible
+The 349 pre-admission fix is now active after a scoped 349d-only restart. Daily
+local/SSH cases retain cards beyond presentation expiry and remove the exact card
+on a newer turn. Live delayed arrivals are held for native inspection and rejected
+without a new device card observed; generic admission/close passes without native
+inspection. Native owners and other services remain unchanged. Firmware and board
+boot ID are unchanged. The [launcher checkpoint](notification-launcher-acceptance-2026-10-15.md)
+records exact scope and rollback preparation. Physical readability, visible
 retirement and touch acceptance remain open.
