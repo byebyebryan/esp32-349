@@ -1,7 +1,8 @@
 # Rich notifications and delivery recovery plan
 
-Date: 2026-10-14. Status: execution loop active; basic notification recovery
-selected, helper ownership checkpoint accepted locally, rich integration pending.
+Date: 2026-10-14. Status: installed candidate validated locally and over Snap SSH;
+physical/touch acceptance and draft review/merge remain explicit gates. See the
+[dated acceptance record](rich-notifications-acceptance-2026-10-14.md).
 
 [Project overview](../README.md) · [Architecture](architecture.md) · [Behavior](behavior.md)
 
@@ -13,23 +14,23 @@ metadata can enable additional presentation and card-lifecycle behavior within
 that same center. A separate agent dashboard is outside this plan.
 
 The loop must first restore ordinary Codex completion notifications, then add
-optional richness and card lifecycle handling. Both Starship-local and Snap-to-
-Starship SSH notifications currently disappear before desktop/349 presentation,
-while Claude notifications still work. The
+optional richness and card lifecycle handling. At the initial incident checkpoint,
+both Starship-local and Snap-to-Starship SSH notifications disappeared before
+desktop/349 presentation, while Claude notifications still worked. The
 [incident investigation](codex-notifications-incident.md) records the initial
 detached-terminal reproduction and the later native correction: embedded CLI
 callbacks have a terminal, while tested shared/remote TUI completions emitted
 native alerts without invoking the configured callback. Native TUI recovery is
-selected on both hosts; final ordinary-default, rollback and physical checks
-remain part of G0/G7. Delivery recovery is the first execution gate.
+selected on both hosts; installed-default and rollback checks now pass. Physical
+checks remain separate. Delivery recovery was the first execution gate.
 
 The Codex notification helper is a generic utility for augmenting native Codex
 notifications, useful independently of a physical display. Its canonical source,
 behavioral tests and documentation should move to `codex-plus`. Chezmoi continues
 to own pinned distribution, the installed `codex-notify` command and provider
-configuration. The source ownership move is prepared in codex-plus candidate
-6b1dbb6 with fourteen behavioral checks passing. Managed distribution is pending;
-metadata and lifecycle behavior have independent following checkpoints.
+configuration. The source ownership move began at candidate 6b1dbb6; rich runtime
+fa46330 is now independently pinned and installed through chezmoi. The dated
+acceptance record identifies the exact selected tuple and remaining boundaries.
 
 ## Ownership
 
@@ -232,10 +233,11 @@ configuration and relevant firmware versions separately.
 | --- | --- |
 | Agreed product boundaries and ownership | Captured; generic 349 center, codex-plus helper, chezmoi distribution, optional lifecycle adapter |
 | Existing missing-notification investigation | Helper parity and fourteen isolated checks pass; detached `/dev/tty` failure reproduced on both hosts |
-| G0 ordinary execution and recovery | Embedded/shared paths distinguished; native OSC 9 proved on both hosts; desktop/USB delivery proved; guarded two-key native recovery selected on both hosts; physical acceptance and rollback exercise pending |
-| G1 ownership | codex-plus candidate 6b1dbb6 owns the helper and fourteen passing behavioral checks; managed artifact switch pending |
-| G2-G5 implementation | Rich client route/schema/adapter not accepted; no card-lifecycle implementation |
-| G6-G7 and physical acceptance | Pending; no rich-feature installation, service change or firmware deployment |
+| G0 ordinary execution and recovery | Native basic completion alerts selected on both hosts; fresh installed-default local/SSH desktop checks pass; notification-only rollback/reselection passes |
+| G1 ownership | codex-plus owns the helper; independently checksum-pinned chezmoi artifact installed and ten-file readback verified on both hosts |
+| G2-G5 implementation | Explicit rich native TUI route, v1 metadata, narrow read-only turn-history inspector and optional local retirement implemented; local/SSH full sequences and tmux passthrough pass |
+| G6-G7 | Host/producer/distribution checks, source publication, installed device readback and host/helper/config rollback/reselection pass; source reviews remain drafts |
+| Physical and wider acceptance | Pending physical/touch confirmation; existing DMS Open unavailable; additional native/UI contexts listed in the dated record |
 
 The loop is complete only when agreed delivery, optional enrichment and local
 card lifecycle behavior have installed and physical acceptance for the selected

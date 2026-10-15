@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import sys
 
 import pytest
@@ -152,4 +153,23 @@ def test_subprocess_response_requires_nonce_and_bounds(tmp_path):
         assert await daemon_rich.query(source, [card()['_rich']]) == {}
         path.write_text('import json,sys\nr=json.load(sys.stdin)\nprint(json.dumps(dict(v=1,nonce="wrong",host="snap",instance="native",results={})))')
         assert await daemon_rich.query(source, [card()['_rich']]) == {}
+    asyncio.run(scenario())
+
+
+def test_cancelling_inspection_reaps_its_owned_process(tmp_path):
+    async def scenario():
+        ready = tmp_path / 'pid'
+        path = tmp_path / 'slow.py'
+        path.write_text('import os,pathlib,time\npathlib.Path(' + repr(str(ready))
+                        + ').write_text(str(os.getpid()))\ntime.sleep(60)\n')
+        task = asyncio.create_task(daemon_rich.query(dict(SOURCE, command=[sys.executable, '-B', str(path)]), []))
+        async with asyncio.timeout(2):
+            while not ready.exists():
+                await asyncio.sleep(.005)
+        pid = int(ready.read_text())
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        with pytest.raises(ProcessLookupError):
+            os.kill(pid, 0)
     asyncio.run(scenario())

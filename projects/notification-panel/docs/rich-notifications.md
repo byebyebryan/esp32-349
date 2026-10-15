@@ -58,8 +58,9 @@ Replay protection is RAM-only: at most 256 episodes for their original retention
 period; it resets with 349d. Associations follow the bounded retained card set.
 Expiry, eviction and manual removal stop further queries for that card.
 
-`349ctl status` reports source count, tracked cards, queries and superseded count
-under `rich_notifications`. Helper outages remain ordinary uncertainty. Generic
+`349ctl status` reports source count, tracked cards, a bounded local-card/event
+mapping, queries and superseded count under `rich_notifications`. Helper outages
+remain ordinary uncertainty. Generic
 retention, wire negotiation and firmware remain unchanged.
 
 ## Validation and operation
