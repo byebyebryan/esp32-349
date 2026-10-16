@@ -4,7 +4,7 @@ The panel remains a generic notification center. Versioned Codex metadata can
 add a source host label and retire an older completion card after the same native
 thread starts a newer turn. Agent Observer and firmware changes are unnecessary.
 
-The standalone [codex-plus helper](https://github.com/byebyebryan/codex-plus/blob/feat/notifications/docs/notifications.md)
+The standalone [codex-plus helper](https://github.com/byebyebryan/codex-plus/blob/main/docs/notifications.md)
 owns native-client routing and the metadata protocol. Ordinary notifications,
 unknown versions and malformed categories retain normal formatting and retention.
 Private metadata is never sent to firmware. Raw desktop action identities remain
@@ -18,17 +18,28 @@ table in `~/.config/349d/config.toml`:
 
 ```toml
 rich_sources = [
-  { host = "starship", instance = "TOKEN_FROM_IDENTITY", command = ["/home/bryan/.local/bin/codex-notify", "inspect"] },
-  { host = "snap", instance = "TOKEN_FROM_REMOTE_IDENTITY", command = ["/usr/bin/ssh", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=3", "snap", "/home/bryan/.local/bin/codex-notify", "inspect"] },
+  { host = "LOCAL_HOST_FROM_IDENTITY", instance = "LOCAL_INSTANCE_FROM_IDENTITY", command = ["/home/bryan/.local/bin/codex-notify", "inspect", "--socket", "/home/bryan/.codex/app-server-control/app-server-control.sock"] },
+  { host = "REMOTE_HOST_FROM_IDENTITY", instance = "REMOTE_DEFAULT_INSTANCE", command = ["/usr/bin/ssh", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=3", "snap", "/home/bryan/.local/bin/codex-notify", "inspect", "--socket", "/home/bryan/.codex/app-server-control/app-server-control.sock"] },
+  { host = "REMOTE_HOST_FROM_IDENTITY", instance = "REMOTE_WORK_INSTANCE", command = ["/usr/bin/ssh", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=3", "snap", "/home/bryan/.local/bin/codex-notify", "inspect", "--socket", "/home/bryan/.codex-work/app-server-control/app-server-control.sock"] },
 ]
 ```
 
-Run `codex-notify identity` on each source to obtain its host/instance. On the
-qualified Starship/Snap deployment, fresh interactive user shells select the
-[codex-plus launch helper](https://github.com/byebyebryan/codex-plus/blob/feat/notifications/docs/notification-launcher-plan.md)
+Run `codex-notify identity --socket /absolute/path/to/the/native/socket` on each
+source, using the same socket as its `inspect` command. Copy both returned fields;
+an SSH alias such as `snap` need not equal the returned hostname. Each native home
+needs its own route and instance, even when homes share a hostname. The example
+above uses Snap's default OSS home and dedicated `.codex-work` home. Launch
+wrappers select `CODEX_HOME` for a TUI; a separate 349d process must not infer that
+selection from its own environment or inspect another home's history.
+
+On the qualified Starship/Snap deployment, fresh interactive user shells select the
+[codex-plus launch helper](https://github.com/byebyebryan/codex-plus/blob/main/docs/notification-launcher-plan.md)
 to supply an attached TUI route, unfocused-only rich alerts and original-terminal
 desktop Open. Native configuration remains the basic fallback for unsupported
-calls, agent/noninteractive shells and existing unwrapped sessions.
+calls, automation/noninteractive shells and existing unwrapped sessions.
+Preview 7 additionally wraps interactive `codex agents`; preview 6 retains native
+dispatch for that subcommand. The [current checkpoint](notification-launcher-acceptance-2026-10-15.md#upstreammain-reconciliation--2026-10-15)
+records the installed Starship/Snap release selections and route checks.
 The configured `hook`/`desktop` alternative has different focus/Open behavior.
 Desktop clicks focus the originating Kitty window; panel Open separately needs
 the DMS action bridge. See the helper guide for setup and limits. Reload config
@@ -91,4 +102,7 @@ The [execution plan](rich-notifications-plan.md) records scope and release gates
 The [terminal-launcher checkpoint](notification-launcher-acceptance-2026-10-15.md)
 records the activated admission queue and daily local/SSH device lifecycle checks.
 The [earlier config-route checkpoint](rich-notifications-acceptance-2026-10-15.md)
-retains its dated scope. Physical rendering/touch acceptance remains pending.
+retains its dated scope. The later user-observed physical smoke check confirms
+readability, navigation/reference dismissal and visible newer-turn retirement on
+the paired board. That result does not imply physical acceptance of other boards
+or every later launcher/environment change.

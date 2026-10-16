@@ -1,13 +1,14 @@
 # Rich notifications and delivery recovery plan
 
-Created: 2026-10-14. Updated: 2026-10-15. Status: preview 6 is selected for fresh
-interactive Codex launches on Starship and Snap. The terminal-associated launcher
+Created: 2026-10-14. Updated: 2026-10-15. Status: the shared v1 consumer is checked
+against installed preview 6 on Starship and preview 7 on Snap, including separate
+default/work inspector routes. The terminal-associated launcher
 retains unfocused-only delivery and originating-window focus; native basic alerts
 remain the pre-launch fallback. Local/SSH/tmux delivery and viewer lifetime
 checks pass, and the optional admission queue is active in live 349d. A subsequent
 user-observed smoke check confirms physical readability, visible card retirement
-and touch on the paired board. Source reviews
-remain drafts. See the [launcher checkpoint](notification-launcher-acceptance-2026-10-15.md)
+and touch on the paired board. Producer, distribution and consumer source are
+integrated through main. See the [launcher checkpoint](notification-launcher-acceptance-2026-10-15.md)
 for current selection and the dated
 [October 15 config-route checkpoint](rich-notifications-acceptance-2026-10-15.md)
 and [October 14 record](rich-notifications-acceptance-2026-10-14.md) for earlier evidence.
@@ -64,7 +65,7 @@ and leave rich delivery experimental until native client support can preserve it
 The always-notify/new-terminal desktop candidate is not selected for defaults.
 Later desktop tests confirmed native clicks focus Kitty both in a session and
 in Command Center. Bryan then accepted a launch helper to preserve that behavior
-while adding richness. The [codex-plus launcher plan](https://github.com/byebyebryan/codex-plus/blob/feat/notifications/docs/notification-launcher-plan.md)
+while adding richness. The [codex-plus launcher plan](https://github.com/byebyebryan/codex-plus/blob/main/docs/notification-launcher-plan.md)
 owns the next pass. Existing dated acceptance records retain their earlier scope.
 
 The launcher becomes the completion publisher for its wrapped client and obtains
@@ -279,15 +280,15 @@ configuration and relevant firmware versions separately.
 | Agreed product boundaries and ownership | Captured; generic 349 center, codex-plus helper, chezmoi distribution, optional lifecycle adapter |
 | Existing missing-notification investigation | Helper parity and fourteen isolated checks pass; detached `/dev/tty` failure reproduced on both hosts |
 | G0 ordinary execution and recovery | Native basic completion alerts selected on both hosts; fresh installed-default local/SSH desktop checks pass; notification-only rollback/reselection passes |
-| G1 ownership | codex-plus owns the helper; preview.6 independently checksum-pinned through chezmoi, with fourteen-file byte/executable readback on both hosts and preview.5 retained for rollback |
+| G1 ownership | codex-plus owns the independently pinned helper; current fourteen-file readback verifies preview 6 on Starship and preview 7 on Snap. Prior release/rollback receipts retain their original tuples |
 | G2-G5 implementation | Explicit rich native TUI route, v1 metadata, narrow read-only turn-history inspector and optional local retirement implemented; local/SSH full sequences and tmux passthrough pass |
 | G2 config-first reopening | Normal launcher retained; configured hooks work in isolated shared 0.162.1 study. Remote TUI override inference corrected. Candidate episode deduplication is bounded; originating-client routing remains unavailable |
 | G2 desktop-route candidate | Config hook and explicit local/SSH desktop transport implemented and qualified in controlled contexts. Always-notify/new-terminal defaults remain unselected |
 | G2 selected launcher follow-up | Implemented terminal relay with positive root bindings, preserved native event filters and per-viewer actions. Preview 5 daily desktop Open passes on current owners in all four local/SSH and session/Command Center cases; original failed fixture attempts remain dated evidence |
 | Launcher/consumer source hardening | The selected goal loop adds conservative launch dispatch, preserved native event filters, positive root bindings and distinct viewer action IDs. Private native Command Center/switch/legacy-resume cases pass. Bounded 349 admission suppresses stale first arrivals without blocking generic delivery; 433 host/tooling tests pass, three live desktop tests skip. Live activation is recorded below; physical acceptance remains open |
 | Config-route lifecycle follow-up | October 15 local `100053` and SSH `100054` each reached the board, remained after panel presentation expiry, then disappeared from exact device-cache readback after newer interrupted turns; same board boot throughout. No physical acceptance claimed |
-| Safe default transition | Fresh interactive user Zsh shells select the qualified helper on Starship/Snap; native configuration and existing sessions remain intact. Unsupported, agent and noninteractive calls stay native; both shell rollback/reselection checks pass |
-| G6-G7 | Host/producer/distribution checks, source publication, installed device readback and helper/shell/config rollback/reselection pass. Live admission queue is active; daily local/SSH lifecycle, delayed-arrival suppression and generic regression pass. Source reviews remain drafts |
+| Safe default transition | Fresh interactive user shells select the helper; preview 7 adds interactive `codex agents` support. Unsupported calls and automation/noninteractive shells stay native; dated shell rollback/reselection checks pass. Each home has an exact inspector route |
+| G6-G7 | Host/producer/distribution checks, main publication, installed device readback and dated helper/shell/config rollback/reselection pass. Live admission queue is active; daily local/SSH lifecycle, delayed-arrival suppression and generic regression pass. Current protocol/route checks create no native work |
 | Physical and wider acceptance | User-observed owned-card smoke check passes readability, vertical navigation/reference dismissal and visible newer-turn removal on the paired board; existing DMS Open unavailable; wider native/UI contexts retain the dated record's limits |
 
 The loop is complete only when agreed delivery, optional enrichment and local
@@ -301,7 +302,7 @@ records the existing detached-helper failure and remaining recovery proof.
 
 ## Terminal-associated pilot checkpoint: 2026-10-15
 
-The [producer launcher plan](https://github.com/byebyebryan/codex-plus/blob/feat/notifications/docs/notification-launcher-plan.md#installed-explicit-pilot-checkpoint-2026-10-15)
+The [producer launcher plan](https://github.com/byebyebryan/codex-plus/blob/main/docs/notification-launcher-plan.md#installed-explicit-pilot-checkpoint-2026-10-15)
 records the preview 2 delivery qualification and preview 3 policy follow-up,
 native scope, rollback and acceptance
 limits. The earlier October 15 config-route checkpoint retains its dated policy;

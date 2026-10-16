@@ -81,7 +81,7 @@ The 349 rollback archive contains prior reviewed host source `32c8897`, with a
 prepared PYTHONPATH unit override and verified isolated imports. Exact config,
 unit and pairing backups remain private. This is a prepared rollback target,
 not a dump of the old process's loaded Python objects; a live rollback rehearsal
-was not performed. The producer [launcher plan](https://github.com/byebyebryan/codex-plus/blob/feat/notifications/docs/notification-launcher-plan.md)
+was not performed. The producer [launcher plan](https://github.com/byebyebryan/codex-plus/blob/main/docs/notification-launcher-plan.md)
 records native scope, failure handling, version pairs and measured CPU/memory cost.
 
 ## Cwd correction follow-up — 2026-10-15
@@ -137,6 +137,38 @@ thread. Native PID/start ticks and configuration hashes remained unchanged.
 Both loopback requests omitted authorization; no external model was called.
 The stimulus runner records protocol/cache effects, while
 `manual-panel-3/user-observations.json` records the explicit physical pass.
+
+## Upstream/main reconciliation — 2026-10-15
+
+The producer and distribution follow-ups are integrated in their respective main
+branches: codex-plus `efc386c` and dotfiles `222c72a` at this check. Preview 7,
+source `84ca9beea7ec3200342f74cc35f69678e444a961`, adds interactive `codex agents`
+support; its published archive SHA-256 is
+`d562616d429cfb24bfd388d270db9df6090c95f745e16648eba488c180bd57f9`.
+The installed helper remains preview 6 on Starship and is preview 7 on Snap.
+Every file hash and executable flag in each published fourteen-file manifest
+matched its installed release. Updating a source pin and applying it to a host
+are separate checkpoints; this reconciliation performed no live apply.
+
+Both releases retain the same v1 metadata encoding and event identity. Six
+producer/consumer combinations (two releases across three source identities)
+round-tripped through the current 349 decoder with identical event IDs. The
+consumer needs no code or firmware change for the agents/environment follow-up.
+
+The active 349d already reports three configured sources: Starship, Snap default
+OSS in `.codex`, and Snap work in `.codex-work`. The dedicated work route uses its
+explicit socket and a distinct native instance. Each exact configured inspector
+command returned a valid scoped `unknown` result for a fresh nonexistent episode.
+These read-only checks exercise metadata, nonce/reply validation, routing and
+uncertainty without creating native threads or model turns. They do not replace
+the earlier positive lifecycle, desktop focus or physical observations.
+
+The 349 feature history is published directly through main with this guide
+refresh. Its 63 host files are unchanged from the validated feature head
+`36d6c28`; no daemon restart, configuration reload or firmware flash accompanies
+publication. The source refactor, independent native-home migration and device
+reconnects retain their own dated records. The physical smoke check above remains
+specific to its original board boot and stimulus.
 
 ## Remaining acceptance boundaries
 
