@@ -2,8 +2,9 @@
 
 The qualified daily launcher and live 349 admission queue pass controlled local
 and Snap SSH device-lifecycle checks. Desktop Open is independently qualified in
-session and Command Center views. Physical panel rendering and touch remain
-unobserved; serial/cache evidence does not establish those properties.
+session and Command Center views. The subsequent user-observed physical smoke
+check below confirms readable content, touch navigation/dismissal and visible
+newer-turn retirement on the paired 349.
 
 This follows the [config-route checkpoint](rich-notifications-acceptance-2026-10-15.md).
 Its historical source tuple and limitations remain unchanged. The panel stays a
@@ -106,14 +107,43 @@ configuration, service and native-owner identities remained unchanged.
 
 This follow-up changed no notification packet, 349 host service or firmware.
 The earlier desktop Open and live card results remain their dated preview-5
-evidence; physical acceptance is still unobserved. Private cwd receipts are in
+evidence; physical acceptance was unobserved at this cwd checkpoint. Private cwd receipts are in
 `shared-cwd-installed-6/result.json` on each host under the evidence root below.
+
+## Observed physical smoke check — 2026-10-15
+
+Bryan observed the paired V2 board after its independent USB reconnect. Its boot
+ID was 1394715752, distinct from the activation checkpoint above; stable USB
+identity and pairing remained `28:84:85:92:C2:20`. The latest device hello reports
+firmware 0.2.0, build `b9046f4`, SHA `8f5ae24ba`. No firmware or service change
+was needed for this check.
+
+An owned native thread used a loopback Responses provider. The test published
+a local desktop card with the installed preview-6 utility's v1 identity metadata,
+title `Codex @ starship`, label `PHYSICAL_PANEL_CHECK` and a separate readable
+body paragraph. A generic `TOUCH_REFERENCE` card supplied the navigation target.
+This checks the common desktop-to-panel UI/lifecycle path; the installed native
+TUI/relay local and Snap SSH paths retain their separate qualification above.
+
+Bryan explicitly confirmed readable text, vertical swiping between the cards
+and dismissal of only the reference with ×. The Codex card, device ID 100057,
+remained present before the next owned turn. After that turn started, native
+inspection retired the exact card; Bryan confirmed it visibly disappeared and
+other cards remained. This physical result comes from those two user reports,
+corroborated by cache readback, rather than being inferred from serial output.
+
+Cleanup closed only owned desktop IDs 683/684 and archived the disposable native
+thread. Native PID/start ticks and configuration hashes remained unchanged.
+Both loopback requests omitted authorization; no external model was called.
+The stimulus runner records protocol/cache effects, while
+`manual-panel-3/user-observations.json` records the explicit physical pass.
 
 ## Remaining acceptance boundaries
 
-- Physical readability, visible retirement and touch were not observed. An
-  observation request for LOCALPANEL/SSHPANEL remains separate from automated
-  receipts; no physical pass is inferred from missing feedback.
+- The physical smoke check covers this paired board/firmware and the owned
+  desktop-to-panel stimulus above. Earlier LOCALPANEL/SSHPANEL receipt tests
+  remain automated checks; broader hardware and native/UI contexts are not
+  implied by this physical pass.
 - The DMS panel Open provider remains unavailable and separate from desktop
   terminal Open. No panel Open repair was attempted.
 - Foreground suppression and tmux delivery retain their earlier dated
@@ -123,5 +153,6 @@ evidence; physical acceptance is still unobserved. Private cwd receipts are in
   retain the producer guide's limits.
 
 Private evidence is under `~/.cache/codex-notify-launcher-20261015`, including
-`349d-rollout/activation-1`, `local-desktop-26` and `ssh-desktop-16`. Raw native
+`349d-rollout/activation-1`, `local-desktop-26`, `ssh-desktop-16` and
+`manual-panel-3`. Raw native
 responses, terminal/desktop captures and runtime state are not committed.

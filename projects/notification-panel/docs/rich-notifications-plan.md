@@ -4,8 +4,9 @@ Created: 2026-10-14. Updated: 2026-10-15. Status: preview 6 is selected for fres
 interactive Codex launches on Starship and Snap. The terminal-associated launcher
 retains unfocused-only delivery and originating-window focus; native basic alerts
 remain the pre-launch fallback. Local/SSH/tmux delivery and viewer lifetime
-checks pass, and the optional admission queue is active in live 349d. Physical
-readability, visible card retirement and touch remain unobserved. Source reviews
+checks pass, and the optional admission queue is active in live 349d. A subsequent
+user-observed smoke check confirms physical readability, visible card retirement
+and touch on the paired board. Source reviews
 remain drafts. See the [launcher checkpoint](notification-launcher-acceptance-2026-10-15.md)
 for current selection and the dated
 [October 15 config-route checkpoint](rich-notifications-acceptance-2026-10-15.md)
@@ -287,7 +288,7 @@ configuration and relevant firmware versions separately.
 | Config-route lifecycle follow-up | October 15 local `100053` and SSH `100054` each reached the board, remained after panel presentation expiry, then disappeared from exact device-cache readback after newer interrupted turns; same board boot throughout. No physical acceptance claimed |
 | Safe default transition | Fresh interactive user Zsh shells select the qualified helper on Starship/Snap; native configuration and existing sessions remain intact. Unsupported, agent and noninteractive calls stay native; both shell rollback/reselection checks pass |
 | G6-G7 | Host/producer/distribution checks, source publication, installed device readback and helper/shell/config rollback/reselection pass. Live admission queue is active; daily local/SSH lifecycle, delayed-arrival suppression and generic regression pass. Source reviews remain drafts |
-| Physical and wider acceptance | Pending physical/touch confirmation; existing DMS Open unavailable; additional native/UI contexts listed in the dated record |
+| Physical and wider acceptance | User-observed owned-card smoke check passes readability, vertical navigation/reference dismissal and visible newer-turn removal on the paired board; existing DMS Open unavailable; wider native/UI contexts retain the dated record's limits |
 
 The loop is complete only when agreed delivery, optional enrichment and local
 card lifecycle behavior have installed and physical acceptance for the selected
@@ -373,7 +374,10 @@ The 349 pre-admission fix is now active after a scoped 349d-only restart. Daily
 local/SSH cases retain cards beyond presentation expiry and remove the exact card
 on a newer turn. Live delayed arrivals are held for native inspection and rejected
 without a new device card observed; generic admission/close passes without native
-inspection. Native owners and other services remain unchanged. Firmware and board
-boot ID are unchanged. The [launcher checkpoint](notification-launcher-acceptance-2026-10-15.md)
-records exact scope and rollback preparation. Physical readability, visible
-retirement and touch acceptance remain open.
+inspection. Native owners and other services remained unchanged during that
+activation, as did firmware and board boot ID. The
+[launcher checkpoint](notification-launcher-acceptance-2026-10-15.md) records exact
+scope and rollback preparation, plus the subsequent user-observed physical smoke
+check after an independent device reconnect. Readability, vertical navigation,
+reference dismissal and visible newer-turn retirement pass on that paired board;
+the DMS panel Open gap remains separate.
