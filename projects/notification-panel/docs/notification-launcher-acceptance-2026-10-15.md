@@ -83,6 +83,32 @@ not a dump of the old process's loaded Python objects; a live rollback rehearsal
 was not performed. The producer [launcher plan](https://github.com/byebyebryan/codex-plus/blob/feat/notifications/docs/notification-launcher-plan.md)
 records native scope, failure handling, version pairs and measured CPU/memory cost.
 
+## Cwd correction follow-up — 2026-10-15
+
+The activation tuple above records preview 5. The subsequent preview 6 release,
+codex-plus `e77601b593f85e8fa004add1e1f54ccb97423f6b`, fixes fresh interactive
+launches losing their caller directory when the launcher introduces `--remote`.
+Its independent archive SHA-256 is
+`7fdec339dcea7dc0d8925b1b5ee74cd4cc84a648662e20e0a842b73ca89eaad3`.
+Both installed selectors now use this release; fourteen-file readback and
+preview-5 rollback/reselection passed on Starship and Snap.
+
+Fresh sessions receive the absolute effective local directory. Explicit
+`-C`/`--cd` forms agree with preflight configuration selection. Resume without
+an explicit override retains native saved-directory policy; fork stays native.
+Fifty-four notification tests pass. Real native fixtures reproduced the old
+null-cwd/home-directory regression and verified fresh, explicit and saved-resume
+cases. Installed automatic launches with no cwd option or prompt then sent
+`/home/bryan/code/esp32-349` on Starship and `/home/bryan/code/mesh-plus` on Snap;
+both native thread-start responses and independent thread-read results matched.
+No model turn started, the owned empty threads were archived, and protected
+configuration, service and native-owner identities remained unchanged.
+
+This follow-up changed no notification packet, 349 host service or firmware.
+The earlier desktop Open and live card results remain their dated preview-5
+evidence; physical acceptance is still unobserved. Private cwd receipts are in
+`shared-cwd-installed-6/result.json` on each host under the evidence root below.
+
 ## Remaining acceptance boundaries
 
 - Physical readability, visible retirement and touch were not observed. An
