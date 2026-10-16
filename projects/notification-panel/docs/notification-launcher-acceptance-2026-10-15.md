@@ -1,5 +1,13 @@
 # Terminal-associated notification checkpoint — 2026-10-15
 
+Current selection update, 2026-10-15: the launcher is retired. Its explicit
+`--remote` target disables native empty-prompt Left navigation to Command Center.
+The checks below did not cover that shortcut and do not establish transparent
+native behavior. Codex Plus delivery/hooks are removed; the retained
+[349 inspector](codex-inspector.md) supplies only read-only lifecycle queries.
+Native notifications remain selected. The dated rendering/touch and exact-card
+retirement observations below retain their original scope.
+
 The qualified daily launcher and live 349 admission queue pass controlled local
 and Snap SSH device-lifecycle checks. Desktop Open is independently qualified in
 session and Command Center views. The subsequent user-observed physical smoke

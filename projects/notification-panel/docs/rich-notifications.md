@@ -4,9 +4,12 @@ The panel remains a generic notification center. Versioned Codex metadata can
 add a source host label and retire an older completion card after the same native
 thread starts a newer turn. Agent Observer and firmware changes are unnecessary.
 
-The standalone [codex-plus helper](https://github.com/byebyebryan/codex-plus/blob/main/docs/notifications.md)
-owns native-client routing and the metadata protocol. Ordinary notifications,
-unknown versions and malformed categories retain normal formatting and retention.
+The [read-only Codex inspector](codex-inspector.md) belongs to this integration.
+Notification delivery and the `--remote` relay are retired from codex-plus;
+native Codex completion/approval alerts are the selected route. Native alerts
+carry no exact thread/turn metadata and therefore use generic retention. The
+optional rich consumer remains available for correctly identified metadata.
+Unknown versions and malformed categories retain normal formatting and retention.
 Private metadata is never sent to firmware. Raw desktop action identities remain
 independent of display labels.
 
@@ -18,13 +21,13 @@ table in `~/.config/349d/config.toml`:
 
 ```toml
 rich_sources = [
-  { host = "LOCAL_HOST_FROM_IDENTITY", instance = "LOCAL_INSTANCE_FROM_IDENTITY", command = ["/home/bryan/.local/bin/codex-notify", "inspect", "--socket", "/home/bryan/.codex/app-server-control/app-server-control.sock"] },
-  { host = "REMOTE_HOST_FROM_IDENTITY", instance = "REMOTE_DEFAULT_INSTANCE", command = ["/usr/bin/ssh", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=3", "snap", "/home/bryan/.local/bin/codex-notify", "inspect", "--socket", "/home/bryan/.codex/app-server-control/app-server-control.sock"] },
-  { host = "REMOTE_HOST_FROM_IDENTITY", instance = "REMOTE_WORK_INSTANCE", command = ["/usr/bin/ssh", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=3", "snap", "/home/bryan/.local/bin/codex-notify", "inspect", "--socket", "/home/bryan/.codex-work/app-server-control/app-server-control.sock"] },
+  { host = "LOCAL_HOST_FROM_IDENTITY", instance = "LOCAL_INSTANCE_FROM_IDENTITY", command = ["/home/bryan/.local/bin/349-codex-inspect", "inspect", "--socket", "/home/bryan/.codex/app-server-control/app-server-control.sock"] },
+  { host = "REMOTE_HOST_FROM_IDENTITY", instance = "REMOTE_DEFAULT_INSTANCE", command = ["/usr/bin/ssh", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=3", "snap", "/home/bryan/.local/bin/349-codex-inspect", "inspect", "--socket", "/home/bryan/.codex/app-server-control/app-server-control.sock"] },
+  { host = "REMOTE_HOST_FROM_IDENTITY", instance = "REMOTE_WORK_INSTANCE", command = ["/usr/bin/ssh", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=3", "snap", "/home/bryan/.local/bin/349-codex-inspect", "inspect", "--socket", "/home/bryan/.codex-work/app-server-control/app-server-control.sock"] },
 ]
 ```
 
-Run `codex-notify identity --socket /absolute/path/to/the/native/socket` on each
+Run `349-codex-inspect identity --socket /absolute/path/to/the/native/socket` on each
 source, using the same socket as its `inspect` command. Copy both returned fields;
 an SSH alias such as `snap` need not equal the returned hostname. Each native home
 needs its own route and instance, even when homes share a hostname. The example
@@ -32,18 +35,16 @@ above uses Snap's default OSS home and dedicated `.codex-work` home. Launch
 wrappers select `CODEX_HOME` for a TUI; a separate 349d process must not infer that
 selection from its own environment or inspect another home's history.
 
-On the qualified Starship/Snap deployment, fresh interactive user shells select the
-[codex-plus launch helper](https://github.com/byebyebryan/codex-plus/blob/main/docs/notification-launcher-plan.md)
-to supply an attached TUI route, unfocused-only rich alerts and original-terminal
-desktop Open. Native configuration remains the basic fallback for unsupported
-calls, automation/noninteractive shells and existing unwrapped sessions.
-Preview 7 additionally wraps interactive `codex agents`; preview 6 retains native
-dispatch for that subcommand. The [current checkpoint](notification-launcher-acceptance-2026-10-15.md#upstreammain-reconciliation--2026-10-15)
-records the installed Starship/Snap release selections and route checks.
-The configured `hook`/`desktop` alternative has different focus/Open behavior.
-Desktop clicks focus the originating Kitty window; panel Open separately needs
-the DMS action bridge. See the helper guide for setup and limits. Reload config
-with `349ctl reload`; new host code requires a scoped service restart.
+Chezmoi pins the standalone inspector independently of Codex Plus. Install the
+new inspector before changing configured commands; preserve each route's exact
+host, instance and socket. The v1 protocol and source/event identities are
+unchanged. Reload a reviewed config with `349ctl reload`; no native daemon or
+349d restart is needed to change inspector commands. Leave previous immutable
+helper releases in place for ongoing relays and rollback.
+
+Native notification click-to-focus belongs to the originating terminal. Panel
+Open separately needs the DMS action bridge. No notification publisher, config
+hook, TUI relay or native transport override is selected by this integration.
 
 At most four unique source routes are allowed, each with an absolute executable
 and bounded argv. Routes are trusted local configuration, never incoming metadata.

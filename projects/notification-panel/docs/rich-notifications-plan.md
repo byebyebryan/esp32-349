@@ -1,17 +1,14 @@
 # Rich notifications and delivery recovery plan
 
-Created: 2026-10-14. Updated: 2026-10-15. Status: the shared v1 consumer is checked
-against installed preview 6 on Starship and preview 7 on Snap, including separate
-default/work inspector routes. The terminal-associated launcher
-retains unfocused-only delivery and originating-window focus; native basic alerts
-remain the pre-launch fallback. Local/SSH/tmux delivery and viewer lifetime
-checks pass, and the optional admission queue is active in live 349d. A subsequent
-user-observed smoke check confirms physical readability, visible card retirement
-and touch on the paired board. Producer, distribution and consumer source are
-integrated through main. See the [launcher checkpoint](notification-launcher-acceptance-2026-10-15.md)
-for current selection and the dated
-[October 15 config-route checkpoint](rich-notifications-acceptance-2026-10-15.md)
-and [October 14 record](rich-notifications-acceptance-2026-10-14.md) for earlier evidence.
+Created: 2026-10-14. Updated: 2026-10-15. Current selection: native Codex
+completion/approval alerts. Delivery hooks and the terminal relay are retired
+from codex-plus because explicit `--remote` changes native behavior, including
+Left navigation to Command Center. The optional read-only inspector now belongs
+to the [349 integration](codex-inspector.md); chezmoi owns pinned distribution.
+The v1 consumer and exact lifecycle contract remain unchanged. Native alerts
+without metadata retain generic behavior. Earlier source, installed, rollback
+and physical checks below are dated evidence, not current launcher selection.
+See the [launcher checkpoint](notification-launcher-acceptance-2026-10-15.md).
 
 [Project overview](../README.md) · [Architecture](architecture.md) · [Behavior](behavior.md)
 
@@ -34,48 +31,30 @@ attached-terminal delivery must be tested separately. Native TUI recovery is
 selected on both hosts; installed-default and rollback checks pass. Physical
 checks remain separate. Delivery recovery was the first execution gate.
 
-The Codex notification helper is a generic utility for augmenting native Codex
-notifications, useful independently of a physical display. Its canonical source,
-behavioral tests and documentation now live in `codex-plus`. Chezmoi continues
-to own pinned distribution, the installed `codex-notify` command and provider
-configuration. The source ownership move began at candidate 6b1dbb6. Preview.1
-runtime 7d05b07 was independently pinned and installed through chezmoi on both
-hosts. Preview 3 (`2e6366c`) was selected at the explicit launcher pilot checkpoint,
-with previews 1/2 retained and rollback/reselection qualified. Preview 3 preserves
-native daemon feature policy in automatic dispatch; explicit delivery and
-inspection retain preview 2 behavior. The daily shell entry point was a separate
-later rollout; the launcher checkpoint records its current preview-6 selection
-and preview-5 rollback. The dated records identify each tuple.
+The former codex-plus notification delivery component is retired. Keep only the
+bounded read-only inspector with this project. It does not publish notifications,
+attach a TUI, start/resume a thread or start a turn. Terminal customization belongs
+with dotfiles. Historical helper ownership and previews remain recorded below
+and in immutable upstream history.
 
 ## Ownership
 
 | Component | Responsibility |
 | --- | --- |
-| codex-plus notification helper | Callback handling, notification content, Kitty/tmux delivery and generic rich metadata |
-| Chezmoi | Pinned helper deployment, source provenance, installed-byte checks and Codex configuration |
+| 349 Codex inspector | Bounded read-only native history queries for outstanding exact-identity cards |
+| Chezmoi | Pinned inspector distribution, source provenance, installed-byte checks and native Codex configuration |
 | 349d | Desktop mirroring, optional rich-metadata interpretation, local card association and removal policy |
 | Firmware | Existing bounded notification cache, touch presentation and host-directed card removal |
 | Optional lifecycle adapter | Reliable scoped native progression or acknowledgement evidence; Observer is one possible adapter |
 
-The helper must retain originating-terminal routing, unfocused-only delivery,
-native Open/focus behavior, child/noninteractive suppression and quiet failure.
-The 349 integration must keep unrelated notification content and actions useful.
-On October 15 Bryan selected this policy explicitly: retain native basic alerts
-and leave rich delivery experimental until native client support can preserve it.
-The always-notify/new-terminal desktop candidate is not selected for defaults.
-Later desktop tests confirmed native clicks focus Kitty both in a session and
-in Command Center. Bryan then accepted a launch helper to preserve that behavior
-while adding richness. The [codex-plus launcher plan](https://github.com/byebyebryan/codex-plus/blob/main/docs/notification-launcher-plan.md)
-owns the next pass. Existing dated acceptance records retain their earlier scope.
+Native Codex and the terminal retain notification focus/Open behavior. The
+retired relay's previous delivery checks did not cover the empty-prompt Left
+shortcut; entering Command Center through another path did not prove transparent
+native behavior. Do not restore it as a default or infer exact identity from
+preview text, project folders or notification timing. Future formatting work is
+separate from the retained inspector and generic 349 consumer.
 
-The launcher becomes the completion publisher for its wrapped client and obtains
-content/identity from that native connection. A daemon hook is optional for this
-route. Keep native completion and approval recovery for unwrapped clients;
-separately qualify loaded-thread hook adoption and safe fallback. Desktop Open
-focuses the originating terminal; selecting a thread inside Command Center stays
-a native TUI interaction. Panel Open through DMS is a separate bridge gate.
-
-## Proposed runtime flow
+## Historical producer proposal
 
 ```mermaid
 flowchart LR
@@ -94,7 +73,7 @@ flowchart LR
 
 These publication paths are alternatives for a covered context. Select one
 completion publisher so native TUI and helper delivery do not create duplicates.
-Native TUI recovery is an interim basic-alert candidate; it does not establish
+At this earlier design checkpoint, native TUI recovery was an interim basic-alert candidate; it does not establish
 rich body/metadata parity. The producer and lifecycle paths must each prove their
 own identity and delivery. The 349 consumes optional enrichment; source discovery
 and native Codex protocol handling belong to the producer/adapter.

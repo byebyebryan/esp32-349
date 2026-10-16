@@ -24,6 +24,11 @@ regressions. These tests create a private bus and never use the desktop bus.
 Locally they skip if the broker is absent; set
 `STATUS349_REQUIRE_DBUS_BROKER=1` to make a missing broker fail instead.
 
+The Codex inspector tests also run a real private Unix/WebSocket listener and an
+isolated Python CLI with site packages disabled. They check exact history order,
+source/home separation, owner changes, missing-source uncertainty and refusal of
+thread/turn mutations. They do not contact a production daemon or emit alerts.
+
 The [CI workflow](../../../.github/workflows/checks.yml) runs these isolated host/tooling
 tests on Python 3.11 and 3.14 with the private broker required, plus the JavaScript
 desktop-action provider tests. Its ESP-IDF 5.5.3 matrix builds both firmware
