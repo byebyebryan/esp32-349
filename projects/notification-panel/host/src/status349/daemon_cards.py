@@ -32,6 +32,11 @@ class CardPresentationMixin:
         self._next_local_notification_id += 1
         return local_id
 
+    def _source_version_current(self, message):
+        # Generic outbox replacements must not publish a superseded source version.
+        version = self.notifications.current_version(int(message['id']))
+        return version is None or version == message.get('_source_version')
+
     async def _device_notify(self, message: dict) -> None:
         local_id = int(message["id"])
         if self.notifications.is_locally_removed(local_id) or self.notifications.is_forgotten(local_id):
@@ -59,8 +64,6 @@ class CardPresentationMixin:
                 self.notifications.forget(local_id)
                 return
             await self._expire_history_locked(now, exclude_ids={local_id})
-            if not self._admit_rich_locked(message, receipt_mono, now):
-                return
             was_grouped = self._grouped_enabled
             previous_cached = self.model.cached_notification_ids(
                 self._card_sync_capacity, retained=was_grouped

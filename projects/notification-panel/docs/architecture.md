@@ -40,7 +40,6 @@ Host implementation is split by responsibility:
 | [daemon_link.py](../host/src/status349/daemon_link.py) | Pairing, verified session ownership, transport, readback and keepalive |
 | [daemon_actions.py](../host/src/status349/daemon_actions.py) | Activation correlation, pending requests and dispatch results |
 | [daemon_telemetry.py](../host/src/status349/daemon_telemetry.py) | Serialized source sampling, dashboard smoothing and monitor-power following |
-| [daemon_rich.py](../host/src/status349/daemon_rich.py) | Bounded rich-arrival admission and outstanding-card native inspection |
 
 The five implementation mixins are assembled by `Daemon`; they share its
 model and locks rather than introducing separate state owners. Cross-worker

@@ -1,5 +1,11 @@
 # Terminal-associated notification checkpoint — 2026-10-15
 
+Current selection update, 2026-10-16: notification enrichment and the inspector
+are retired. This record preserves its original dated scope and physical
+observations; it does not describe the active notification path. See
+[native notification formatting](https://github.com/byebyebryan/dotfiles/blob/main/docs/kitty-notifications.md)
+for the current work.
+
 Current selection update, 2026-10-15: the launcher is retired. Its explicit
 `--remote` target disables native empty-prompt Left navigation to Command Center.
 The checks below did not cover that shortcut and do not establish transparent

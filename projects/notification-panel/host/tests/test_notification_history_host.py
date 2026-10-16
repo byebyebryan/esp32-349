@@ -410,3 +410,17 @@ def test_source_retains_511_utf8_bytes_and_stamps_identical_replacements(monkeyp
         assert replacement["_received_mono"] > first_receipt
 
     asyncio.run(scenario())
+
+
+def test_generic_outbox_replacement_does_not_publish_an_old_source_version():
+    async def scenario():
+        daemon, writer = _history_daemon()
+        daemon.notifications._open_info[1] = {'version': 2}
+        old = proto.notify(1, 'kitty', 'Terminal notification', 'old', 1, 1000, 1)
+        old['_source_version'] = 1
+        await daemon._device_notify(old)
+        assert not writer.frames and not daemon.model.retained_notifs
+        newer = dict(old, body='new', _source_version=2)
+        await daemon._device_notify(newer)
+        assert daemon.model.retained_notifs[1]['body'] == 'new'
+    asyncio.run(scenario())

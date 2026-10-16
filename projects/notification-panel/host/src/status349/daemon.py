@@ -26,8 +26,6 @@ from .config import Config, apply_config, load_config, validate_config
 from .daemon_actions import ActionDispatchMixin
 from .daemon_cards import CardPresentationMixin
 from .daemon_link import LinkLifecycleMixin
-from .daemon_rich import RichNotificationsMixin
-from .rich_protocol import event_id as rich_event_id
 from .daemon_telemetry import TelemetryMixin, _TelemetrySample
 from .ipc import IpcServer, pause_path
 from .sources.bluetooth import BluetoothSource
@@ -45,7 +43,7 @@ log = logging.getLogger("349d")
 SESSION_MAX = proto.IDENTITY_MAX
 
 
-class Daemon(CardPresentationMixin, LinkLifecycleMixin, ActionDispatchMixin, TelemetryMixin, RichNotificationsMixin):
+class Daemon(CardPresentationMixin, LinkLifecycleMixin, ActionDispatchMixin, TelemetryMixin):
     """Own shared state/locks and coordinate the daemon's worker responsibilities."""
 
     def __init__(
@@ -58,7 +56,6 @@ class Daemon(CardPresentationMixin, LinkLifecycleMixin, ActionDispatchMixin, Tel
         if port_override is not None:
             self.cfg.link.port = port_override
         self.stop = stop
-        self._init_rich()
         self.model = StateModel(
             max_visible=cfg.notifications.max_visible,
             cache_limit=cfg.notifications.cache_limit,
@@ -87,7 +84,7 @@ class Daemon(CardPresentationMixin, LinkLifecycleMixin, ActionDispatchMixin, Tel
         self._notification_peer_known = False
         self.notifications = NotificationSource(
             cfg.notifications,
-            self._queue_notification,
+            self._device_notify,
             self._device_close,
             on_active_expire=self._device_active_expire,
             on_expire=self._device_expire,
@@ -186,7 +183,6 @@ class Daemon(CardPresentationMixin, LinkLifecycleMixin, ActionDispatchMixin, Tel
                 asyncio.create_task(self._ping_loop(), name="ping"),
                 asyncio.create_task(self._display_loop(), name="display"),
                 asyncio.create_task(self.action_manager.run(self.stop), name="notification-actions"),
-                asyncio.create_task(self._rich_loop(), name="rich-notifications"),
             }
             stop_waiter = asyncio.create_task(self.stop.wait(), name="stop")
             notification_failure = asyncio.create_task(self.notifications.failed.wait(), name="notification-failure")
@@ -600,12 +596,6 @@ class Daemon(CardPresentationMixin, LinkLifecycleMixin, ActionDispatchMixin, Tel
             "retained_notifs": len(self.model.retained_notifs),
             "grouped": self._grouped_enabled,
             "notification_history": self._history_enabled,
-            "rich_notifications": {"sources": len(self.cfg.notifications.rich_sources),
-                                   "tracked": len(self._rich_snapshot_locked()),
-                                   "pending": len(self._rich_pending),
-                                   "cards": [{"id": nid, "event": rich_event_id(card.metadata)}
-                                             for nid, card in self._rich_cards.items()],
-                                   "checks": self._rich_checks, "superseded": self._rich_superseded},
             "notification_body_style": self._body_style_enabled,
             "notification_actions": {
                 "configured": self.cfg.notifications.device_open == "dms",

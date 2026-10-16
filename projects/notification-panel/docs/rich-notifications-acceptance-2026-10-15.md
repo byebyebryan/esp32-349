@@ -1,5 +1,11 @@
 # Config-driven rich notification checkpoint — 2026-10-15
 
+Current selection update, 2026-10-16: notification enrichment and the inspector
+are retired. This record preserves its original dated scope and physical
+observations; it does not describe the active notification path. See
+[native notification formatting](https://github.com/byebyebryan/dotfiles/blob/main/docs/kitty-notifications.md)
+for the current work.
+
 The local and Snap SSH cases now pass exact device-cache admission and removal
 readback. Physical rendering and touch were not observed. This follows the
 [October 14 checkpoint](rich-notifications-acceptance-2026-10-14.md), whose dated

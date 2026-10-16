@@ -1,5 +1,11 @@
 # Rich notification candidate acceptance — 2026-10-14
 
+Current selection update, 2026-10-16: notification enrichment and the inspector
+are retired. This record preserves its original dated scope and physical
+observations; it does not describe the active notification path. See
+[native notification formatting](https://github.com/byebyebryan/dotfiles/blob/main/docs/kitty-notifications.md)
+for the current work.
+
 This is a dated installed-candidate checkpoint. Physical panel/touch acceptance
 remains pending. The [guide](rich-notifications.md) describes usage and failure
 behavior; the [plan](rich-notifications-plan.md) records the agreed scope.

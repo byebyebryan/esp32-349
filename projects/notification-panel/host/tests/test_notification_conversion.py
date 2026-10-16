@@ -206,6 +206,24 @@ def test_notify_display_conversion_does_not_change_raw_open_metadata():
     }
 
 
+def test_retired_codex_metadata_is_an_ordinary_category():
+    import base64
+    import json
+
+    metadata = {'v': 1, 'provider': 'codex', 'host': 'snap', 'instance': 'native',
+                'thread': '11111111-1111-4111-8111-111111111111',
+                'turn': 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+                'kind': 'completion', 'body_format': 'markdown'}
+    category = 'x-codex-plus.notification.v1.' + base64.urlsafe_b64encode(
+        json.dumps(metadata, sort_keys=True, separators=(',', ':')).encode()).decode().rstrip('=')
+    parsed = parse_notify_body(['kitty', 0, '', 'Terminal notification', '**literal**', [],
+                                {'category': Variant('s', category)}, 0])
+    assert parsed['app'] == 'kitty'
+    assert parsed['summary'] == 'Terminal notification'
+    assert parsed['body'] == '**literal**'
+    assert '_rich' not in parsed and not parsed.get('body_runs')
+
+
 def test_oversized_plain_body_is_bounded_before_normalization(monkeypatch):
     observed_sizes = []
     normalize = notification_text._normalized_chars

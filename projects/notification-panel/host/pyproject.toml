@@ -13,7 +13,6 @@ dependencies = [
 [project.scripts]
 349ctl = "status349.__main__:main"
 349d = "status349.daemon:main"
-349-codex-inspect = "status349.codex_inspect:main"
 
 [dependency-groups]
 dev = ["pytest>=8"]

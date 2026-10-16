@@ -32,7 +32,6 @@ from `projects/notification-panel/` unless stated otherwise.
 | [Tests and evidence](docs/testing.md) | Host, provider, firmware and production native checks; [manual tools](tools/README.md) |
 | [Validation checkpoint](STATUS.md) | Dated source, automated results and physical acceptance scope |
 | [Architecture](docs/architecture.md) | Host/firmware ownership, USB sessions, Open identity and rendering decisions |
-| [Rich notifications](docs/rich-notifications.md) · [execution plan](docs/rich-notifications-plan.md) · [launcher checkpoint](docs/notification-launcher-acceptance-2026-10-15.md) | Optional Codex host labels and local superseded-card removal within the generic notification center |
 | [Wire protocol](docs/protocol.md) | Capabilities, atomic snapshots, retention, styles and action correlation |
 | [UI design](docs/ui.md) | Geometry, palette, typography, gestures and motion |
 | [Backlight policy](docs/backlight.md) | Dimming circuit, physical controls, screen following and notification boosts |
