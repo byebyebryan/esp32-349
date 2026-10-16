@@ -13,7 +13,7 @@ a newer agent turn no longer performs any card inspection or dismissal.
 - Codex Plus `e2ed6fa42d03c8bef0f4cd876debccaa5ad481d9` records that both
   enrichment and inspection are parked; monitoring/reports/workers are separate.
 
-The installed formatter on Starship and Snap has SHA-256
+At this initial checkpoint, the installed formatter on Starship and Snap had SHA-256
 `c303167309ee81d87f8c0c9dfbccb00891bad9232d78cf04f2cc88a90ae93694`.
 It keeps Kitty as sender, uses “Terminal notification” as the title and moves
 the existing preview text into the body. Identified/structured notifications,
@@ -58,7 +58,8 @@ No Codex/model turn was created. Private fixture/rollback receipts are under
 
 ## Acceptance limits
 
-Physical body readability is pending user observation. A new graphical click
+At the initial checkpoint, physical body readability was pending user observation.
+A new graphical click
 test was not observed; originating-channel activation passed through the native
 notification manager and the desktop action field is preserved. Historical
 panel/touch and native TUI click checks retain their dated scope.
@@ -69,3 +70,22 @@ pick up formatting; a new OS window inside an old process keeps that process's
 handler. The change fixes native preview layout, not full-response delivery,
 agent labels or lifecycle handling. See the
 [formatter guide](https://github.com/byebyebryan/dotfiles/blob/main/docs/kitty-notifications.md).
+
+## Codex title follow-up and user confirmation
+
+Dotfiles `31de898` changes the display title to “Codex”, keeping Kitty as sender
+and the existing native preview in the body. It is installed on Starship and
+Snap with SHA-256
+`1a8dba4021b8394c0ba4a85b4b524499169aa648293d668e579503bb955b290f`.
+The Kitty parser/notification-manager check passes on both hosts, and each
+installed file matches its managed source.
+
+A follow-up Starship OSC 9 probe captured desktop ID `841`, sender `kitty`,
+title `Codex`, body `STARSHIP_NATIVE_CHECK - preview body`, and the default
+action. The board cache gained ID `100015` during the probe. The exact owned
+desktop notice was closed and the test Kitty stopped; no model turn was created.
+
+Bryan initially saw no completion alert while Kitty remained focused. This is
+the selected unfocused-only native policy. He subsequently confirmed that the
+notification was visible and working. No new touch or graphical click test was
+reported. Existing Kitty processes and Codex daemons were left running.
