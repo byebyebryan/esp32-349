@@ -5,6 +5,10 @@ Status: basic native TUI recovery selected on Starship and Snap; config-driven
 completion hooks confirmed in a subsequent isolated study. Rich delivery routing
 is reopened; physical acceptance remains separate.
 
+This investigation retains its dated configuration and recovery checkpoints.
+The [launcher checkpoint](notification-launcher-acceptance-2026-10-15.md) records
+the subsequent terminal-associated daily rollout and current acceptance limits.
+
 [Rich notification plan](rich-notifications-plan.md) · [Testing](testing.md)
 
 ## Report and current configuration

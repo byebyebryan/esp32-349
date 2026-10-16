@@ -1,14 +1,15 @@
 # Rich notifications and delivery recovery plan
 
-Created: 2026-10-14. Updated: 2026-10-15. Status: a launch helper is now accepted
-as the route to richer notifications with unfocused-only delivery and original
-terminal focus. The hardened explicit launcher is installed on Starship/Snap;
-ordinary launches keep native basic alerts. Local/SSH/tmux delivery and native
-viewer lifetime checks pass. Daily shell activation and physical acceptance remain
-open. The admission fix is source-qualified and has not replaced live 349d.
-See the [October 15 checkpoint](rich-notifications-acceptance-2026-10-15.md) and
-the [October 14 record](rich-notifications-acceptance-2026-10-14.md).
-Physical/touch acceptance and draft review/merge remain explicit release gates.
+Created: 2026-10-14. Updated: 2026-10-15. Status: preview 6 is selected for fresh
+interactive Codex launches on Starship and Snap. The terminal-associated launcher
+retains unfocused-only delivery and originating-window focus; native basic alerts
+remain the pre-launch fallback. Local/SSH/tmux delivery and viewer lifetime
+checks pass, and the optional admission queue is active in live 349d. Physical
+readability, visible card retirement and touch remain unobserved. Source reviews
+remain drafts. See the [launcher checkpoint](notification-launcher-acceptance-2026-10-15.md)
+for current selection and the dated
+[October 15 config-route checkpoint](rich-notifications-acceptance-2026-10-15.md)
+and [October 14 record](rich-notifications-acceptance-2026-10-14.md) for earlier evidence.
 
 [Project overview](../README.md) · [Architecture](architecture.md) · [Behavior](behavior.md)
 
@@ -37,11 +38,12 @@ behavioral tests and documentation now live in `codex-plus`. Chezmoi continues
 to own pinned distribution, the installed `codex-notify` command and provider
 configuration. The source ownership move began at candidate 6b1dbb6. Preview.1
 runtime 7d05b07 was independently pinned and installed through chezmoi on both
-hosts. Preview 3 (`2e6366c`) is now selected for the explicit launcher pilot, with
-previews 1/2 retained and rollback/reselection qualified. Preview 3 preserves
+hosts. Preview 3 (`2e6366c`) was selected at the explicit launcher pilot checkpoint,
+with previews 1/2 retained and rollback/reselection qualified. Preview 3 preserves
 native daemon feature policy in automatic dispatch; explicit delivery and
-inspection retain preview 2 behavior. Installing the helper
-does not select rich default delivery. The dated records identify each tuple.
+inspection retain preview 2 behavior. The daily shell entry point was a separate
+later rollout; the launcher checkpoint records its current preview-6 selection
+and preview-5 rollback. The dated records identify each tuple.
 
 ## Ownership
 
