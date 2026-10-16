@@ -30,7 +30,8 @@ needs only the standalone script and four standard-library modules:
 - `src/status349/codex_native.py`
 - `src/status349/rich_protocol.py`
 
-Preserve their relative layout and include the repository license. Chezmoi pins
+Preserve their relative layout and include the extracted component's
+[MIT license](../host/CODEX_INSPECTOR_LICENSE). Chezmoi pins
 this bounded subset of an immutable esp32-349 source archive and selects the
 script with `~/.local/bin/349-codex-inspect`. No host dependency installation is
 needed on a remote Codex source. Validate the extracted subset with isolated
