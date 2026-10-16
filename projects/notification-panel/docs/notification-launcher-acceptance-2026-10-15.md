@@ -196,3 +196,43 @@ Private evidence is under `~/.cache/codex-notify-launcher-20261015`, including
 `349d-rollout/activation-1`, `local-desktop-26`, `ssh-desktop-16` and
 `manual-panel-3`. Raw native
 responses, terminal/desktop captures and runtime state are not committed.
+
+## Inspector ownership and launcher retirement - 2026-10-15
+
+The delivery/hooks and relay are removed from codex-plus main at
+`a733dd13de4dea3a235056884652744e79787892`. Historical producer guides retain
+immutable pre-retirement links. The independent 349 inspector is published at
+`070b5a7a1af2974af3cacbc5fe6cb8d9f098b394`; dotfiles selection
+`c6a53c110f84de7d9be660b7a2ef7d477368e7b5` pins its seven-file standard-library
+subset, guide and extracted MIT license. Archive SHA-256 is
+`7a1a1294ca83cd293f3e86c415a5f245977e0be0c78de515b43244ba25d6de2c`.
+
+An isolated chezmoi installation and the installed Starship/Snap subsets verify
+against the pinned file inventory/hashes and standalone CLI. The new transport
+permits only initialization and `thread/turns/list`. Eight inspector regressions
+cover a real private Unix/WebSocket server, an isolated Python CLI without site
+packages, exact history order, source/home separation, owner changes, missing
+source uncertainty and mutation refusal. The combined host/tooling suite passes
+441 tests with three live desktop tests skipped. Codex Plus passes 270 remaining
+tests and its 109-file inventory; the full dotfiles validator passes. All six
+[349 CI jobs at the inspector selection](https://github.com/byebyebryan/esp32-349/actions/runs/38856656844)
+and [Codex Plus CI](https://github.com/byebyebryan/codex-plus/actions/runs/38856687229)
+pass.
+
+All three live routes (Starship default, Snap default and Snap work) now execute
+`349-codex-inspect inspect` with explicit sockets. Exact host/instance identities
+and old/new native replies match; the production query adapter accepts each
+replacement. These reads used nonexistent fixture IDs and created no thread or
+model turn. The backed-up 349d config changed only those command arrays and was
+reloaded without replacing PID 69987. Status reports three sources, zero pending,
+a connected link and boot 2332298345.
+
+The old `codex-notify` selector and Zsh launcher file/source block are retired on
+Starship and Snap. Native configuration/auth files, native daemon identities and
+other component selectors match their protected pre-cutover snapshots. No native
+owner or 349d restart, firmware flash or notification stimulus was needed.
+Existing immutable helper releases remain for ongoing relays and rollback.
+Fresh shell command resolution selects `/usr/bin/codex`; Snap's `codex-work`
+remains its home-selection wrapper. These checks do not add new rendering,
+touch, desktop focus or physical acceptance claims. Private rollback/readback
+receipts are under `~/.cache/349-inspector-retirement-20261015` on each host.
