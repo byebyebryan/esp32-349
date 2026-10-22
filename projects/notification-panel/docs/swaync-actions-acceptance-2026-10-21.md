@@ -1,8 +1,9 @@
 # SwayNC historical Open checkpoint — October 21, 2026
 
-This checkpoint covers source and isolated native validation. It is not a
-deployment or physical display/touch acceptance record. The
-[integration guide](../integrations/swaync/README.md) defines behavior and rollout.
+The initial checkpoint covers source and isolated native validation. The
+Starship follow-up below records the later deployment and user-confirmed Open
+focus result. The [integration guide](../integrations/swaync/README.md) defines
+behavior and rollout.
 
 ## Source and artifacts
 
@@ -55,7 +56,7 @@ desktop click. The newer card remained ready. The relay ran from the installed
 wheel's Python environment, proving its packaging and import path as well as
 the native action/focus path.
 
-## Remaining acceptance
+## Remaining acceptance at the initial checkpoint
 
 No source was published, no Arch package pin was advanced, and no live
 configuration, notification daemon, 349 service, firmware, or paired board was
@@ -66,3 +67,47 @@ and perform a scoped reviewed deployment before claiming deployed acceptance.
 Then observe native local/SSH Kitty focus and the physical 349 Open control on
 an older card after popup expiry with a newer card present. Existing rendering,
 touch, pairing, and rollback boundaries remain in force.
+
+## Starship deployment and physical focus follow-up
+
+Later on October 21, the source was published and deployed through chezmoi.
+The first deployed package (`swaync-bryan 0.12.6-2`) failed physical targeting:
+Bryan reported that the test card focused existing Codex TUI windows instead of
+the intended new terminal. That deployment was not accepted. Device Open was
+briefly disabled while a private native test reproduced the failure.
+
+Surviving Kitty processes retained old notification-ID mappings after SwayNC
+restarted. Broadcast action/token signals could activate those stale mappings
+when the new daemon reused a numeric ID. The correction captures each Notify's
+bus-supplied sender and directs its token and action only to that unique client
+connection. Identical replacements capture their current sender. The original
+Niri input-serial helper remains byte-identical.
+
+The corrected selection deployed on Starship is:
+
+- SwayNC action source `1c1456869f648ee64ff273d68de2dee127e66e66`.
+- Arch recipe `3c81532f1faeedc6e7b04d34bc52761a347d1477`, package `0.12.6-3`.
+- 349 runtime/test source `541e7985fe3beb64e781859d1a8aba6dc567ec48`, installed
+  noneditable from the managed archive; configuration selects `device_open = "swaync"`.
+- Paired board `28:84:85:92:C2:20`, firmware `0.2.0`, build `b9046f4`,
+  SHA `8f5ae24ba`, boot ID `39098759`; no firmware flash occurred.
+
+The host suite passed 440 tests after the notifier-context regression fix, with
+three live-desktop tests intentionally skipped and the private broker required.
+The corrected installed fork and host passed the private native gate, including
+old/new Kitty clients kept alive across a notifier restart, numeric ID reuse,
+recipient isolation, identical replacement and exact new-window focus. Retained
+older-card selection, newer-card preservation and duplicate suppression also
+passed in the real 349 adapter. Published archives, installed modules and pairing
+were checked for parity; repeat scoped apply preserved service PIDs.
+
+After the fresh `349_HISTORY_OPEN_V3B` / `349_NEWER_REFERENCE_V3B` test, Bryan
+confirmed: "it's focusing the right windows now". This establishes physical
+349 Open to the intended Starship terminal windows for the corrected build.
+Newer-card preservation remains covered by the native checks; the user's reply
+specifically confirms focus. Existing Kitty, Codex and unrelated service
+processes were preserved. Snap and Carbon were outside this rollout.
+
+The dated [managed rollout record](https://github.com/byebyebryan/dotfiles/blob/main/docs/swaync-349-rollout-2026-10-21.md)
+retains the initial failure, corrective pins and recovery paths. Local validation
+receipts are in `~/.cache/swaync-recipient-fix-20261021/`.
