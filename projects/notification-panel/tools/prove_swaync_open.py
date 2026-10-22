@@ -156,11 +156,15 @@ async def prove_kitty_focus(source, manager, notify, signals, expired, wait_for)
             revision = manager.open_for(local_id)["rev"]
             assert await manager.activate(local_id, revision, 2, 5, 9) == "dispatched"
             await wait_for(lambda: focused("source"))
-            await wait_for(lambda: any(m.member == "ActionInvoked" and m.body == [desktop_id, "default"] for m in signals))
+            # Only the originating Kitty connection receives its token/action.
+            # This unrelated test client must not see a broadcast copy.
+            assert not any(m.member in {"ActionInvoked", "ActivationToken"}
+                           and m.body[0] == desktop_id for m in signals)
             assert manager.open_for(newer_local)["state"] == "ready"
             logs[0].flush(); logs[0].seek(0)
             trace = logs[0].read()
             assert "Focusing window:" in trace
+            assert f"dbus_notification_id={desktop_id}" in trace
             print(json.dumps({"result": "passed", "proof": "real Kitty OSC 9 through the real 349 adapter",
                               "popup_expired": True, "newer_card_preserved": True,
                               "originating_window_focused": True, "fresh_desktop_click": False}))

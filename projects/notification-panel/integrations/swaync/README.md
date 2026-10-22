@@ -5,7 +5,9 @@ action through Bryan's [SwayNC fork](https://github.com/byebyebryan/SwayNotifica
 It requires the fork's `GetNotification(id)` and
 `InvokeAction(id, revision, action_key)` methods on `org.erikreider.swaync.cc`,
 plus `InvokeActionWithToken(id, revision, action_key, activation_token)` for Niri.
-The original Niri activation fix alone does not provide those methods.
+The original Niri activation fix alone does not provide those methods. Use a build
+that also directs action/token signals to their originating client (Arch fork
+package `0.12.6-3` or newer).
 
 After installing a build containing the selected-card API, opt in with:
 
@@ -25,7 +27,11 @@ The existing notification monitor proves the original Notify reply's server
 owner, PID, desktop ID, source version, and raw default-action metadata. The
 adapter addresses that unique owner directly, checks the native snapshot against
 those original fields, and binds its opaque per-Notify revision. At dispatch,
-SwayNC atomically checks that revision and invokes that exact action. Replacements
+SwayNC atomically checks that revision and invokes that exact action. The fork
+must also send the action/token only to the unique D-Bus connection that submitted
+that Notify. Older broadcast-based builds can activate surviving Kitty clients'
+stale numeric IDs after a notifier restart; a revision check alone cannot protect
+the application side of the handoff. Replacements
 after binding invalidate the revision even when the visible text is identical.
 Known owner, source, or USB session changes invalidate the local binding.
 
