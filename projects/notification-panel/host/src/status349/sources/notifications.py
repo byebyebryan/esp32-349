@@ -428,6 +428,28 @@ class NotificationSource:
     def action_candidates(self) -> dict[int, dict]:
         return {nid: candidate for nid in self._open_info if (candidate := self.action_candidate(nid)) is not None}
 
+    async def action_provider_call(self, owner: str, member: str, signature: str, body: list) -> Message:
+        """Call the selected-card API on the proven owner, never a bus alias."""
+        control = self._control
+        generation = self._owner_change_generation
+        if control is None or self._identity_state != "ready" or self._server_owner != owner:
+            raise RuntimeError("notification owner unavailable")
+        message = Message(
+            destination=owner, path="/org/erikreider/swaync/cc",
+            interface="org.erikreider.swaync.cc", member=member, signature=signature, body=body,
+        )
+        try:
+            reply = await control.call(message)
+        except asyncio.CancelledError:
+            self._discard_cancelled_call(control, message)
+            raise
+        if (
+            self._control is not control or generation != self._owner_change_generation
+            or self._identity_state != "ready" or self._server_owner != owner
+        ):
+            raise RuntimeError("notification owner changed")
+        return reply
+
     def identity_status(self) -> dict:
         """Return bounded provider identity state for read-only diagnostics."""
         return {

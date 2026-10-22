@@ -104,7 +104,18 @@ detects silent sessions independently of console logs. Relevant code:
 ## Desktop Open identity
 
 Open is an optional explicit default-action invocation through the
+[SwayNC integration](../integrations/swaync/README.md) or legacy
 [DMS integration](../integrations/dms/349NotificationActions/README.md).
+SwayNC uses native snapshot and revision-checked action methods on the proven
+unique notification-server owner. Its opaque revision changes on every Notify,
+including identical replacements, and is checked atomically with dispatch.
+The host adapts this API to the existing bounded binding/request manager;
+provider selection defaults to off. No desktop callback is recorded or replayed.
+For explicit Open on Niri, a bounded non-graphical IPC-spawn relay acquires a
+compositor-issued activation token for the original application's focus request;
+the existing desktop-click GDK helper remains unchanged.
+
+The following server-object binding details describe the legacy DMS provider.
 The bridge lives in the owning Quickshell process so it can validate and
 invoke the notification object in the same event-loop turn. Body text,
 URLs, shell commands and the first arbitrary action are not substitutes for
@@ -144,10 +155,11 @@ window cannot invoke again. Counter exhaustion disables activation rather
 than wrapping. Closing a card or losing USB clears pending UI state, but
 cannot undo an invocation already accepted by the desktop.
 
-There is one remaining provider boundary: an identical desktop replacement
+There is one remaining admission boundary: an identical desktop replacement
 can arrive before its monitor event. Without a server revision hook, Open
-invokes the object's current default action rather than a frozen per-`Notify`
-callback. Known revision/field changes are rejected, and a different server
+can bind the object's current default action rather than a frozen per-`Notify`
+callback. After a SwayNC binding, its native revision rejects every later
+replacement, including identical ones. Known revision/field changes are rejected, and a different server
 object is never substituted. Dispatch acknowledgement also does not prove
 window focus; application and compositor behavior still matter.
 

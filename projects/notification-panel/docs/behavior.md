@@ -86,20 +86,23 @@ plain text. See the [style wire contract](protocol.md#text-and-dashboard-fields)
 ## Open and touch controls
 
 The dedicated **Open** button (box with an outgoing arrow) beside × invokes a
-live desktop notification's default action. It requires a DMS bridge
-and is disabled by default; body taps remain inert. See the
+retained desktop notification's default action. It requires the
+[SwayNC action API](../integrations/swaync/README.md) or legacy DMS bridge
+and is disabled by default; body taps remain inert. Ordinary SwayNC cards remain
+actionable after popup expiry while the original server retains them. See the
 [Open identity contract](architecture.md#desktop-open-identity).
 In notification-history mode, Open sits above × in a full-height right column.
 Both controls tolerate small finger movements and brighten while pressed;
 see [gesture ownership](ui.md#gesture-and-motion-ownership). The palette and
 its rationale are in [UI design](ui.md#color-and-typography-decisions).
 Dispatch acceptance does not guarantee window focus; see the
-[DMS integration](../integrations/dms/349NotificationActions/README.md) and
+[SwayNC integration](../integrations/swaync/README.md), legacy
+[DMS integration](../integrations/dms/349NotificationActions/README.md), and
 [recorded compatibility limits](../STATUS.md#remaining-scope).
 
 `349ctl status` reports notification-server identity under
-`notification_actions.source`, separately from DMS plugin health under
-`notification_actions.provider`. When DMS replaces its notification server,
+`notification_actions.source`, separately from the selected backend and its health under
+`notification_actions.provider`. When the notification server is replaced,
 the daemon archives old card identities and discovers the new owner/PID.
 Fresh notifications can regain Open automatically; archived cards keep their
 text with Open disabled. Identity lookup failures keep Open unavailable while

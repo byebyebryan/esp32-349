@@ -25,7 +25,7 @@ notification_boost_s = 30   # 0 disables temporary 100% brightness on arrivals
 [notifications]
 mode = "mirror"            # mirror | off (consume is not implemented)
 device_dismiss = "local"   # local | propagate
-device_open = "off"        # off | dms; opt in after installing the DMS action plugin
+device_open = "off"        # off | swaync | dms; requires the selected provider's action API
 max_visible = 3                 # legacy firmware snapshot cap
 cache_limit = 32                # newest retained cards; active cards on older firmware
 retention_s = 600                # history mode: 10-minute age limit from arrival/replacement
@@ -44,6 +44,12 @@ preset = [
   { id = "batt", kind = "text", w = 60 },
 ]
 ```
+
+Open defaults to disabled. The [SwayNC backend](../integrations/swaync/README.md)
+requires the fork's revision-checked selected-card API; ordinary SwayNC's
+latest-popup commands are insufficient. The legacy [DMS backend](../integrations/dms/349NotificationActions/README.md)
+requires its action plugin. Changing providers does not automatically select or
+start a desktop notification service.
 
 `max_visible` is limited to 0–8 for older firmware. `cache_limit` is limited
 to 0–32 for firmware advertising `card-sync-v1`; its default is 32. A value

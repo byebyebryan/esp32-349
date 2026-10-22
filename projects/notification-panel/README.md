@@ -11,7 +11,7 @@ A Linux host sends telemetry and notifications over USB Serial/JTAG.
 
 - Fixed clock, CPU/MEM utilization bars and uplink traffic readings.
 - Up to 32 recent cards, retained for ten minutes independently of popup timeout.
-- Vertical whole-card browsing, × dismissal and optional Open through DMS.
+- Vertical whole-card browsing, × dismissal and optional Open through SwayNC or DMS.
 - English and common Simplified Chinese text, with Latin bold/italic body spans.
 - One-time USB pairing and verified reconnects to the saved board.
 - Backlight follows host screens and turns off after five minutes without the daemon.

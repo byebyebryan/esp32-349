@@ -20,7 +20,8 @@ import time
 from collections import OrderedDict, deque
 
 from . import discovery, pairing, proto
-from .actions import BridgeClient, NotificationActionManager
+from .actions import NotificationActionManager
+from .swaync_actions import ConfiguredBridgeClient
 from .composition import build_zones
 from .config import Config, apply_config, load_config, validate_config
 from .daemon_actions import ActionDispatchMixin
@@ -102,9 +103,9 @@ class Daemon(CardPresentationMixin, LinkLifecycleMixin, ActionDispatchMixin, Tel
         self._action_tasks: set[asyncio.Task] = set()
         self.action_manager = NotificationActionManager(
             self.notifications,
-            BridgeClient(),
+            ConfiguredBridgeClient(self.notifications, lambda: self.cfg.notifications.device_open),
             enabled=lambda: (
-                self.cfg.notifications.device_open == "dms"
+                self.cfg.notifications.device_open != "off"
                 and self._actions_negotiated and self._actions_capable
                 and self._action_ledger_boot_id is not None
                 and self._device_boot_id == self._action_ledger_boot_id
@@ -293,7 +294,7 @@ class Daemon(CardPresentationMixin, LinkLifecycleMixin, ActionDispatchMixin, Tel
         new_backlight = "backlight-v1" in message.get("cap", [])
         new_backlight_boost = new_backlight and "backlight-boost-v1" in message.get("cap", [])
         new_actions_negotiated = (
-            self.cfg.notifications.device_open == "dms" and new_actions_capable
+            self.cfg.notifications.device_open != "off" and new_actions_capable
         )
         first_grouped = new_grouped and not self._grouped_enabled
         first_history = new_history and not self._history_enabled
@@ -546,7 +547,7 @@ class Daemon(CardPresentationMixin, LinkLifecycleMixin, ActionDispatchMixin, Tel
             self.model.retention_s = self.cfg.notifications.retention_s
             await self._expire_history_locked(self._monotonic())
             self._actions_negotiated = (
-                self.cfg.notifications.device_open == "dms"
+                self.cfg.notifications.device_open != "off"
                 and self._actions_capable and self._action_ledger_boot_id is not None
             )
             self.notifications.actions_changed.set()
@@ -598,11 +599,12 @@ class Daemon(CardPresentationMixin, LinkLifecycleMixin, ActionDispatchMixin, Tel
             "notification_history": self._history_enabled,
             "notification_body_style": self._body_style_enabled,
             "notification_actions": {
-                "configured": self.cfg.notifications.device_open == "dms",
+                "configured": self.cfg.notifications.device_open != "off",
                 "capable": self._actions_capable,
                 "negotiated": self._actions_negotiated,
                 "source": self.notifications.identity_status(),
                 "provider": {
+                    "backend": self.cfg.notifications.device_open,
                     "available": self.action_manager._provider_epoch is not None,
                     "epoch": self.action_manager._provider_epoch,
                     "pid": self.action_manager._provider_pid,
