@@ -49,10 +49,13 @@ for every later replacement. A dispatch acknowledgement does not establish
 window focus; application and Niri behavior require separate acceptance.
 
 On Niri, a physical device Open has no fresh GTK input serial. The adapter uses
-the session's `NIRI_SOCKET` and Niri's supported IPC `spawn` action to give a
+the verified notification owner's `NIRI_SOCKET` and Niri's supported IPC `spawn`
+action to give a
 short-lived Python relay a compositor-issued activation token. The relay returns
 it over a private one-shot Unix socket, validated by user identity and a request
-nonce. It starts no window. SwayNC forwards that token to the exact original
+nonce. A 349 service that survives a graphical-session restart uses the current
+notification owner's context rather than its own stale environment; missing or
+invalid Niri sockets fail closed. It starts no window. SwayNC forwards that token to the exact original
 application, which requests focus normally. No guessed window ID, title matching,
 synthetic input, compositor patch, or focus-policy relaxation is involved.
 The handoff is bounded to 1.5 seconds within the existing two-second activation

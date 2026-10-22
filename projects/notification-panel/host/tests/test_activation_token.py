@@ -1,6 +1,7 @@
 import asyncio
 from pathlib import Path
 import tempfile
+import socket
 
 import pytest
 
@@ -63,4 +64,39 @@ def test_wrong_nonce_cannot_supply_an_activation_token(tmp_path, runtime):
 
 def test_other_compositors_do_not_launch_a_niri_helper(monkeypatch):
     monkeypatch.delenv("NIRI_SOCKET", raising=False)
+    monkeypatch.setenv("XDG_CURRENT_DESKTOP", "sway")
     assert asyncio.run(session_activation_token()) is None
+
+
+def test_notifier_context_overrides_stale_service_environment(runtime, monkeypatch):
+    path = runtime / "niri.sock"
+    captured = []
+    async def acquire(**kwargs):
+        captured.append(kwargs)
+        return "owner-token"
+    monkeypatch.setenv("NIRI_SOCKET", "/stale/previous-session.sock")
+    monkeypatch.setattr("status349.activation_token._notifier_environment",
+                        lambda pid: {"NIRI_SOCKET": str(path), "XDG_CURRENT_DESKTOP": "niri"} if pid == 123 else {})
+    monkeypatch.setattr("status349.activation_token.niri_activation_token", acquire)
+    with socket.socket(socket.AF_UNIX) as server:
+        server.bind(str(path))
+        assert asyncio.run(session_activation_token(notifier_pid=123)) == "owner-token"
+        assert captured == [{"niri_socket": str(path)}]
+    path.unlink()
+
+
+def test_missing_notifier_socket_never_uses_another_session(monkeypatch):
+    monkeypatch.setenv("NIRI_SOCKET", "/some/other-session.sock")
+    monkeypatch.setattr("status349.activation_token._notifier_environment",
+                        lambda pid: {"XDG_CURRENT_DESKTOP": "niri"})
+    with pytest.raises(RuntimeError, match="owner's Niri socket"):
+        asyncio.run(session_activation_token(notifier_pid=123))
+
+
+def test_regular_file_cannot_be_used_as_a_compositor_socket(tmp_path, monkeypatch):
+    path = tmp_path / "not-a-socket"
+    path.write_text("owned fixture")
+    monkeypatch.setattr("status349.activation_token._notifier_environment",
+                        lambda pid: {"NIRI_SOCKET": str(path)})
+    with pytest.raises(RuntimeError, match="socket is invalid"):
+        asyncio.run(session_activation_token(notifier_pid=123))

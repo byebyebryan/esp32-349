@@ -202,7 +202,14 @@ class ConfiguredBridgeClient:
 
     def __init__(self, source, selection):
         self.selection = selection
-        self.providers = {"dms": BridgeClient(), "swaync": SwayncBridgeClient(source, token_provider=session_activation_token)}
+
+        async def token_for_owner():
+            identity = source.identity_status()
+            if identity.get("state") != "ready" or not identity.get("pid"):
+                raise BridgeError("unavailable")
+            return await session_activation_token(notifier_pid=identity["pid"])
+
+        self.providers = {"dms": BridgeClient(), "swaync": SwayncBridgeClient(source, token_provider=token_for_owner)}
         self._issued = OrderedDict()
 
     @staticmethod

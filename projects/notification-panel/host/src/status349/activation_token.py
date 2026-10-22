@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import secrets
 import socket
+import stat
 import struct
 import sys
 import tempfile
@@ -23,7 +24,7 @@ def _valid_token(token):
     return isinstance(token, str) and bool(token) and "\0" not in token and len(token.encode()) <= TOKEN_MAX
 
 
-async def niri_activation_token(*, executable="niri", timeout_s=1.5):
+async def niri_activation_token(*, executable="niri", timeout_s=1.5, niri_socket=None):
     """Mint one token using existing Niri IPC; never change focus directly."""
     loop = asyncio.get_running_loop()
     result = loop.create_future()
@@ -76,6 +77,7 @@ async def niri_activation_token(*, executable="niri", timeout_s=1.5):
                     executable, "msg", "action", "spawn", "--", sys.executable,
                     "-m", "status349.activation_token", "--relay", path, nonce,
                     stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+                    env={**os.environ, "NIRI_SOCKET": niri_socket} if niri_socket is not None else None,
                 )
                 if await process.wait() != 0:
                     raise RuntimeError("Niri activation handoff unavailable")
@@ -98,10 +100,30 @@ async def niri_activation_token(*, executable="niri", timeout_s=1.5):
                 result.exception()
 
 
-async def session_activation_token():
-    if not os.environ.get("NIRI_SOCKET"):
+def _notifier_environment(pid):
+    # The 349 service can outlive a graphical session. Its inherited socket
+    # may therefore be stale; use the proven notification owner's context.
+    wanted = {b"NIRI_SOCKET", b"XDG_CURRENT_DESKTOP"}
+    with Path(f"/proc/{pid}/environ").open("rb") as stream:
+        data = stream.read(262145)
+    if len(data) > 262144:
+        raise RuntimeError("notification desktop context exceeds bound")
+    return {key.decode(): value.decode() for entry in data.split(b"\0")
+            if b"=" in entry for key, value in [entry.split(b"=", 1)] if key in wanted}
+
+
+async def session_activation_token(*, notifier_pid=None):
+    context = os.environ if notifier_pid is None else _notifier_environment(notifier_pid)
+    niri_socket = context.get("NIRI_SOCKET")
+    if not niri_socket:
+        if "niri" in context.get("XDG_CURRENT_DESKTOP", "").lower().split(":"):
+            raise RuntimeError("notification owner's Niri socket is unavailable")
         return None
-    return await niri_activation_token()
+    path = Path(niri_socket)
+    info = path.stat()
+    if not path.is_absolute() or not stat.S_ISSOCK(info.st_mode) or info.st_uid != os.getuid():
+        raise RuntimeError("notification owner's Niri socket is invalid")
+    return await niri_activation_token(niri_socket=niri_socket)
 
 
 def relay(path, nonce):
