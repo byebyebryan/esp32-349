@@ -10,10 +10,13 @@ punctuation glyphs selected below and each falls back to `status_text_16` for
 CJK and the remaining symbols. All generated fonts use 4 bpp without
 compression or kerning.
 
-Each regular composite text font contains 4,844 glyphs focused on English and
+Each regular composite text font contains 4,972 glyphs focused on English and
 Simplified Chinese notifications. Montserrat Medium supplies the existing
 ASCII, Latin-1/Extended-A, and punctuation coverage; DejaVu Sans supplies the
-existing arrow, math, technical, shape, and dingbat ranges. Source Han Sans SC
+existing arrow, math, technical, shape, and dingbat ranges, plus the full 128-glyph
+box-drawing block (U+2500–U+257F). Separators such as `──` and borders such as
+`┌─┬─┐`, `│` and `└─┴─┘` render directly rather than as placeholders. Styled
+bodies use the regular fallback for these box-drawing glyphs. Source Han Sans SC
 supplies the 3,500 first-level characters of the 2013 通用规范汉字表, plus 20
 Chinese punctuation characters: `　、。，！？：；（）【】《》〈〉「」『』`.
 Typographic quotes and the ellipsis come from Montserrat. Kana and Han
@@ -41,17 +44,17 @@ The generated text fonts have these measured metrics:
 
 | Font | Line height | Baseline | Bitmap data | C source |
 | --- | ---: | ---: | ---: | ---: |
-| `status_text_16` | 22 px | 5 px | 500,991 B | 3,651,555 B |
-| `status_text_20` | 26 px | 6 px | 774,276 B | 5,294,429 B |
-| `status_text_22` | 28 px | 6 px | 939,182 B | 6,273,990 B |
+| `status_text_16` | 22 px | 5 px | 508,445 B | 3,711,706 B |
+| `status_text_20` | 26 px | 6 px | 785,085 B | 5,374,372 B |
+| `status_text_22` | 28 px | 6 px | 952,817 B | 6,370,884 B |
 | `status_clock_80` | 58 px | 1 px | 12,486 B | 78,566 B |
 
 Including glyph descriptors and cmaps, the three regular notification fonts
-occupy 547,621 B, 820,906 B and 985,812 B of compiled ESP32-S3 flash data,
+occupy 556,123 B, 832,763 B and 1,000,495 B of compiled ESP32-S3 flash data,
 respectively. All linked fonts, including body styles, clock and legacy UI
-fonts, contain 3,106,713 B (2.96 MiB) of const flash data, plus 48 B of initialized
+fonts, contain 3,141,755 B (3.00 MiB) of const flash data, plus 48 B of initialized
 RAM descriptors in the legacy CJK fonts. The firmware built with this
-repertoire is 3,820,944 B (3.64 MiB), leaving 4.36 MiB in the current 8 MiB app partition.
+repertoire is 3,861,632 B (3.68 MiB), leaving 4.32 MiB in the current 8 MiB app partition.
 The bitmap and lookup tables are const flash data; their growth does not
 allocate an equivalent amount of heap RAM.
 
@@ -97,8 +100,8 @@ The matching SIL Open Font License text is kept beside them in
 Sans and FontAwesome license texts; the pinned Montserrat style license is alongside its source
 assets. The font generator verifies the pinned input hashes and Chinese list,
 preserves the old 14/16 union's Latin/symbol coverage, replaces its CJK selection
-with the Chinese table and punctuation, and rejects output that differs from
-that exact selection. Body styles have a
+with the Chinese table and punctuation, adds the box-drawing block, and rejects
+output that differs from that exact selection. Body styles have a
 separate mode so they can be regenerated without touching any existing regular
 composite font. It uses `lv_font_conv` 1.5.3:
 
@@ -110,11 +113,15 @@ python tools/check_font_coverage.py
 
 The coverage audit checks the 14 px and 16 px legacy chains' Latin/symbol
 coverage, the exact English/Simplified Chinese selection at 16 px, 20 px and
-22 px, all 3,500 Chinese characters and 20 punctuation glyphs, and realistic
-English and Chinese notification samples. It also checks styled-font glyph coverage,
+22 px, all 3,500 Chinese characters, 20 punctuation glyphs and 128 box-drawing
+glyphs, and realistic English and Chinese notification samples. It also checks
+styled-font glyph coverage,
 the regular fallback pointer, matching body metrics, vertical ink bounds and
 horizontal overhang, plus that the 80 px clock has only digits, colon, and
 hyphen. The audit checks generated glyph metrics, not shaping or physical
 legibility. The native LVGL tests check actual glyph lookup for formerly
-missing Chinese characters, punctuation, and the styled-body fallback, and
-render mixed English/Simplified Chinese notification cards.
+missing Chinese characters and punctuation, every box-drawing codepoint and
+the styled-body fallback. They render mixed English/Simplified Chinese cards
+and a separator/border regression card using the production fonts. The
+October 27 box-drawing addition preserves every previous glyph's bitmap and
+metrics, including the regular fonts' line heights and baselines.

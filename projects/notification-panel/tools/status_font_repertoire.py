@@ -1,4 +1,4 @@
-"""Pinned Simplified Chinese repertoire for the notification text fonts."""
+"""Pinned Chinese and box-drawing selections for notification text fonts."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ PROJECT = Path(__file__).resolve().parents[1]
 CHINESE_TABLE = PROJECT / "main/fonts/repertoires/tgh-2013-level1.txt"
 CHINESE_TABLE_SHA256 = "4caca78057eb62257ed475e0a140b02a58c5907fd054613a93cfdec3a7df6320"
 CHINESE_PUNCTUATION = {ord(char) for char in "　、。，！？：；（）【】《》〈〉「」『』"}
+BOX_DRAWING = set(range(0x2500, 0x2580))
 
 
 def simplified_chinese() -> set[int]:

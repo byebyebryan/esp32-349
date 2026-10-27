@@ -1,6 +1,6 @@
 {
   "description": "Production protocol/state/LVGL with synthetic messages, virtual time and pointer input; no hardware or desktop session.",
-  "source_revision": "6dfc30338b07280b44ade58b218cab9863d18dbe",
+  "source_revision": "513b2be2bdaf051189c57fbae40d5d659e90a421",
   "source_sha256": {
     "projects/notification-panel/main/ui_deck.c": "735ecf77fcd305b2194e73d63b1282c0239bf10340ce34a25b57be18482380aa",
     "projects/notification-panel/main/ui_theme.h": "87f6155c79987f676eb733a793aefd3b53e801d65940b020701233f28a8fd20d",
@@ -34,12 +34,12 @@
     "projects/notification-panel/main/fonts/status_clock_80.c": "e291f953ee6263c024cf04ac15b41108c78c3a17f051fb23e559b1df30c4105b",
     "projects/notification-panel/main/fonts/status_symbol_14.c": "bd2ab1cc65f19f435941b203d6fc0912aa5948f34be9313d5f433b965ec15c9a",
     "projects/notification-panel/main/fonts/status_symbol_16.c": "ca2b7c5b555b490b5d6fe70a0ffe5f4ef66a4b986e01536e155f0d4440ae4edc",
-    "projects/notification-panel/main/fonts/status_text_16.c": "66f2715fac2b1edad6b28c50e6ca4e02a706c286246e3e573e9a70af691dedca",
+    "projects/notification-panel/main/fonts/status_text_16.c": "9114994faf78afed74dfa838c2eb60c2d6e7e0d8d4d970179e2f41939dca8943",
     "projects/notification-panel/main/fonts/status_text_16_bold.c": "9078fc51ee37880dab07dfe2393745fe49abbcf4dcf8ff559165686d6b6a5ed2",
     "projects/notification-panel/main/fonts/status_text_16_bold_italic.c": "749e5875fd8be5e1b75e996256775e8bb5896eb4a02365e6a911436ebd5416ab",
     "projects/notification-panel/main/fonts/status_text_16_italic.c": "7f481db0e0fce7d042688cca0f253ab63adb864d45ff060e5ee6bc964b9fc3d9",
-    "projects/notification-panel/main/fonts/status_text_20.c": "2c93e747b340ee9d18fa29e58119ce621b6b3ed8ddaf28c37ad10b823d9d95d6",
-    "projects/notification-panel/main/fonts/status_text_22.c": "898a76f98ac0ee03d2b5e6378690ff883d4f48ebbc984822126f002ca7f261b1",
+    "projects/notification-panel/main/fonts/status_text_20.c": "00160bd880fdb4e01802974955be708a12e1b4d8a1abbcad6dd782eaf264aaaa",
+    "projects/notification-panel/main/fonts/status_text_22.c": "2d9812fc0aef101f680cc4675847a2938fa75adef6670866ba5d33f3623a16e9",
     "projects/notification-panel/tools/native_protocol/stubs/esp_app_desc.h": "686e9db8c3f3bf8ad2985a5297637dc6be5e6529e7c58222fe043a5709035fab",
     "projects/notification-panel/tools/native_protocol/stubs/esp_err.h": "f97652a3f03dc61e03f4c9f629c1e254488f7085ae852d124b50cba691428490",
     "projects/notification-panel/tools/native_protocol/stubs/esp_heap_caps.h": "319b53bc3d04ae2a89ad8b704f3568a9211805e2a6ec9d772fbde2b9a1b60248",
@@ -54,7 +54,7 @@
     "projects/notification-panel/tools/native_ui/stubs/esp_timer.h": "3fecee76f39abd79ad6cda09f4c27f37941bdd6924f49ff57688baf66a628786",
     "projects/notification-panel/main/fonts/assets/montserrat-cc8daf2/Montserrat-Bold.ttf": "bc6e854971cea46b463be6f9eef4d9cd52f51cfc1fc0dd90c9d3e6483dc0ec61"
   },
-  "native_executable_sha256": "4af77862994a7efb15a64ff00704c49cb95b143d3674be76c1ad6d333409ba9f",
+  "native_executable_sha256": "fd89ea3553c84843d836e0f517e6b17ac5d6179057c55200ba45d6cbf1ca1987",
   "pillow_version": "12.0.0",
   "screen_size": [
     640,

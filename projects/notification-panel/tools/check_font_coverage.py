@@ -8,7 +8,7 @@ import sys
 import unicodedata
 from pathlib import Path
 
-from status_font_repertoire import CHINESE_PUNCTUATION, simplified_chinese
+from status_font_repertoire import BOX_DRAWING, CHINESE_PUNCTUATION, simplified_chinese
 
 
 PROJECT = Path(__file__).resolve().parents[1]
@@ -114,6 +114,7 @@ NOTIFICATION_SAMPLES = {
         ord(char)
         for char in "测试完成，代码已修改。编译错误已修复！任务通知：等待确认，连接网络失败。"
     },
+    "box-drawing notification": {ord(char) for char in "── │ ┌─┬─┐ └─┴─┘ ══ ╭─╮"},
 }
 CLOCK_GLYPHS = {ord(char) for char in "0123456789:-"}
 
@@ -143,12 +144,13 @@ def main() -> int:
     cjk_reference = glyphs(LVGL_FONTS / "lv_font_source_han_sans_sc_16_cjk.c")
     old_cjk = cjk_reference - set(range(0x20, 0x80)) - set(range(0xE000, 0xF900))
     chinese = simplified_chinese()
-    expected = (old_union - old_cjk) | chinese | CHINESE_PUNCTUATION
+    expected = (old_union - old_cjk) | chinese | CHINESE_PUNCTUATION | BOX_DRAWING
     notification_required = {
         **REQUIRED,
         **NOTIFICATION_SAMPLES,
         "Simplified Chinese level 1": chinese,
         "Chinese punctuation": CHINESE_PUNCTUATION,
+        "box drawing": BOX_DRAWING,
     }
 
     for size in (14, 16):
@@ -156,6 +158,7 @@ def main() -> int:
         failed |= report_required(f"{size} px", legacy[size])
     print(f"Notification selection: {len(chinese)} Han characters, "
           f"{len(CHINESE_PUNCTUATION)} Chinese punctuation glyphs; "
+          f"{len(BOX_DRAWING)} box-drawing glyphs; "
           "existing Latin and symbol coverage preserved")
 
     for size in (16, 20, 22):
@@ -180,7 +183,7 @@ def main() -> int:
             )
             print(f"  notification repertoire: unexpected glyphs {details}")
         if not missing and not extra:
-            print("  English/Simplified Chinese repertoire: exact; no kana")
+            print("  English/Simplified Chinese/box-drawing repertoire: exact; no kana")
 
         failed |= report_required(f"{size} px", available, notification_required)
 

@@ -10,7 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from status_font_repertoire import CHINESE_PUNCTUATION, simplified_chinese
+from status_font_repertoire import BOX_DRAWING, CHINESE_PUNCTUATION, simplified_chinese
 
 
 PROJECT = Path(__file__).resolve().parents[1]
@@ -54,7 +54,7 @@ BODY_STYLE_REQUIRED = (
         for char in "‘’“”–—…·•‰′″°±×÷€£¥₹₽©®™§¶†‡"
     }
 )
-DEJAVU_RANGES = "0x2190-0x23FF,0x25A0-0x27BF"
+DEJAVU_RANGES = "0x2190-0x23FF,0x2500-0x257F,0x25A0-0x27BF"
 CLOCK_RANGES = "0x2D,0x30-0x39,0x3A"
 ASCII = set(range(0x20, 0x80))
 PRIVATE_USE = range(0xE000, 0xF900)
@@ -331,10 +331,11 @@ def main() -> int:
     if not old_cjk or not fontawesome_codepoints:
         raise SystemExit("Source Han CJK reference no longer has the expected repertoire")
 
-    expected_repertoire = (legacy_repertoire() - old_cjk) | han_codepoints
+    expected_repertoire = (legacy_repertoire() - old_cjk) | han_codepoints | BOX_DRAWING
     print(
         f"Source selection: 3,500 Simplified Chinese characters, "
         f"{len(CHINESE_PUNCTUATION)} Chinese punctuation glyphs, "
+        f"{len(BOX_DRAWING)} box-drawing glyphs, "
         f"{len(fontawesome_codepoints)} existing FontAwesome glyphs; "
         f"composite repertoire {len(expected_repertoire)} glyphs"
     )

@@ -55,7 +55,9 @@ coverage includes typographic quotes (including `’`), arrows, math signs,
 shapes, and dingbats;
 see [font sources and licenses](../main/fonts/README.md). Latin accents become
 base letters, while nondecomposing Latin-1 and Latin Extended-A letters have
-glyphs. Glyphs outside the font set show a visible placeholder. The
+glyphs. The notification fonts include box drawing (U+2500–U+257F), so `──`,
+`│` and single/double-line borders have real glyphs. Glyphs outside the font set
+show a visible placeholder. The
 [font coverage audit](../tools/check_font_coverage.py) checks the selected repertoire.
 Kana, additional Han characters, Nerd Font Private Use icons and color emoji
 are outside the notification font selection.

@@ -520,6 +520,15 @@ static void notification_font_coverage(void)
             assert(!glyph.is_placeholder);
             assert(glyph.resolved_font == (font < 3 ? fonts[font] : &status_text_16));
         }
+        /* Terminal separators such as "──" must resolve to real glyphs, not
+         * one placeholder per character. Body styles use the regular fallback. */
+        for (uint32_t cp = 0x2500; cp <= 0x257F; cp++) {
+            lv_font_glyph_dsc_t glyph;
+            assert(lv_font_get_glyph_dsc(fonts[font], &glyph, cp, 0));
+            assert(!glyph.is_placeholder);
+            assert(glyph.box_w > 0 && glyph.box_h > 0 && glyph.adv_w > 0);
+            assert(glyph.resolved_font == (font < 3 ? fonts[font] : &status_text_16));
+        }
     }
 }
 
@@ -1327,6 +1336,27 @@ static void simplified_chinese_capture(void)
     assert(capture_frame("fonts-simplified-chinese"));
 }
 
+static void box_drawing_capture(void)
+{
+    const int ids[] = {1};
+    groups_reset(ids, 1);
+    s_state.history_enabled = true;
+    status_notif_t *n = &s_state.notifs[0];
+    n->history_revision = 1;
+    n->history_updated_us = s_now_us;
+    n->history_deadline_us = s_now_us + 600000000;
+    snprintf(n->app, sizeof(n->app), "Font regression");
+    snprintf(n->summary, sizeof(n->summary), "Separators: ── ══ │");
+    snprintf(n->body, sizeof(n->body),
+             "┌──────┬──────┐\n"
+             "│ left │ right │\n"
+             "└──────┴──────┘");
+    ui_deck_tick(STATE_DIRTY_NOTIF);
+    group_finish();
+    assert(!s_group_home && s_history_mode);
+    assert(capture_frame("fonts-box-drawing"));
+}
+
 static uint16_t metric_bar_pixel(int metric, int quarter)
 {
     lv_area_t coords;
@@ -1460,6 +1490,7 @@ int main(int argc, char **argv)
     history_layout_and_navigation();
     history_age_progress();
     simplified_chinese_capture();
+    box_drawing_capture();
     rail_usage_progress();
     fixture_shutdown();
     fclose(s_trace_file);
