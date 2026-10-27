@@ -15,6 +15,8 @@ import unicodedata
 
 from markdown_it import MarkdownIt
 
+from .text_presentation import is_text_presentation_selector
+
 
 DEFAULT_BODY_BYTES = 511
 MAX_BODY_RUNS = 16
@@ -129,6 +131,9 @@ def _normalized_chars(text: str) -> list[_MappedChar]:
     index = 0
     while index < len(text):
         char = text[index]
+        if is_text_presentation_selector(text, index):
+            index += 1
+            continue
         if char == "\r":
             if index + 1 < len(text) and text[index + 1] == "\n":
                 units.append(_MappedChar("\n", index, index + 2))

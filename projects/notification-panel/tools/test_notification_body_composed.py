@@ -126,7 +126,7 @@ async def scenario(native: Native) -> None:
         await daemon._on_line(proto.encode(hello).decode("utf-8").rstrip())
 
         raw_body = (
-            "<b>Bold</b> and <i>italic</i> and <b><i>both 测试</i></b><br>测/测试 • ✓"
+            "<b>Bold</b> and <i>italic</i> and <b><i>both 测试</i></b><br>测/测试 • ✓ ⚠️"
         )
         call_body = [
             "Desktop App",
@@ -158,7 +158,7 @@ async def scenario(native: Native) -> None:
             "body": raw_body,
             "default_label": "Open",
         }
-        expected_display = "Bold and italic and both 测试\n测/测试 • ✓"
+        expected_display = "Bold and italic and both 测试\n测/测试 • ✓ ⚠"
         expected_runs = [
             {"start": 0, "end": 4, "style": 1},
             {"start": 9, "end": 15, "style": 2},
@@ -217,7 +217,7 @@ async def scenario(native: Native) -> None:
             ("italic", 2),
             (" and ", 0),
             ("both 测试", 3),
-            ("\n测/测试 • ✓", 0),
+            ("\n测/测试 • ✓ ⚠", 0),
         ]
         cjk_segment = next(segment for segment in segments if "测试" in segment["text"])
         assert cjk_segment["style"] == 3

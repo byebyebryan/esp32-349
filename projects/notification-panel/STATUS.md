@@ -81,3 +81,38 @@ remain unverified. Full live desktop-shell restart is separate from isolated
 broker recovery tests. Real default-action/focus observations cover selected
 terminal cases, including Ghostty with a local compositor compatibility setting;
 they do not establish broad application or compositor compatibility.
+
+## 2026-10-27 notification text profile candidate
+
+Local source qualification based on `e992a91`; this checkpoint does not record
+publication or deployment. The independently pinned profile requires 4,365
+characters, retaining the existing 3,500-character Chinese level. Each regular
+title/body font contains 5,327 glyphs after preserving legacy extras. The
+[repertoire guide](main/fonts/repertoires/README.md) records versions, hashes,
+source assignment and the explicit emoji/shaping limits. Small app-name/age
+labels and rail metadata retain their legacy fonts.
+
+Qualification passed:
+
+- 467 host/tooling tests on each of Python 3.11 and 3.14; three live-desktop
+  tests skipped in each run, with private-broker regressions required.
+- 19/19 native CTests in Debug and Release, including every required character
+  through six real font faces and composed text/style/Open-identity checks.
+- Font/source/profile audit, exact metrics, all regular vertical ink bounds,
+  compact bitmap offsets, pinned CLDR source re-extraction and shared
+  framebuffer checks.
+- All 4,972 old glyph records in each regular font and all 373 records in each
+  body style preserved bitmap bytes, advances and bounds. Styles retain their
+  existing U+2144 extra. Five new profile specimens match Debug/Release;
+  regenerated gallery images match the prior committed bytes.
+- ESP-IDF 5.5.3 notification-panel build: 3,949,904 B, leaving 4,438,704 B in
+  the 8 MiB app partition. This grows the preceding app by 88,272 B (86.2 KiB).
+
+The local candidate application's SHA-256 is
+`a71a9327ef216e9730a8e883c18a9a22ab118a380baffa881211bd31859a78f2`;
+the matching ELF SHA-256 is
+`9eb530899c4114eabd16d8b93fe204dddad8e6177488c294a5a8090930971b2c`.
+Native rendering was inspected, but no board was flashed and no live host
+service changed for this candidate. The
+[physical text checklist](docs/testing.md#notification-text-profile-acceptance)
+remains a deployment acceptance gate.

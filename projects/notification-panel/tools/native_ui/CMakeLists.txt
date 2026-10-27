@@ -66,6 +66,22 @@ endfunction()
 add_native_fixture(native_ui test_ui.c)
 add_native_fixture(native_groups test_groups.c)
 
+# Build the exhaustive lookup list from source profile data, never from the
+# generated font being tested. Rebuild it whenever a pinned repertoire changes.
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+file(GLOB_RECURSE FONT_PROFILE_INPUTS CONFIGURE_DEPENDS
+    "${STATUS_MAIN}/fonts/repertoires/*")
+set(FONT_PROFILE_HEADER "${CMAKE_CURRENT_BINARY_DIR}/notification_font_profile.h")
+add_custom_command(OUTPUT "${FONT_PROFILE_HEADER}"
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/write_font_profile.py"
+            "${FONT_PROFILE_HEADER}"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/write_font_profile.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../status_font_repertoire.py"
+            ${FONT_PROFILE_INPUTS}
+    VERBATIM)
+target_sources(native_groups PRIVATE "${FONT_PROFILE_HEADER}")
+target_include_directories(native_groups PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+
 add_executable(native_protocol
     ../native_protocol/runner.c
     ../native_protocol/stubs/native_platform.c

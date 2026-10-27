@@ -2,6 +2,8 @@
 #define main legacy_fixture_main
 #include "test_ui.c"
 #undef main
+#include "notification_font_profile.h"
+#include "src/misc/lv_text_private.h"
 
 static int s_session_counter = 100;
 static void groups_reset(const int *ids, int count)
@@ -514,6 +516,18 @@ static void notification_font_coverage(void)
         &status_text_16_bold, &status_text_16_italic, &status_text_16_bold_italic,
     };
     for (size_t font = 0; font < sizeof(fonts) / sizeof(fonts[0]); font++) {
+        for (size_t cp = 0; cp < sizeof(notification_profile_codepoints)
+                                      / sizeof(notification_profile_codepoints[0]); cp++) {
+            lv_font_glyph_dsc_t glyph;
+            const uint32_t codepoint = notification_profile_codepoints[cp];
+            if (!lv_font_get_glyph_dsc(fonts[font], &glyph, codepoint, 0)
+                    || glyph.is_placeholder) {
+                fprintf(stderr, "profile font %zu missing U+%04X\n", font, codepoint);
+                assert(false);
+            }
+            assert(glyph.resolved_font == fonts[font]
+                || (font >= 3 && glyph.resolved_font == &status_text_16));
+        }
         for (size_t cp = 0; cp < sizeof(codepoints) / sizeof(codepoints[0]); cp++) {
             lv_font_glyph_dsc_t glyph;
             assert(lv_font_get_glyph_dsc(fonts[font], &glyph, codepoints[cp], 0));
@@ -1357,6 +1371,72 @@ static void box_drawing_capture(void)
     assert(capture_frame("fonts-box-drawing"));
 }
 
+static void assert_text_glyphs(const lv_font_t *font, const char *text)
+{
+    uint32_t index = 0;
+    while (text[index]) {
+        const uint32_t cp = lv_text_encoded_next(text, &index);
+        if (cp == '\n') continue;
+        lv_font_glyph_dsc_t glyph;
+        if (!lv_font_get_glyph_dsc(font, &glyph, cp, 0) || glyph.is_placeholder) {
+            fprintf(stderr, "specimen font missing U+%04X\n", cp);
+            assert(false);
+        }
+    }
+}
+
+static void text_profile_captures(void)
+{
+    const int ids[] = {1};
+    groups_reset(ids, 1);
+    s_state.history_enabled = true;
+    status_notif_t *n = &s_state.notifs[0];
+    n->history_revision = 1;
+    n->history_updated_us = s_now_us;
+    n->history_deadline_us = s_now_us + 600000000;
+    snprintf(n->app, sizeof(n->app), "Text profile");
+    snprintf(n->summary, sizeof(n->summary), "Terminal graphics ── ⣿");
+    snprintf(n->body, sizeof(n->body),
+             "█ ▀ ▄ ▌ ▐ ░ ▒ ▓ ⣿ ⣷ ⣯ ⣟\n"
+             "┌──┬──┐  ╭──╮  │\n"
+             "└──┴──┘  ╰──╯  ══");
+    ui_deck_tick(STATE_DIRTY_NOTIF);
+    group_finish();
+    assert_text_glyphs(s_meta, n->app);
+    assert_text_glyphs(&status_text_22, n->summary);
+    assert_text_glyphs(&status_text_16, n->body);
+    assert(capture_frame("fonts-profile-terminal"));
+
+    snprintf(n->summary, sizeof(n->summary), "Text and numbers ₾ ₿");
+    snprintf(n->body, sizeof(n->body),
+             "₾ ₿ ฿ ₪ € £ ¥ ₩ ₹ ₽\n"
+             "¹ ² ³ ₁ ₂ ₃ ⅓ ⅔ ¼ ¾\n"
+             "测试完成 → ✓ — “review”");
+    ui_deck_tick(STATE_DIRTY_NOTIF);
+    group_finish();
+    assert_text_glyphs(&status_text_22, n->summary);
+    assert_text_glyphs(&status_text_16, n->body);
+    assert(capture_frame("fonts-profile-numbers"));
+
+    snprintf(n->summary, sizeof(n->summary), "Styled text and regular fallback");
+    snprintf(n->body, sizeof(n->body), "Review ✓ ₾ ₿ █ ⣿ 测试\nLatin: Ș Ț ẞ Ł\nWrap / j f fraction ⅓");
+    n->body_run_count = 1;
+    const lv_font_t *styles[] = {
+        &status_text_16_bold, &status_text_16_italic, &status_text_16_bold_italic,
+    };
+    for (uint32_t style = 1; style <= 3; style++) {
+        n->body_runs[0] = (status_body_run_t){
+            .start = 0, .end = strlen(n->body), .style = style,
+        };
+        ui_deck_tick(STATE_DIRTY_NOTIF);
+        group_finish();
+        assert_text_glyphs(styles[style - 1], n->body);
+        char name[64];
+        snprintf(name, sizeof(name), "fonts-profile-style-%u", style);
+        assert(capture_frame(name));
+    }
+}
+
 static uint16_t metric_bar_pixel(int metric, int quarter)
 {
     lv_area_t coords;
@@ -1491,6 +1571,7 @@ int main(int argc, char **argv)
     history_age_progress();
     simplified_chinese_capture();
     box_drawing_capture();
+    text_profile_captures();
     rail_usage_progress();
     fixture_shutdown();
     fclose(s_trace_file);

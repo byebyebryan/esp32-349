@@ -1,2 +1,3 @@
 # Keep the SHA-256-pinned upstream license byte-for-byte, including its whitespace.
 projects/notification-panel/main/fonts/assets/montserrat-cc8daf2/OFL.txt -whitespace
+projects/notification-panel/main/fonts/assets/noto-sans-ggfonts-ddf386b/OFL.txt -whitespace

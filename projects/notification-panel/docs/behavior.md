@@ -48,19 +48,31 @@ replacement is not closed by a stale dismissal.
 ## Text and fonts
 
 V1 uses Montserrat with a bundled Source Han Sans CJK fallback and a generated
-punctuation/symbol subset for bar text. The generated notification fonts cover
-English and the 3,500 common Simplified Chinese characters in the first level
-of the 2013 通用规范汉字表, plus Chinese punctuation. Existing Latin and symbol
-coverage includes typographic quotes (including `’`), arrows, math signs,
-shapes, and dingbats;
+punctuation/symbol subset for bar text. Small app-name/age labels and rail
+metadata retain the legacy font. The generated notification title/body fonts cover
+the encoded Google Fonts Latin Core/Plus lists, English/Simplified Chinese
+locale punctuation and numbers, and the 3,500 common Simplified Chinese
+characters in the first level of the 2013 通用规范汉字表. Existing Latin and
+symbol coverage includes typographic quotes (including `’`), arrows, math
+signs, shapes, and dingbats;
 see [font sources and licenses](../main/fonts/README.md). Latin accents become
 base letters, while nondecomposing Latin-1 and Latin Extended-A letters have
-glyphs. The notification fonts include box drawing (U+2500–U+257F), so `──`,
-`│` and single/double-line borders have real glyphs. Glyphs outside the font set
+glyphs. The notification fonts include full Box Drawing (U+2500–U+257F), Block
+Elements (U+2580–U+259F) and Braille Patterns (U+2800–U+28FF), so `──`, `│`,
+block bars and Braille spinner frames have real glyphs. Glyphs outside the font set
 show a visible placeholder. The
 [font coverage audit](../tools/check_font_coverage.py) checks the selected repertoire.
-Kana, additional Han characters, Nerd Font Private Use icons and color emoji
-are outside the notification font selection.
+Kana, additional Han characters (including `帧` and `阈`), Nerd Font Private
+Use icons and emoji sequences are outside the declared coverage. This is a
+character-coverage profile, not full Google Fonts/OpenType shaping conformance.
+
+Registered Unicode 17.0 FE0E/FE0F presentation pairs whose base is present in
+all regular notification fonts use that base's monochrome text glyph: for
+example, `⚠️` displays as `⚠` without an extra placeholder. Other selectors,
+unsupported emoji bases, joiners and noncomposing marks are retained; malformed
+selector runs are not rewritten. This does not add color emoji, keycap, flag,
+skin-tone or ZWJ shaping. Existing NFC normalization and Latin accent
+simplification remain the text policy.
 
 App names and titles use bounded raw prefixes of 124 and 252 code points
 before normalization and 31/63-byte UTF-8 clipping. Source classification

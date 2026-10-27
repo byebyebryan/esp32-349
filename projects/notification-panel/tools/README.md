@@ -12,6 +12,7 @@ Raw traces, captures and results belong in ignored `.cache/` directories.
 | [check_native_ui.py](check_native_ui.py) | Build/run production native checks in Debug and Release; [individual targets](native_ui/README.md) |
 | [check_font_coverage.py](check_font_coverage.py) | Audit generated font repertoire and metrics |
 | [generate_status_fonts.py](generate_status_fonts.py) | Regenerate fonts; sources, prerequisites and licenses are in the [font guide](../main/fonts/README.md) |
+| [generate_text_presentation.py](generate_text_presentation.py) | Generate/check the host's supported Unicode text-presentation pairs from pinned data and production fonts |
 | [render_presentation.py](render_presentation.py) | Reproduce current native gallery media and provenance; [media guide](../docs/media/README.md) |
 
 `test_*.c` and composed `test_*.py` files are automated fixtures. The `run_`

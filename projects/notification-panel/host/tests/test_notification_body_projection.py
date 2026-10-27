@@ -133,7 +133,7 @@ def test_more_than_sixteen_disjoint_runs_degrades_to_plain_text():
 
 def test_display_conversion_keeps_original_open_action_metadata():
     async def scenario():
-        raw_body = "<b>Open &amp; 東京</b><br>literal <T>"
+        raw_body = "<b>Open &amp; 東京</b><br>literal <T><br>⚠️"
         call_body = [
             "Desktop App",
             0,
@@ -171,7 +171,7 @@ def test_display_conversion_keeps_original_open_action_metadata():
             "body": raw_body,
             "default_label": "Open",
         }
-        assert display["body"] == "Open & 東京\nliteral <T>"
+        assert display["body"] == "Open & 東京\nliteral <T>\n⚠"
         assert display["body_runs"] == [{"start": 0, "end": 13, "style": 1}]
         assert source._open_info[local_id]["expected"] == expected
 

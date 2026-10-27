@@ -222,6 +222,7 @@ def main() -> int:
         "tools/test_grouped_composed.py", "tools/check_native_ui.py", "tools/render_presentation.py",
         "tools/native_ui/CMakeLists.txt", "tools/native_ui/lv_conf.h", "dependencies.lock",
         "host/src/status349/proto.py", "host/src/status349/notification_text.py",
+        "host/src/status349/text_presentation.py",
     ]
     sources.extend(str(Path(p).with_suffix(".h")) for p in list(sources)
                    if p.startswith("main/") and (PROJECT / Path(p).with_suffix(".h")).is_file())

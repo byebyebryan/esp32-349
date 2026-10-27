@@ -10,7 +10,13 @@ import subprocess
 import sys
 from pathlib import Path
 
-from status_font_repertoire import BOX_DRAWING, CHINESE_PUNCTUATION, simplified_chinese
+from status_font_repertoire import (
+    BOX_DRAWING,
+    CHINESE_PUNCTUATION,
+    notification_profile,
+    simplified_chinese,
+    status_text_source_assignments,
+)
 
 
 PROJECT = Path(__file__).resolve().parents[1]
@@ -38,6 +44,12 @@ SOURCE_HASHES = {
         "b4c121b337aaa977d711b6f397c5b9672d720af622555f1e3f9d3b87f2983665",
     "main/fonts/assets/montserrat-cc8daf2/OFL.txt":
         "8b7141c03fa4f8d44e6345d5d4931709290f0f67875e452e95ac1fd3a027802e",
+    "main/fonts/assets/montserrat-cc8daf2/Montserrat-Medium.ttf":
+        "dae47428bb041f9716604e0e07b5b0c8585b3bdd8183362f75c69fe7bb3cfaf4",
+    "main/fonts/assets/noto-sans-ggfonts-ddf386b/NotoSans-Medium.ttf":
+        "30202917c4a1f13275fc778e23320f6b3050e88c0e49c98dd3a0f8fdb7e4099e",
+    "main/fonts/assets/noto-sans-ggfonts-ddf386b/OFL.txt":
+        "cee9892f9f0cc8fe882c9e9537ee6a89621d86ee7ceaf70b02e2b2b1c25c061a",
 }
 
 MONTSERRAT_RANGES = "0x20-0x7E,0xA0-0x17F,0x2000-0x206F,0x20A0-0x20CF,0x2100-0x214F"
@@ -58,7 +70,8 @@ DEJAVU_RANGES = "0x2190-0x23FF,0x2500-0x257F,0x25A0-0x27BF"
 CLOCK_RANGES = "0x2D,0x30-0x39,0x3A"
 ASCII = set(range(0x20, 0x80))
 PRIVATE_USE = range(0xE000, 0xF900)
-MAX_LINE_HEIGHT = {16: 22, 20: 27, 22: 30}
+TEXT_METRICS = {16: (22, 5), 20: (26, 6), 22: (28, 6)}
+MAX_SMALL_BITMAP_OFFSET = (1 << 20) - 1
 CLOCK_GLYPHS = {ord(char) for char in "0123456789:-"}
 
 
@@ -93,13 +106,63 @@ def ranges_for(codepoints: set[int]) -> str:
 
 def verify_sources() -> None:
     for relative_path, expected in SOURCE_HASHES.items():
-        actual = sha256(PROJECT / relative_path)
+        try:
+            actual = sha256(PROJECT / relative_path)
+        except OSError as error:
+            raise SystemExit(
+                f"required font source is missing or unreadable: {relative_path}"
+            ) from error
         if actual != expected:
             raise SystemExit(
                 f"source changed: {relative_path}\n"
                 f"  expected SHA-256 {expected}\n"
                 f"  found    SHA-256 {actual}"
             )
+    notification_profile()
+    status_text_source_assignments()
+
+
+def validate_source_assignment_partition(
+    profile: set[int],
+    preserved: set[int],
+    assignments: dict[str, set[int]],
+) -> set[int]:
+    additions = profile - preserved
+    assigned = [
+        codepoint
+        for source_codepoints in assignments.values()
+        for codepoint in source_codepoints
+    ]
+    assigned_set = set(assigned)
+    if len(assigned) != len(assigned_set) or assigned_set != additions:
+        missing = sorted(additions - assigned_set)
+        unexpected = sorted(assigned_set - additions)
+        raise SystemExit(
+            "font source assignments do not exactly cover the required additions: "
+            f"{len(missing)} missing, {len(unexpected)} unexpected, "
+            f"{len(assigned) - len(assigned_set)} duplicate"
+        )
+    return additions
+
+
+def validate_generated_profile(
+    name: str, actual: set[int], expected: set[int]
+) -> None:
+    if actual != expected:
+        missing = expected - actual
+        extra = actual - expected
+        raise SystemExit(
+            f"{name} differs from the pinned notification repertoire: "
+            f"{len(missing)} missing, {len(extra)} extra"
+        )
+
+
+def validate_bitmap_offset(name: str, bitmap_offset: int) -> None:
+    if bitmap_offset > MAX_SMALL_BITMAP_OFFSET:
+        raise SystemExit(
+            f"{name} bitmap offset {bitmap_offset:,} exceeds the 20-bit limit "
+            f"{MAX_SMALL_BITMAP_OFFSET:,} with LV_FONT_FMT_TXT_LARGE=0"
+        )
 
 
 def legacy_repertoire() -> set[int]:
@@ -129,6 +192,23 @@ def font_dimensions(source: str) -> tuple[int, int]:
     line_height = int(re.search(r"\.line_height = (\d+),", source).group(1))
     base_line = int(re.search(r"\.base_line = (\d+),", source).group(1))
     return line_height, base_line
+
+
+def maximum_bitmap_offset(source: str) -> int:
+    match = re.search(
+        r"static const lv_font_fmt_txt_glyph_dsc_t glyph_dsc\[\] = \{(.*?)\n\};",
+        source,
+        re.S,
+    )
+    if match is None:
+        raise ValueError("generated font has no glyph descriptors")
+    offsets = [
+        int(value)
+        for value in re.findall(r"\.bitmap_index = (\d+)", match.group(1))
+    ]
+    if not offsets:
+        raise ValueError("generated font has no bitmap offsets")
+    return max(offsets)
 
 
 def selected_codepoints(ranges: str) -> set[int]:
@@ -197,7 +277,7 @@ def generate_body_style_fonts() -> None:
         name = f"status_text_16_{style}"
         output = PROJECT / f"main/fonts/{name}.c"
         command = [
-            "npx", "--yes", "lv_font_conv@1.5.3",
+            "npx", "--offline", "--yes", "lv_font_conv@1.5.3",
             "--bpp", "4", "--size", "16", "--no-compress", "--no-kerning",
             "--font", f"main/fonts/assets/montserrat-cc8daf2/{filename}",
             "-r", MONTSERRAT_RANGES,
@@ -326,17 +406,53 @@ def main() -> int:
 
     cjk_reference = glyphs(PROJECT / SOURCE_CJK)
     old_cjk = cjk_reference - ASCII - set(PRIVATE_USE)
-    han_codepoints = simplified_chinese() | CHINESE_PUNCTUATION
+    chinese = simplified_chinese()
+    han_codepoints = chinese | CHINESE_PUNCTUATION
     fontawesome_codepoints = cjk_reference.intersection(PRIVATE_USE)
     if not old_cjk or not fontawesome_codepoints:
         raise SystemExit("Source Han CJK reference no longer has the expected repertoire")
 
-    expected_repertoire = (legacy_repertoire() - old_cjk) | han_codepoints | BOX_DRAWING
+    preserved_repertoire = (legacy_repertoire() - old_cjk) | han_codepoints | BOX_DRAWING
+    if len(preserved_repertoire) != 4_972:
+        raise SystemExit(
+            "the preserved legacy composite repertoire changed: "
+            f"expected 4972 glyphs, found {len(preserved_repertoire)}"
+        )
+    current_profile = notification_profile()
+    if len(current_profile) != 4_365:
+        raise SystemExit(
+            "the pinned notification profile changed: "
+            f"expected 4365 codepoints, found {len(current_profile)}"
+        )
+    assignments = status_text_source_assignments()
+    additions = validate_source_assignment_partition(
+        current_profile, preserved_repertoire, assignments
+    )
+    expected_repertoire = preserved_repertoire | current_profile
+    if len(expected_repertoire) != 5_327:
+        raise SystemExit(
+            "the combined notification repertoire changed: "
+            f"expected 5327 glyphs, found {len(expected_repertoire)}"
+        )
+    for size, expected_metrics in TEXT_METRICS.items():
+        path = PROJECT / f"main/fonts/status_text_{size}.c"
+        current_glyphs = glyphs(path)
+        if current_glyphs not in (preserved_repertoire, expected_repertoire):
+            raise SystemExit(
+                f"{path.name} is neither the original 4972-glyph font nor the "
+                f"expected {len(expected_repertoire)}-glyph profile"
+            )
+        actual_metrics = font_dimensions(path.read_text())
+        if actual_metrics != expected_metrics:
+            raise SystemExit(
+                f"{path.name} metrics changed: expected line/base {expected_metrics[0]}/"
+                f"{expected_metrics[1]}, found {actual_metrics[0]}/{actual_metrics[1]}"
+            )
+
     print(
-        f"Source selection: 3,500 Simplified Chinese characters, "
-        f"{len(CHINESE_PUNCTUATION)} Chinese punctuation glyphs, "
-        f"{len(BOX_DRAWING)} box-drawing glyphs, "
-        f"{len(fontawesome_codepoints)} existing FontAwesome glyphs; "
+        f"Source selection: {len(chinese)} TGH characters, "
+        f"{len(current_profile)} pinned profile codepoints, "
+        f"{len(additions)} additions, {len(preserved_repertoire)} preserved legacy glyphs; "
         f"composite repertoire {len(expected_repertoire)} glyphs"
     )
 
@@ -344,32 +460,59 @@ def main() -> int:
     for size in text_sizes:
         name = f"status_text_{size}"
         output = PROJECT / f"main/fonts/{name}.c"
-        command = [
-            "npx", "--yes", "lv_font_conv@1.5.3",
-            "--bpp", "4", "--size", str(size), "--no-compress", "--no-kerning",
-            "--font", "managed_components/lvgl__lvgl/scripts/built_in_font/Montserrat-Medium.ttf",
-            "-r", MONTSERRAT_RANGES,
-            "--font", "managed_components/lvgl__lvgl/scripts/built_in_font/DejaVuSans.ttf",
-            "-r", DEJAVU_RANGES,
-            "--font", "managed_components/lvgl__lvgl/scripts/built_in_font/SourceHanSansSC-Normal.otf",
-            "-r", ranges_for(han_codepoints),
-            "--font", "managed_components/lvgl__lvgl/scripts/built_in_font/FontAwesome5-Solid+Brands+Regular.woff",
-            "-r", ranges_for(fontawesome_codepoints),
-            "--format", "lvgl", "-o", f"main/fonts/{name}.c",
-            "--lv-font-name", name, "--lv-include", "lvgl.h",
+        current_glyphs = glyphs(output)
+        if current_glyphs not in (preserved_repertoire, expected_repertoire):
+            raise SystemExit(
+                f"{name} is neither the original 4972-glyph font nor the "
+                f"expected {len(expected_repertoire)}-glyph profile"
+            )
+        source_ranges = [
+            (
+                "managed_components/lvgl__lvgl/scripts/built_in_font/Montserrat-Medium.ttf",
+                selected_codepoints(MONTSERRAT_RANGES)
+                | assignments["LVGL Montserrat Medium"],
+            ),
+            (
+                "managed_components/lvgl__lvgl/scripts/built_in_font/DejaVuSans.ttf",
+                selected_codepoints(DEJAVU_RANGES) | assignments["DejaVu Sans"],
+            ),
+            (
+                "managed_components/lvgl__lvgl/scripts/built_in_font/SourceHanSansSC-Normal.otf",
+                han_codepoints | assignments["Source Han Sans SC"],
+            ),
+            (
+                "managed_components/lvgl__lvgl/scripts/built_in_font/FontAwesome5-Solid+Brands+Regular.woff",
+                fontawesome_codepoints | assignments["FontAwesome5"],
+            ),
+            (
+                "main/fonts/assets/montserrat-cc8daf2/Montserrat-Medium.ttf",
+                assignments["Montserrat Medium 500"],
+            ),
+            (
+                "main/fonts/assets/noto-sans-ggfonts-ddf386b/NotoSans-Medium.ttf",
+                assignments["Noto Sans Medium 500"],
+            ),
         ]
+        command = [
+            "npx", "--offline", "--yes", "lv_font_conv@1.5.3",
+            "--bpp", "4", "--size", str(size), "--no-compress", "--no-kerning",
+        ]
+        for font_path, codepoints in source_ranges:
+            if not codepoints:
+                raise SystemExit(f"font source selection is empty: {font_path}")
+            command.extend(("--font", font_path, "-r", ranges_for(codepoints)))
+        command.extend(
+            (
+                "--format", "lvgl", "-o", f"main/fonts/{name}.c",
+                "--lv-font-name", name, "--lv-include", "lvgl.h",
+            )
+        )
         subprocess.run(command, cwd=PROJECT, check=True)
 
         source = output.read_text().rstrip() + "\n"
         output.write_text(source)
         actual_glyphs = glyphs(output)
-        if actual_glyphs != expected_repertoire:
-            missing = expected_repertoire - actual_glyphs
-            extra = actual_glyphs - expected_repertoire
-            raise SystemExit(
-                f"{name} differs from the English/Simplified Chinese selection: "
-                f"{len(missing)} missing, {len(extra)} extra"
-            )
+        validate_generated_profile(name, actual_glyphs, expected_repertoire)
 
         if (
             "Bpp: 4" not in source
@@ -379,17 +522,19 @@ def main() -> int:
         ):
             raise SystemExit(f"{name} does not record the expected 4bpp, uncompressed settings")
 
-        line_height = int(re.search(r"line_height = (\d+),", source).group(1))
-        base_line = int(re.search(r"base_line = (\d+),", source).group(1))
-        if line_height > MAX_LINE_HEIGHT[size]:
+        line_height, base_line = font_dimensions(source)
+        if (line_height, base_line) != TEXT_METRICS[size]:
             raise SystemExit(
-                f"{name} line_height {line_height} exceeds card budget "
-                f"{MAX_LINE_HEIGHT[size]}"
+                f"{name} metrics changed: expected line/base {TEXT_METRICS[size][0]}/"
+                f"{TEXT_METRICS[size][1]}, found {line_height}/{base_line}"
             )
+        bitmap_offset = maximum_bitmap_offset(source)
+        validate_bitmap_offset(name, bitmap_offset)
 
         print(
             f"{name}: {len(actual_glyphs)} glyphs, line_height={line_height}, "
-            f"base_line={base_line}, bitmap={bitmap_bytes(source):,} B, "
+            f"base_line={base_line}, max_bitmap_offset={bitmap_offset:,}, "
+            f"bitmap={bitmap_bytes(source):,} B, "
             f"source={output.stat().st_size:,} B"
         )
 
@@ -399,7 +544,7 @@ def main() -> int:
     clock_name = "status_clock_80"
     clock_output = PROJECT / f"main/fonts/{clock_name}.c"
     clock_command = [
-        "npx", "--yes", "lv_font_conv@1.5.3",
+        "npx", "--offline", "--yes", "lv_font_conv@1.5.3",
         "--bpp", "4", "--size", "80", "--no-compress", "--no-kerning",
         "--font", "managed_components/lvgl__lvgl/scripts/built_in_font/Montserrat-Medium.ttf",
         "-r", CLOCK_RANGES,

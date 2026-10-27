@@ -74,6 +74,36 @@ touch hardware or panel transfer.
 See [the native test guide](../tools/native_ui/README.md) for individual runners. The [tools index](../tools/README.md) covers the optional
 serial probes, physical recorders, bridge proof and connected soak recorder.
 
+## Notification text profile acceptance
+
+The font audit checks the independently pinned repertoire and source records;
+native grouped checks perform actual LVGL lookups through all six notification
+font faces. `fonts-profile-*` captures exercise terminal graphics, currencies,
+numbers and styled fallback. The composed body check also carries `⚠️` through
+source conversion, wire projection, parser/state and production LVGL while
+retaining the original Open identity. Presentation-selector data is checked
+offline with `python3 tools/generate_text_presentation.py --check`.
+
+After an authorized firmware/host deployment, use the intended paired host
+while someone can observe the panel:
+
+```sh
+349ctl notify 'TEXT_PROFILE ── ₾ ₿' '┌──┬──┐ │ ══
+█ ▀ ▄ ▌ ▐ ░ ▒ ▓ ⣿ ⣷ ⣯ ⣟
+测试完成 → ✓ ⚠️'
+notify-send 'TEXT_PROFILE styles' '<b>Bold █ ⣿ ₾ 测试</b> / <i>italic</i> / <b><i>both</i></b>'
+```
+
+Confirm readable glyphs, separator/block joins, no extra box after the warning
+symbol, unclipped styled text, line wrapping and the ordinary swipe/× behavior.
+Record the exact board serial, firmware identity, host revision and observed
+result. These synthetic notifications do not establish coverage for every
+character. Keep source/native evidence, deployed identities and physical
+acceptance separate; retain rollback firmware/configuration and existing
+pairing as described in [setup](setup.md#flashing-while-the-daemon-runs).
+
+## Backlight and physical controls
+
 The backlight fixture checks exact timeout boundaries, screen following,
 reconnect control, local brightness/manual-off precedence, shared button
 debounce and the touch gate. Production parser checks validate display commands,

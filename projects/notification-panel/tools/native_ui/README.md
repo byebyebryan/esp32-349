@@ -40,6 +40,14 @@ The cache is preserved; choose fresh override paths to continue.
 | `host_body_composed` CTest | Host conversion/projection → parser/state → production-font LVGL spans | Synthetic text and virtual transport; bounded styles, fallback, ellipsis and replacement/gesture coherence |
 | `smoke_recorder` CTest | Isolated production host policy → parser/state/LVGL, actual × round trip, timed retention and fresh process recovery | Native transport; fake IPC checks finish/error/pause ownership cleanup |
 
+The grouped fixture looks up every codepoint in the independent pinned
+notification text profile through all six production font faces, including
+styled fallback. Its build generates the required list from repertoire data,
+not from font output. Native and firmware both use
+`LV_FONT_FMT_TXT_LARGE=0`, so native checks exercise the same bitmap-offset
+limit and glyph descriptor format. `fonts-profile-*` captures cover terminal
+graphics, currencies/numbers and styled fallback at the actual UI sizes.
+
 CTest also runs serialized replay and an SDL dummy-driver smoke. If uv is
 unavailable, `host_composed`, `host_actions_composed`, `host_history_composed`,
 `host_body_composed` and `smoke_recorder` are explicitly skipped; such a run does not satisfy

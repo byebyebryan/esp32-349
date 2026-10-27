@@ -11,6 +11,7 @@ import math
 import unicodedata
 
 from .notification_text import project_body
+from .text_presentation import strip_text_presentation
 
 PREFIX = "@349 "
 PROTO_VERSION = 1
@@ -34,7 +35,7 @@ DISPLAY_LABEL_INPUT_CODEPOINTS_PER_BYTE = 4
 def display_text(value: str) -> str:
     """Keep Unicode for the device font fallback and simplify Latin accents."""
     chars: list[str] = []
-    for char in unicodedata.normalize("NFC", value):
+    for char in unicodedata.normalize("NFC", strip_text_presentation(value)):
         if char in "\r\n\t":
             char = " "
         elif unicodedata.name(char, "").startswith("LATIN"):
