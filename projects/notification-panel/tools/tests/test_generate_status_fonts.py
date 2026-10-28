@@ -62,5 +62,34 @@ def test_converter_extra_glyph_fails_closed():
 def test_large_font_bitmap_offset_fails_with_compact_descriptor_config():
     with pytest.raises(SystemExit, match="20-bit limit"):
         generator.validate_bitmap_offset(
-            "status_text_22", generator.MAX_SMALL_BITMAP_OFFSET + 1
+            "status_text_22", generator.MAX_SMALL_BITMAP_OFFSET + 1, large=False
         )
+
+
+def test_large_font_bitmap_offset_accepts_values_beyond_compact_limit():
+    generator.validate_bitmap_offset(
+        "status_text_20", generator.MAX_SMALL_BITMAP_OFFSET + 1, large=True
+    )
+
+
+def test_large_font_bitmap_offset_rejects_values_beyond_uint32():
+    with pytest.raises(SystemExit, match="32-bit limit"):
+        generator.validate_bitmap_offset(
+            "status_text_22", generator.MAX_LARGE_BITMAP_OFFSET + 1, large=True
+        )
+
+
+def test_firmware_and_native_select_the_large_font_descriptor():
+    generator.verify_font_format_configuration()
+
+
+def test_firmware_and_native_font_formats_must_match(monkeypatch, tmp_path):
+    (tmp_path / "sdkconfig.defaults").write_text("CONFIG_LV_FONT_FMT_TXT_LARGE=y\n")
+    (tmp_path / "tools/native_ui").mkdir(parents=True)
+    (tmp_path / "tools/native_ui/lv_conf.h").write_text(
+        "#define LV_FONT_FMT_TXT_LARGE 0\n"
+    )
+    monkeypatch.setattr(generator, "PROJECT", tmp_path)
+
+    with pytest.raises(SystemExit, match="native_ui/lv_conf.h must select"):
+        generator.verify_font_format_configuration()

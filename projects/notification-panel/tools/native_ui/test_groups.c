@@ -5,6 +5,10 @@
 #include "notification_font_profile.h"
 #include "src/misc/lv_text_private.h"
 
+#if LV_FONT_FMT_TXT_LARGE != 1
+#error "Native notification font fixtures must use the firmware large font format"
+#endif
+
 static int s_session_counter = 100;
 static void groups_reset(const int *ids, int count)
 {
@@ -505,11 +509,12 @@ static void held_updates_and_removal(void)
 
 static void notification_font_coverage(void)
 {
-    /* These common Chinese glyphs were missing from the former repertoire.
-     * Check LVGL's actual cmaps, including the styled-body fallback. */
+    /* Check prior missing glyphs plus level-2 TGH additions through LVGL's
+     * actual cmaps, including the styled-body fallback. */
     const uint32_t codepoints[] = {
         0x6D4B, 0x8BD5, 0x7801, 0x7F16, 0x8BD1, 0x9519, 0x8BEF, 0x590D,
         0x7F51, 0x7EDC, 0xFF01, 0xFF1A, 0x3010, 0x3011, 0x300A, 0x300B,
+        0x55EF, 0x5E27, 0x9608,
     };
     const lv_font_t *fonts[] = {
         &status_text_16, &status_text_20, &status_text_22,
@@ -1327,6 +1332,8 @@ static void history_age_progress(void)
         assert(lv_obj_has_flag(s_cards[i].age_bar, LV_OBJ_FLAG_HIDDEN));
 }
 
+static void assert_text_glyphs(const lv_font_t *font, const char *text);
+
 static void simplified_chinese_capture(void)
 {
     const int ids[] = {1};
@@ -1337,9 +1344,9 @@ static void simplified_chinese_capture(void)
     n->history_updated_us = s_now_us;
     n->history_deadline_us = s_now_us + 600000000;
     snprintf(n->app, sizeof(n->app), "Codex");
-    snprintf(n->summary, sizeof(n->summary), "测试完成，代码已修改");
+    snprintf(n->summary, sizeof(n->summary), "嗯嗯，帧率阈值已检查");
     snprintf(n->body, sizeof(n->body),
-             "编译错误已修复！等待确认，连接网络。\n"
+             "嗯嗯，帧率阈值已检查。𠳐\n"
              "中文标点：！？；（）【】《》“”\n"
              "Claude / Codex → tests passed ✓");
     ui_deck_tick(STATE_DIRTY_NOTIF);
@@ -1347,6 +1354,8 @@ static void simplified_chinese_capture(void)
     assert(!s_group_home && s_history_mode);
     assert(lv_obj_get_style_text_font(s_cards[1].title, 0) == &status_text_22);
     assert(lv_obj_get_style_text_font(s_cards[1].body, 0) == &status_text_16);
+    assert_text_glyphs(&status_text_22, n->summary);
+    assert_text_glyphs(&status_text_16, n->body);
     assert(capture_frame("fonts-simplified-chinese"));
 }
 

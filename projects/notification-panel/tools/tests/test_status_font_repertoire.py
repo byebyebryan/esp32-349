@@ -1,7 +1,10 @@
 """Integrity and inheritance tests for the pinned notification font profile."""
 
 import importlib.util
+import hashlib
+import io
 from pathlib import Path
+import zipfile
 
 import pytest
 
@@ -23,11 +26,21 @@ def test_profile_groups_have_the_locked_cardinalities():
         "CLDR 49 zh-Hans punctuation": 55,
         "CLDR 49 zh-Hans numbers": 28,
         "TGH 2013 level 1": 3500,
+        "TGH 2013 level 2": 3000,
         "Box Drawing": 128,
         "Block Elements": 32,
         "Braille Patterns": 256,
     }
-    assert len(repertoire.notification_profile()) == 4365
+    assert len(repertoire.notification_profile()) == 7365
+
+
+def test_level_2_membership_contains_the_requested_common_characters():
+    level_1 = repertoire.profile_groups()["TGH 2013 level 1"]
+    level_2 = repertoire.profile_groups()["TGH 2013 level 2"]
+
+    assert len(level_1 | level_2) == 6500
+    assert not (level_1 & level_2)
+    assert {0x55EF, 0x5E27, 0x9608} <= level_2
 
 
 def test_changed_pinned_repertoire_list_fails_closed(monkeypatch, tmp_path):
@@ -50,9 +63,63 @@ def test_source_assignments_are_disjoint_and_cover_the_declared_additions():
     assignments = repertoire.status_text_source_assignments()
     assigned = [codepoint for values in assignments.values() for codepoint in values]
 
-    assert len(assigned) == 355
-    assert len(set(assigned)) == 355
-    assert sum(map(len, assignments.values())) == 355
+    assert len(assigned) == 3355
+    assert len(set(assigned)) == 3355
+    assert sum(map(len, assignments.values())) == 3355
+
+
+def test_unihan_extraction_sorts_table_indexes_and_preserves_level_1(tmp_path, monkeypatch):
+    baseline = repertoire._read_chinese_table(
+        repertoire.CHINESE_TABLE,
+        repertoire.CHINESE_TABLE_SHA256,
+        repertoire.CHINESE_LEVEL_1_COUNT,
+        "TGH 2013 level 1 repertoire",
+    )
+    points = list(baseline)
+    used = set(points)
+    candidate = 0x9FFF
+    while len(points) < repertoire.CHINESE_PROFILE_COUNT:
+        if candidate not in used:
+            points.append(candidate)
+            used.add(candidate)
+        candidate -= 1
+
+    text = "\n".join(
+        ["# Unihan test source", "#\tkTGH"]
+        + [
+            f"U+{codepoint:04X}\tkTGH\t2013:{index}"
+            for index, codepoint in reversed(list(enumerate(points, 1)))
+        ]
+        + ["U+55EF\tkTGHZ2013\tunused dictionary reading"]
+    ) + "\n"
+    archive_bytes = io.BytesIO()
+    with zipfile.ZipFile(archive_bytes, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(repertoire.UNIHAN_TGH_MEMBER, text)
+    archive_path = tmp_path / "Unihan.zip"
+    archive_path.write_bytes(archive_bytes.getvalue())
+    output_bytes = repertoire._format_tgh_table(points)
+    monkeypatch.setattr(
+        repertoire, "UNIHAN_ARCHIVE_SHA256", hashlib.sha256(archive_path.read_bytes()).hexdigest()
+    )
+    monkeypatch.setattr(
+        repertoire, "CHINESE_TABLE_LEVEL_1_2_SHA256", hashlib.sha256(output_bytes).hexdigest()
+    )
+
+    result = repertoire.extract_unihan_tgh_levels_1_2(archive_path, tmp_path / "out")
+
+    assert result == points
+    assert (tmp_path / "out" / repertoire.CHINESE_TABLE_LEVEL_1_2.name).read_bytes() == output_bytes
+
+
+def test_unihan_extraction_rejects_an_unpinned_archive_before_output(tmp_path):
+    archive = tmp_path / "not-unihan.zip"
+    with zipfile.ZipFile(archive, "w") as source:
+        source.writestr(repertoire.UNIHAN_TGH_MEMBER, "")
+
+    output = tmp_path / "out"
+    with pytest.raises(ValueError, match="pinned Unicode 17.0.0 Unihan archive changed"):
+        repertoire.extract_unihan_tgh_levels_1_2(archive, output)
+    assert not output.exists()
 
 
 def test_zh_hans_exemplars_inherit_from_zh_then_root(tmp_path):

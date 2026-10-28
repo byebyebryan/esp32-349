@@ -1,10 +1,10 @@
 {
   "description": "Production protocol/state/LVGL with synthetic messages, virtual time and pointer input; no hardware or desktop session.",
-  "source_revision": "e992a91d80fc11e2a1a743783f11e6c935f9647c",
+  "source_revision": "a3a91276480e32f7e593c268304687430aa82be5",
   "source_sha256": {
     "projects/notification-panel/main/ui_deck.c": "735ecf77fcd305b2194e73d63b1282c0239bf10340ce34a25b57be18482380aa",
     "projects/notification-panel/main/ui_theme.h": "87f6155c79987f676eb733a793aefd3b53e801d65940b020701233f28a8fd20d",
-    "projects/notification-panel/main/ui_fonts.c": "07c79bdaf4d07f269df08db734efb5cd628c6e3ca71a18f8e96d9f348fb8faf9",
+    "projects/notification-panel/main/ui_fonts.c": "f0767bf69d701b6f99ce820c8fa7faa6a5bc86873772242b2c6a31b503850e0d",
     "projects/notification-panel/main/proto.c": "7075f1681e316e3e1165fcd4ca71ceecb2694066c57e495751f10adf85dd3173",
     "projects/notification-panel/main/state.c": "05d16e71aad34adbacd36211a390b65ae281977e35112d918fe7fdf2e3a695c6",
     "projects/notification-panel/main/backlight_policy.c": "7cabf3dc2b29de979791501d3c056d45d10509a76ee463f3faf9dfb78c61dbef",
@@ -16,9 +16,9 @@
     "projects/notification-panel/tools/native_ui/test_composed.c": "ade2533b0604f69e2f2ec0a2340280b73d72909c21cb6cf9540adae2711415bc",
     "projects/notification-panel/tools/test_grouped_composed.py": "aa179ab03960ef44ca8532c5ec12fe1884ba8d1c66a75342845bbaaaa5f7e87a",
     "projects/notification-panel/tools/check_native_ui.py": "17d604d38d5ca92a20ed3b58a5ff26f501692685a147db1e0ebff8c3464ae26d",
-    "projects/notification-panel/tools/render_presentation.py": "e321abaa230d15d96391f38ee8b6a68303bf8fe8b034ff77ecbc023c865147e7",
+    "projects/notification-panel/tools/render_presentation.py": "b4c343bb831788e72cc0259cd1569dcd8816fd7c73b72d77602fe49ad819b89a",
     "projects/notification-panel/tools/native_ui/CMakeLists.txt": "0e352a2a04a2b0dc593f0e2ebc1c80a9a03a9d9d2b486d3e1115611f2bd5789d",
-    "projects/notification-panel/tools/native_ui/lv_conf.h": "19013d99089e7693865e4d796dcf61ced8d7a936c88dcd62658c939540c7e256",
+    "projects/notification-panel/tools/native_ui/lv_conf.h": "16c6db3a4242e4cb68651f3b86311804a7e44d5e122afdbcf0cdd17ae0db7690",
     "projects/notification-panel/dependencies.lock": "c8d68de33164058f4090db14950f38c6416b37d501aad215e1a1303bc825c4bf",
     "projects/notification-panel/host/src/status349/proto.py": "d57f28dbc0c5e202957df3447f3e8a3c9f1f3be066ded4bd0ab4f1d8f2b0ad33",
     "projects/notification-panel/host/src/status349/notification_text.py": "6faf054ab40664389ccbd9d6957ac61f38ea8bf4f6ae1f0fbbc443ad1ef09443",
@@ -35,12 +35,12 @@
     "projects/notification-panel/main/fonts/status_clock_80.c": "e291f953ee6263c024cf04ac15b41108c78c3a17f051fb23e559b1df30c4105b",
     "projects/notification-panel/main/fonts/status_symbol_14.c": "bd2ab1cc65f19f435941b203d6fc0912aa5948f34be9313d5f433b965ec15c9a",
     "projects/notification-panel/main/fonts/status_symbol_16.c": "ca2b7c5b555b490b5d6fe70a0ffe5f4ef66a4b986e01536e155f0d4440ae4edc",
-    "projects/notification-panel/main/fonts/status_text_16.c": "f0a49863de55857ceceffc9cf2752fde5894f6d2c39106bdd53455904c5093c2",
+    "projects/notification-panel/main/fonts/status_text_16.c": "fb6be5d06ebf596489c509d0a227c3ba67782659ad6fc9dc403f71ce34cbea99",
     "projects/notification-panel/main/fonts/status_text_16_bold.c": "9078fc51ee37880dab07dfe2393745fe49abbcf4dcf8ff559165686d6b6a5ed2",
     "projects/notification-panel/main/fonts/status_text_16_bold_italic.c": "749e5875fd8be5e1b75e996256775e8bb5896eb4a02365e6a911436ebd5416ab",
     "projects/notification-panel/main/fonts/status_text_16_italic.c": "7f481db0e0fce7d042688cca0f253ab63adb864d45ff060e5ee6bc964b9fc3d9",
-    "projects/notification-panel/main/fonts/status_text_20.c": "cbe0e4dad548b563b499357eaaba1629aa48da52ed4e7dd593363a4ad2c09959",
-    "projects/notification-panel/main/fonts/status_text_22.c": "660496a89dd1fe520911909d464e71b88ddbbee5f96b653c69785e2d1ab61f70",
+    "projects/notification-panel/main/fonts/status_text_20.c": "f7d2f570c8bc26267ca89e0af6eb77596bc5de5b14ae658b7092a2beccaac201",
+    "projects/notification-panel/main/fonts/status_text_22.c": "4765f36dafcc65bf97e58fc378124407e87dc33be468d24c817e90de792236ed",
     "projects/notification-panel/tools/native_protocol/stubs/esp_app_desc.h": "686e9db8c3f3bf8ad2985a5297637dc6be5e6529e7c58222fe043a5709035fab",
     "projects/notification-panel/tools/native_protocol/stubs/esp_err.h": "f97652a3f03dc61e03f4c9f629c1e254488f7085ae852d124b50cba691428490",
     "projects/notification-panel/tools/native_protocol/stubs/esp_heap_caps.h": "319b53bc3d04ae2a89ad8b704f3568a9211805e2a6ec9d772fbde2b9a1b60248",
@@ -55,7 +55,7 @@
     "projects/notification-panel/tools/native_ui/stubs/esp_timer.h": "3fecee76f39abd79ad6cda09f4c27f37941bdd6924f49ff57688baf66a628786",
     "projects/notification-panel/main/fonts/assets/montserrat-cc8daf2/Montserrat-Bold.ttf": "bc6e854971cea46b463be6f9eef4d9cd52f51cfc1fc0dd90c9d3e6483dc0ec61"
   },
-  "native_executable_sha256": "429be119ad6fd4b8d7e94e14b3db4db36aae2448fb782f2fd8f74f19afc0040a",
+  "native_executable_sha256": "3a2a16062ea82219d486de4c0f329ddc97d62b2ed70941d81cbece9e72ff655a",
   "pillow_version": "12.0.0",
   "screen_size": [
     640,
@@ -74,16 +74,16 @@
       "bytes": 52462
     },
     "notification-demo.gif": {
-      "sha256": "4b6c3c66dabd2dce23600a2204afbdd1a0b10792d3c8a83ba086e69b3b0bb987",
-      "bytes": 248369
+      "sha256": "add232c35a62984b5b8b365c9ab0f5bfc8af29e8126a4627b30f75962a87ed8e",
+      "bytes": 252634
     },
     "notification.png": {
       "sha256": "79b335adc934c2fd042f2e2896644bae4a5e7964e9d26c63be11ffe2195d57f8",
       "bytes": 15689
     },
     "multilingual.png": {
-      "sha256": "e94040d4932be03c27a261d228d26bb3c42228c6a6abcc012dec7747e9ff6b54",
-      "bytes": 16836
+      "sha256": "766f4b1f64353380769319cc33cb7dfd38119c3bf3c31ab7d58b50efee2be06d",
+      "bytes": 17111
     },
     "empty.png": {
       "sha256": "4ca6ebeda5216038d1496d20e6f9f1181142aaf2ee747d15c3734d313737cb8b",

@@ -13,15 +13,16 @@ conformance or a promise of OpenType/complex-script shaping.
 | CLDR 49 English punctuation / numbers | 32 / 18 |
 | CLDR 49 Simplified Chinese punctuation / numbers | 55 / 28 |
 | 通用规范汉字表 2013 level 1 | 3,500 |
+| 通用规范汉字表 2013 level 2 | 3,000 |
 | Unicode Box Drawing U+2500–U+257F | 128 |
 | Unicode Block Elements U+2580–U+259F | 32 |
 | Unicode Braille Patterns U+2800–U+28FF | 256 |
 
-These sets overlap. Their required union is **4,365 codepoints**. Preserving
-the existing 4,972-glyph repertoire yields **5,327 glyphs** in each regular
-font. Chinese coverage retains level 1; level 2, including `帧` and `阈`, is
-deferred. Emoji, additional scripts and Nerd Font icons are outside the
-declared profile. Existing legacy extras remain available.
+These sets overlap. Their required union is **7,365 codepoints**. Preserving
+the existing 4,972-glyph repertoire yields **8,327 glyphs** in each regular
+font. Chinese coverage includes levels 1 and 2; level 3 remains deferred.
+Emoji, additional scripts and Nerd Font icons are outside the declared
+profile. Existing legacy extras remain available.
 
 ## Google Fonts
 
@@ -78,14 +79,42 @@ The extractor verifies the source XML hashes and locale parent paths, then
 checks every resolved output hash before updating the local lists. Tests also
 cover missing values, explicit inheritance and unsupported set syntax.
 
+## Simplified Chinese character table
+
+The preserved `tgh-2013-level1.txt` contains the first 3,500 characters from
+the 2013 通用规范汉字表. The profile's `tgh-2013-level1-plus2.txt` contains
+indexes 1 through 6,500 from Unicode 17.0.0
+[Unihan.zip](https://www.unicode.org/Public/17.0.0/ucd/Unihan.zip), read from
+the `kTGH` property in `Unihan_OtherMappings.txt`. `kTGHZ2013` contains
+dictionary readings, not table membership. The extractor checks the exact
+archive hash, requires each table index 1–6,500 once, sorts by index, confirms
+the first 3,500 characters still match the preserved level-1 list, and writes
+100 UTF-8 characters per line with a final newline. Supplementary CJK unified
+ideographs in level 2 are included.
+
+| Input | SHA-256 |
+| --- | --- |
+| Unicode 17.0.0 `Unihan.zip` | `f7a48b2b545acfaa77b2d607ae28747404ce02baefee16396c5d2d7a8ef34b5e` |
+| `tgh-2013-level1.txt` preserved baseline | `4caca78057eb62257ed475e0a140b02a58c5907fd054613a93cfdec3a7df6320` |
+| `tgh-2013-level1-plus2.txt` | `825ecf0dbac8c66505fcee88e426b527a085d8936324ff4a9f9542b2f69b9a58` |
+
+Reproduce the combined list from the pinned archive with:
+
+```sh
+python3 tools/status_font_repertoire.py --extract-unihan /path/to/Unihan.zip
+```
+
+Normal font generation reads the checked-in list offline.
+
 ## Source assignment and preservation
 
 [`status-text-source-assignments.json`](status-text-source-assignments.json)
-assigns all 355 additions to pinned font assets without overlap. Existing
-glyphs remain on their original sources. Missing or unexpected output is an
-error rather than permission to shrink the profile. The two currency gaps use
-matching Montserrat Medium for Bitcoin and Noto Sans Medium for lari; see the
-[font source guide](../README.md).
+assigns all 3,355 additions to pinned font assets without overlap. It retains
+the previous 355 assignments and adds the 3,000 level-2 characters to Source
+Han Sans SC. Existing glyphs remain on their original sources. Missing or
+unexpected output is an error rather than permission to shrink the profile.
+The two currency gaps use matching Montserrat Medium for Bitcoin and Noto Sans
+Medium for lari; see the [font source guide](../README.md).
 
 ## Text-presentation fallback
 

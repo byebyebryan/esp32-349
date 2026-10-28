@@ -91,11 +91,13 @@ while someone can observe the panel:
 349ctl notify 'TEXT_PROFILE ── ₾ ₿' '┌──┬──┐ │ ══
 █ ▀ ▄ ▌ ▐ ░ ▒ ▓ ⣿ ⣷ ⣯ ⣟
 测试完成 → ✓ ⚠️'
+349ctl notify 'TGH levels 1+2' '嗯嗯，帧率阈值已检查。'
 notify-send 'TEXT_PROFILE styles' '<b>Bold █ ⣿ ₾ 测试</b> / <i>italic</i> / <b><i>both</i></b>'
 ```
 
-Confirm readable glyphs, separator/block joins, no extra box after the warning
-symbol, unclipped styled text, line wrapping and the ordinary swipe/× behavior.
+Confirm readable glyphs, including `嗯`, `帧` and `阈`, separator/block joins,
+no extra box after the warning symbol, unclipped styled text, line wrapping
+and the ordinary swipe/× behavior.
 Record the exact board serial, firmware identity, host revision and observed
 result. These synthetic notifications do not establish coverage for every
 character. Keep source/native evidence, deployed identities and physical

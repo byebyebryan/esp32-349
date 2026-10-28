@@ -152,7 +152,7 @@ def render(native: Native, output: Path) -> tuple[list[Image.Image], list[int]]:
     make_hero(still("notification")).save(output / "hero.png", optimize=True)
     hold("Readable text, with bold and italic support")
 
-    notify(2, "Notes", "任务完成", "代码检查已完成。\n现在可以查看更改。")
+    notify(2, "Notes", "任务完成", "代码检查已完成。\n嗯嗯，帧率阈值已检查。")
     settle("English and Simplified Chinese text")
     still("multilingual")
     hold("English and Simplified Chinese text")

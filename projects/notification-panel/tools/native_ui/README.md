@@ -44,9 +44,13 @@ The grouped fixture looks up every codepoint in the independent pinned
 notification text profile through all six production font faces, including
 styled fallback. Its build generates the required list from repertoire data,
 not from font output. Native and firmware both use
-`LV_FONT_FMT_TXT_LARGE=0`, so native checks exercise the same bitmap-offset
-limit and glyph descriptor format. `fonts-profile-*` captures cover terminal
-graphics, currencies/numbers and styled fallback at the actual UI sizes.
+`LV_FONT_FMT_TXT_LARGE=1`, so native checks exercise the same 32-bit bitmap
+offset and glyph descriptor format. The audit checks selected-format bounds,
+and a focused unit regression retains the compact 20-bit overflow boundary.
+`fonts-profile-*` captures cover terminal graphics, currencies/numbers and
+styled fallback at the actual UI sizes. `fonts-simplified-chinese` covers TGH
+level-2 samples, including a supplementary Han character, so LVGL's
+UTF-8 decoding path is exercised as well as direct codepoint lookup.
 
 CTest also runs serialized replay and an SDL dummy-driver smoke. If uv is
 unavailable, `host_composed`, `host_actions_composed`, `host_history_composed`,

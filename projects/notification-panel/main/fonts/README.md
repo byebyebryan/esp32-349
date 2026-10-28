@@ -10,11 +10,11 @@ punctuation glyphs selected below and each falls back to `status_text_16` for
 CJK and the remaining symbols. All generated fonts use 4 bpp without
 compression or kerning.
 
-Each regular composite text font contains **5,327 glyphs**: the independently
+Each regular composite text font contains **8,327 glyphs**: the independently
 pinned notification profile plus preserved legacy extras. The profile covers
 the encoded Google Fonts Latin Core/Plus lists, CLDR 49 English and Simplified
 Chinese punctuation/numbers, full Unicode Box Drawing, Block Elements and
-Braille Patterns, and the existing 3,500 first-level characters of the 2013
+Braille Patterns, and the first 6,500 characters (levels 1+2) of the 2013
 通用规范汉字表. The [repertoire guide](repertoires/README.md) records the exact
 sets, source versions, extraction, licenses and hashes.
 
@@ -38,45 +38,56 @@ title/body fonts.
 This is character coverage, not full Google Fonts/OpenType shaping conformance.
 Host projection retains its NFC and Latin accent-simplification policy. Supported
 Unicode 17.0 FE0E/FE0F pairs use monochrome base symbols, such as `⚠️ → ⚠`.
-Emoji sequences, kana and additional Han characters (including `帧` and `阈`)
-remain outside the declared coverage; unsupported glyphs use LVGL placeholders.
+Emoji sequences, kana and Han characters outside the pinned TGH and locale
+sets remain outside the declared coverage; unsupported glyphs use LVGL
+placeholders.
 
-The checked-in [Chinese character list](repertoires/tgh-2013-level1.txt) is
-extracted from Unicode 17.0.0 [Unihan.zip](https://www.unicode.org/Public/17.0.0/ucd/Unihan.zip)
-using the [`kTGH` property](https://www.unicode.org/reports/tr38/tr38-40.html#kTGH):
-select `2013:1` through `2013:3500`, sort by table index, and write 100 characters
-per UTF-8 line with a final newline. `kTGHZ2013` contains dictionary readings
-and is not the table membership property. Regeneration uses the local list and
-does not download Unihan. The relevant SHA-256 values are:
+The preserved [level-1 list](repertoires/tgh-2013-level1.txt) contains Unicode
+17.0.0 Unihan [`kTGH`](https://www.unicode.org/reports/tr38/tr38-39.html#kTGH)
+indexes `2013:1`–`2013:3500`. The [expanded list](repertoires/tgh-2013-level1-plus2.txt)
+contains indexes `2013:1`–`2013:6500`; the extractor checks the pinned archive
+hash, requires every index once, sorts by index, and verifies that its first
+3,500 characters match the preserved list. Both files use 100 UTF-8 characters
+per line and a final newline. `kTGHZ2013` contains dictionary readings, not
+table membership. Normal font regeneration uses the checked-in list offline.
+The relevant SHA-256 values are:
 
 - Unicode 17.0.0 archive: `f7a48b2b545acfaa77b2d607ae28747404ce02baefee16396c5d2d7a8ef34b5e`
-- Extracted list: `4caca78057eb62257ed475e0a140b02a58c5907fd054613a93cfdec3a7df6320`
+- Preserved level-1 list: `4caca78057eb62257ed475e0a140b02a58c5907fd054613a93cfdec3a7df6320`
+- Expanded levels-1+2 list: `825ecf0dbac8c66505fcee88e426b527a085d8936324ff4a9f9542b2f69b9a58`
 
-The list is covered by [Unicode License V3](licenses/Unicode-LICENSE.txt).
+Both lists are covered by [Unicode License V3](licenses/Unicode-LICENSE.txt).
 
 The generated text fonts have these measured metrics:
 
-| Font | Line height | Baseline | Bitmap data | C source |
-| --- | ---: | ---: | ---: | ---: |
-| `status_text_16` | 22 px | 5 px | 527,254 B | 3,867,286 B |
-| `status_text_20` | 26 px | 6 px | 812,930 B | 5,582,538 B |
-| `status_text_22` | 28 px | 6 px | 985,387 B | 6,608,325 B |
-| `status_clock_80` | 58 px | 1 px | 12,486 B | 78,566 B |
+| Font | Line height | Baseline | Bitmap data | C source | Compiled const |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `status_text_16` | 22 px | 5 px | 885,114 B | 6,427,800 B | 1,032,215 B |
+| `status_text_20` | 26 px | 6 px | 1,369,538 B | 9,347,839 B | 1,516,639 B |
+| `status_text_22` | 28 px | 6 px | 1,663,471 B | 11,099,258 B | 1,810,572 B |
+| `status_clock_80` | 58 px | 1 px | 12,486 B | 78,566 B | 12,792 B |
+
+Compiled const values use the fresh-default candidate build described below.
 
 Including glyph descriptors and cmaps, the three regular notification fonts
-occupy 577,950 B, 863,626 B and 1,036,083 B of compiled ESP32-S3 flash data,
-respectively. All linked fonts, including body styles, clock and legacy UI
-fonts, contain 3,230,033 B (3.08 MiB) of const flash data, plus 48 B of initialized
-RAM descriptors in the legacy CJK fonts. The firmware built with this
-repertoire is 3,949,904 B (3.77 MiB), leaving 4.23 MiB in the current 8 MiB app partition.
-Compared with the preceding box-drawing-only build, the firmware grows by
-88,272 B (86.2 KiB). The bitmap and lookup tables are const flash data; their growth does not
-allocate an equivalent amount of heap RAM.
+occupy 1,032,215 B, 1,516,639 B and 1,810,572 B of compiled ESP32-S3 const
+flash data, respectively. All linked fonts, including body styles, clock and
+legacy UI fonts, contain 5,168,864 B of const flash data, plus 48 B of
+initialized RAM descriptors in the legacy CJK fonts. The bitmap and lookup
+tables are const flash data; their growth does not allocate an equivalent
+amount of heap RAM.
+
+A fresh-default firmware candidate built from base revision `a3a9127` with
+`LV_FONT_FMT_TXT_LARGE=1` measured 5,888,784 B, leaving 2,499,824 B in the
+8 MiB app partition. That is 1,938,880 B larger than the previous recorded
+5,327-glyph candidate. This is a local build measurement; it has not been
+deployed to a board.
 
 The three 16 px body styles each contain 373 Montserrat glyphs, with
 `line_height=22` and `base_line=5` to match `status_text_16`. Their bitmap data
 is 22,669 B (bold), 23,547 B (italic), and 25,406 B (bold italic). Their C
-sources are 186,377 B, 188,253 B, and 201,920 B, respectively. The generated
+sources are 186,377 B, 188,253 B, and 201,920 B; compiled const data are
+28,919 B, 29,797 B, and 31,656 B, respectively. The generated
 ink bounds are `[-5,+16]` vertically, within the 22/5 line metrics. Horizontal
 ink overhang relative to rounded glyph advances reaches 4/4 px (bold), 4/5 px
 (italic), and 5/5 px (bold italic) left/right; the maximum is U+2044 FRACTION
@@ -124,10 +135,17 @@ derivation and OFL notice. Neither added source replaces an existing glyph.
 Sans and FontAwesome license texts; the pinned Montserrat style license is alongside its source
 assets. The font generator verifies the pinned input hashes, profile lists and source
 assignment map, preserves legacy glyph coverage, and rejects missing or extra
-output. It locks line heights/baselines and checks the compact firmware font
-format's 20-bit bitmap offsets. Normal generation runs `lv_font_conv` 1.5.3
+output. It locks line heights/baselines and checks bitmap offsets against the
+selected large firmware/native format's 32-bit descriptor limit. Normal
+generation runs `lv_font_conv` 1.5.3
 with npm's `--offline` option. Install/cache that tool once with network access
 before regenerating on a new machine:
+
+The 20/22 px fonts exceed the compact format's 20-bit bitmap offset. Fresh
+firmware defaults and native tests select `LV_FONT_FMT_TXT_LARGE=1` and
+`CONFIG_LV_FONT_FMT_TXT_LARGE=y`. An existing cached `sdkconfig` may retain the
+old compact setting; update it to `CONFIG_LV_FONT_FMT_TXT_LARGE=y` before
+building. Firmware has a compile-time guard for this setting.
 
 ```sh
 npm exec --yes --package=lv_font_conv@1.5.3 -- lv_font_conv --help
@@ -142,12 +160,12 @@ python tools/generate_text_presentation.py
 python tools/check_font_coverage.py
 ```
 
-The coverage audit checks the legacy chains, exact 5,327-glyph regular
+The coverage audit checks the legacy chains, exact 8,327-glyph regular
 selection, independent required groups, source hashes, styled fallback,
 matching metrics and ink bounds. It also checks the generated host
 text-presentation table. The native fixture looks up every required profile
 character through all six real LVGL font faces and renders terminal graphics,
 numbers, mixed Chinese/English and styled specimens. Native and firmware use
-the same compact font descriptor format. Automated coverage and ink bounds do
+the same large font descriptor format. Automated coverage and ink bounds do
 not establish shaping or physical legibility; see the
 [physical text checklist](../../docs/testing.md#notification-text-profile-acceptance).

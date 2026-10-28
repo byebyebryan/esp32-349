@@ -8,6 +8,8 @@ import json
 import re
 import sys
 import xml.etree.ElementTree as ET
+import zipfile
+from io import BytesIO
 from pathlib import Path
 
 
@@ -15,6 +17,13 @@ PROJECT = Path(__file__).resolve().parents[1]
 REPERTOIRES = PROJECT / "main/fonts/repertoires"
 CHINESE_TABLE = REPERTOIRES / "tgh-2013-level1.txt"
 CHINESE_TABLE_SHA256 = "4caca78057eb62257ed475e0a140b02a58c5907fd054613a93cfdec3a7df6320"
+CHINESE_TABLE_LEVEL_1_2 = REPERTOIRES / "tgh-2013-level1-plus2.txt"
+CHINESE_TABLE_LEVEL_1_2_SHA256 = "825ecf0dbac8c66505fcee88e426b527a085d8936324ff4a9f9542b2f69b9a58"
+UNIHAN_ARCHIVE_SHA256 = "f7a48b2b545acfaa77b2d607ae28747404ce02baefee16396c5d2d7a8ef34b5e"
+UNIHAN_TGH_MEMBER = "Unihan_OtherMappings.txt"
+CHINESE_LEVEL_1_COUNT = 3500
+CHINESE_LEVEL_2_COUNT = 3000
+CHINESE_PROFILE_COUNT = CHINESE_LEVEL_1_COUNT + CHINESE_LEVEL_2_COUNT
 
 GF_INPUTS = {
     "GF Latin Core": (
@@ -61,12 +70,28 @@ CLDR_SOURCE_HASHES = {
 }
 
 SOURCE_ASSIGNMENTS = REPERTOIRES / "status-text-source-assignments.json"
-SOURCE_ASSIGNMENTS_SHA256 = "cef83fb39d3810a5b623a0354663ffbf5bd22ff7484577defdde940eacff2070"
+SOURCE_ASSIGNMENTS_SHA256 = "df595309b56631efb677f85e05c8258b8513f3d76ef4f0d367898adb2b8e4c6a"
 
 CHINESE_PUNCTUATION = {ord(char) for char in "　、。，！？：；（）【】《》〈〉「」『』"}
 BOX_DRAWING = set(range(0x2500, 0x2580))
 BLOCK_ELEMENTS = set(range(0x2580, 0x25A0))
 BRAILLE_PATTERNS = set(range(0x2800, 0x2900))
+CJK_IDEOGRAPH_RANGES = (
+    (0x3400, 0x4DBF),    # Extension A
+    (0x4E00, 0x9FFF),    # Unified Ideographs
+    (0x20000, 0x2A6DF),  # Extension B
+    (0x2A700, 0x2B73F),  # Extension C
+    (0x2B740, 0x2B81F),  # Extension D
+    (0x2B820, 0x2CEAF),  # Extension E
+    (0x2CEB0, 0x2EBEF),  # Extension F
+    (0x2EBF0, 0x2EE5F),  # Extension I
+    (0x30000, 0x3134F),  # Extension G
+    (0x31350, 0x323AF),  # Extension H
+)
+
+
+def _is_cjk_ideograph(codepoint: int) -> bool:
+    return any(start <= codepoint <= end for start, end in CJK_IDEOGRAPH_RANGES)
 
 
 def _verify_hash(data: bytes, expected: str, description: str) -> None:
@@ -250,17 +275,132 @@ def extract_cldr_repertoires(common: Path, output: Path) -> dict[str, set[int]]:
     return extracted
 
 
-def simplified_chinese() -> set[int]:
-    """Read the first 3,500 kTGH 2013 entries extracted from Unicode 17.0.0."""
-    data = CHINESE_TABLE.read_bytes()
-    _verify_hash(data, CHINESE_TABLE_SHA256, "Chinese repertoire")
+def _read_chinese_table(
+    path: Path, expected_hash: str, expected_count: int, description: str
+) -> list[int]:
+    data = path.read_bytes()
+    _verify_hash(data, expected_hash, description)
     characters = "".join(data.decode("utf-8").split())
-    codepoints = set(map(ord, characters))
-    if len(characters) != 3500 or len(codepoints) != 3500:
-        raise ValueError("Chinese repertoire must contain exactly 3,500 distinct characters")
-    if any(not 0x4E00 <= codepoint <= 0x9FFF for codepoint in codepoints):
-        raise ValueError("Chinese repertoire contains a character outside the Han block")
+    codepoints = list(map(ord, characters))
+    if len(codepoints) != expected_count or len(set(codepoints)) != expected_count:
+        raise ValueError(
+            f"{description} must contain exactly {expected_count} distinct characters"
+        )
+    if any(not _is_cjk_ideograph(codepoint) for codepoint in codepoints):
+        raise ValueError(f"{description} contains a character outside CJK Unified Ideographs")
     return codepoints
+
+
+def simplified_chinese() -> set[int]:
+    """Read the preserved first 3,500 kTGH 2013 entries from Unicode 17.0.0."""
+    return set(
+        _read_chinese_table(
+            CHINESE_TABLE, CHINESE_TABLE_SHA256, CHINESE_LEVEL_1_COUNT,
+            "TGH 2013 level 1 repertoire",
+        )
+    )
+
+
+def simplified_chinese_level_1_2() -> set[int]:
+    """Read Unicode 17.0.0 kTGH 2013 table indexes 1 through 6,500."""
+    points = _read_chinese_table(
+        CHINESE_TABLE_LEVEL_1_2,
+        CHINESE_TABLE_LEVEL_1_2_SHA256,
+        CHINESE_PROFILE_COUNT,
+        "TGH 2013 levels 1+2 repertoire",
+    )
+    if points[:CHINESE_LEVEL_1_COUNT] != _read_chinese_table(
+        CHINESE_TABLE, CHINESE_TABLE_SHA256, CHINESE_LEVEL_1_COUNT,
+        "TGH 2013 level 1 repertoire",
+    ):
+        raise ValueError("TGH 2013 levels 1+2 do not preserve level 1 table order")
+    return set(points)
+
+
+def tgh_2013_level_2() -> set[int]:
+    """Return the 3,000 kTGH 2013 entries after level 1."""
+    all_levels = simplified_chinese_level_1_2()
+    return all_levels - simplified_chinese()
+
+
+def _format_tgh_table(codepoints: list[int]) -> bytes:
+    characters = "".join(map(chr, codepoints))
+    return (
+        "\n".join(
+            characters[start:start + 100]
+            for start in range(0, len(characters), 100)
+        )
+        + "\n"
+    ).encode("utf-8")
+
+
+def extract_unihan_tgh_levels_1_2(archive: Path, output: Path) -> list[int]:
+    """Extract and verify kTGH 2013 indexes 1-6,500 from pinned Unicode 17.0.0."""
+    archive_data = archive.read_bytes()
+    _verify_hash(archive_data, UNIHAN_ARCHIVE_SHA256, "Unicode 17.0.0 Unihan archive")
+    try:
+        with zipfile.ZipFile(BytesIO(archive_data)) as source:
+            if source.namelist().count(UNIHAN_TGH_MEMBER) != 1:
+                raise ValueError(f"Unihan archive must contain one {UNIHAN_TGH_MEMBER}")
+            data = source.read(UNIHAN_TGH_MEMBER)
+    except zipfile.BadZipFile as error:
+        raise ValueError("pinned Unihan archive is not a valid ZIP file") from error
+
+    try:
+        rows = data.decode("utf-8").splitlines()
+    except UnicodeDecodeError as error:
+        raise ValueError("Unihan kTGH table must be UTF-8") from error
+
+    by_index: dict[int, int] = {}
+    codepoint_indexes: dict[int, int] = {}
+    for line in rows:
+        fields = line.split("\t")
+        if line.startswith("#") or len(fields) < 2 or fields[1] != "kTGH":
+            continue
+        if len(fields) != 3:
+            raise ValueError(f"invalid kTGH row in {UNIHAN_TGH_MEMBER}: {line!r}")
+        codepoint_match = re.fullmatch(r"U\+([0-9A-Fa-f]{4,6})", fields[0])
+        index_match = re.fullmatch(r"2013:([0-9]+)", fields[2])
+        if codepoint_match is None or index_match is None:
+            raise ValueError(f"invalid kTGH 2013 entry: {line!r}")
+        codepoint = int(codepoint_match.group(1), 16)
+        table_index = int(index_match.group(1))
+        if codepoint > 0x10FFFF or 0xD800 <= codepoint <= 0xDFFF:
+            raise ValueError(f"invalid Unicode scalar in kTGH entry: {line!r}")
+        if not 1 <= table_index <= CHINESE_PROFILE_COUNT:
+            continue
+        if not _is_cjk_ideograph(codepoint):
+            raise ValueError(
+                f"kTGH 2013 index {table_index} is outside CJK Unified Ideographs"
+            )
+        if table_index in by_index:
+            raise ValueError(f"duplicate kTGH 2013 table index: {table_index}")
+        if codepoint in codepoint_indexes:
+            raise ValueError(f"duplicate kTGH 2013 codepoint: U+{codepoint:04X}")
+        by_index[table_index] = codepoint
+        codepoint_indexes[codepoint] = table_index
+
+    expected_indexes = set(range(1, CHINESE_PROFILE_COUNT + 1))
+    if set(by_index) != expected_indexes:
+        missing = sorted(expected_indexes - set(by_index))
+        unexpected = sorted(set(by_index) - expected_indexes)
+        raise ValueError(
+            "kTGH 2013 table indexes 1-6,500 are incomplete: "
+            f"{len(missing)} missing, {len(unexpected)} unexpected"
+        )
+    points = [by_index[index] for index in range(1, CHINESE_PROFILE_COUNT + 1)]
+    baseline = _read_chinese_table(
+        CHINESE_TABLE, CHINESE_TABLE_SHA256, CHINESE_LEVEL_1_COUNT,
+        "TGH 2013 level 1 repertoire",
+    )
+    if points[:CHINESE_LEVEL_1_COUNT] != baseline:
+        raise ValueError("pinned Unihan kTGH ordering differs from the preserved level 1 list")
+
+    output_data = _format_tgh_table(points)
+    _verify_hash(output_data, CHINESE_TABLE_LEVEL_1_2_SHA256, "TGH 2013 levels 1+2 list")
+    output.mkdir(parents=True, exist_ok=True)
+    (output / CHINESE_TABLE_LEVEL_1_2.name).write_bytes(output_data)
+    return points
 
 
 def profile_groups() -> dict[str, set[int]]:
@@ -278,6 +418,7 @@ def profile_groups() -> dict[str, set[int]]:
     groups.update(
         {
             "TGH 2013 level 1": simplified_chinese(),
+            "TGH 2013 level 2": tgh_2013_level_2(),
             "Box Drawing": set(BOX_DRAWING),
             "Block Elements": set(BLOCK_ELEMENTS),
             "Braille Patterns": set(BRAILLE_PATTERNS),
@@ -304,9 +445,9 @@ def status_text_source_assignments() -> dict[str, set[int]]:
     if manifest.get("schema") != 1:
         raise ValueError("unsupported status text source-assignment schema")
     expected = {
-        "profile_codepoints": 4365,
+        "profile_codepoints": 7365,
         "preserved_current_codepoints": 4972,
-        "added_codepoints": 355,
+        "added_codepoints": 3355,
     }
     for key, value in expected.items():
         if manifest.get(key) != value:
@@ -338,8 +479,8 @@ def status_text_source_assignments() -> dict[str, set[int]]:
     }
     if set(assignments) != expected_names:
         raise ValueError("status text source assignment names differ from the pinned source set")
-    if len(all_codepoints) != 355 or len(set(all_codepoints)) != 355:
-        raise ValueError("status text source assignments must cover 355 unique additions")
+    if len(all_codepoints) != 3355 or len(set(all_codepoints)) != 3355:
+        raise ValueError("status text source assignments must cover 3,355 unique additions")
     assignment_hash = hashlib.sha256(
         "".join(f"{codepoint:06X}\n" for codepoint in sorted(all_codepoints)).encode()
     ).hexdigest()
@@ -357,19 +498,33 @@ def main() -> int:
         help="regenerate the pinned CLDR lists from a CLDR 49 common/ directory",
     )
     parser.add_argument(
+        "--extract-unihan",
+        type=Path,
+        metavar="UNIHAN_ZIP",
+        help="regenerate the pinned TGH 2013 levels 1+2 list from Unicode 17.0.0 Unihan.zip",
+    )
+    parser.add_argument(
         "--output",
         type=Path,
         default=REPERTOIRES,
-        help="output directory for --extract-cldr (default: pinned repertoire directory)",
+        help="output directory for source extraction (default: pinned repertoire directory)",
     )
     args = parser.parse_args()
-    if args.extract_cldr is None:
-        parser.error("--extract-cldr is required")
+    if (args.extract_cldr is None) == (args.extract_unihan is None):
+        parser.error("select exactly one of --extract-cldr or --extract-unihan")
     try:
-        extract_cldr_repertoires(args.extract_cldr, args.output)
+        if args.extract_cldr is not None:
+            extract_cldr_repertoires(args.extract_cldr, args.output)
+            print("Pinned CLDR 49 en/zh-Hans punctuation and numbers lists: current")
+        else:
+            points = extract_unihan_tgh_levels_1_2(args.extract_unihan, args.output)
+            print(
+                f"Pinned Unicode 17.0.0 kTGH 2013 indexes 1-6,500: "
+                f"{len(points)} ordered unique Han characters"
+            )
     except (OSError, ET.ParseError, ValueError) as error:
-        parser.exit(1, f"CLDR extraction failed: {error}\n")
-    print("Pinned CLDR 49 en/zh-Hans punctuation and numbers lists: current")
+        label = "CLDR" if args.extract_cldr is not None else "Unihan"
+        parser.exit(1, f"{label} extraction failed: {error}\n")
     return 0
 
 

@@ -15,7 +15,9 @@ from status_font_repertoire import (
     CHINESE_PUNCTUATION,
     notification_profile,
     simplified_chinese,
+    simplified_chinese_level_1_2,
     status_text_source_assignments,
+    tgh_2013_level_2,
 )
 
 
@@ -72,6 +74,8 @@ ASCII = set(range(0x20, 0x80))
 PRIVATE_USE = range(0xE000, 0xF900)
 TEXT_METRICS = {16: (22, 5), 20: (26, 6), 22: (28, 6)}
 MAX_SMALL_BITMAP_OFFSET = (1 << 20) - 1
+MAX_LARGE_BITMAP_OFFSET = (1 << 32) - 1
+LV_FONT_FMT_TXT_LARGE = True
 CLOCK_GLYPHS = {ord(char) for char in "0123456789:-"}
 
 
@@ -118,8 +122,24 @@ def verify_sources() -> None:
                 f"  expected SHA-256 {expected}\n"
                 f"  found    SHA-256 {actual}"
             )
+    verify_font_format_configuration()
     notification_profile()
     status_text_source_assignments()
+
+
+def verify_font_format_configuration() -> None:
+    defaults = (PROJECT / "sdkconfig.defaults").read_text()
+    native_config = (PROJECT / "tools/native_ui/lv_conf.h").read_text()
+    firmware_enabled = re.findall(
+        r"(?m)^CONFIG_LV_FONT_FMT_TXT_LARGE=(y|n)$", defaults
+    )
+    native_enabled = re.findall(r"(?m)^#define LV_FONT_FMT_TXT_LARGE ([01])$", native_config)
+    if firmware_enabled != ["y"]:
+        raise SystemExit(
+            "sdkconfig.defaults must select CONFIG_LV_FONT_FMT_TXT_LARGE=y"
+        )
+    if native_enabled != ["1"]:
+        raise SystemExit("native_ui/lv_conf.h must select LV_FONT_FMT_TXT_LARGE=1")
 
 
 def validate_source_assignment_partition(
@@ -157,11 +177,16 @@ def validate_generated_profile(
         )
 
 
-def validate_bitmap_offset(name: str, bitmap_offset: int) -> None:
-    if bitmap_offset > MAX_SMALL_BITMAP_OFFSET:
+def validate_bitmap_offset(
+    name: str, bitmap_offset: int, *, large: bool = LV_FONT_FMT_TXT_LARGE
+) -> None:
+    limit = MAX_LARGE_BITMAP_OFFSET if large else MAX_SMALL_BITMAP_OFFSET
+    if bitmap_offset < 0 or bitmap_offset > limit:
+        selected = 1 if large else 0
         raise SystemExit(
-            f"{name} bitmap offset {bitmap_offset:,} exceeds the 20-bit limit "
-            f"{MAX_SMALL_BITMAP_OFFSET:,} with LV_FONT_FMT_TXT_LARGE=0"
+            f"{name} bitmap offset {bitmap_offset:,} exceeds the "
+            f"{32 if large else 20}-bit limit {limit:,} "
+            f"with LV_FONT_FMT_TXT_LARGE={selected}"
         )
 
 
@@ -406,41 +431,52 @@ def main() -> int:
 
     cjk_reference = glyphs(PROJECT / SOURCE_CJK)
     old_cjk = cjk_reference - ASCII - set(PRIVATE_USE)
-    chinese = simplified_chinese()
+    chinese_level_1 = simplified_chinese()
+    chinese = simplified_chinese_level_1_2()
+    preserved_han_codepoints = chinese_level_1 | CHINESE_PUNCTUATION
     han_codepoints = chinese | CHINESE_PUNCTUATION
     fontawesome_codepoints = cjk_reference.intersection(PRIVATE_USE)
     if not old_cjk or not fontawesome_codepoints:
         raise SystemExit("Source Han CJK reference no longer has the expected repertoire")
 
-    preserved_repertoire = (legacy_repertoire() - old_cjk) | han_codepoints | BOX_DRAWING
+    preserved_repertoire = (
+        (legacy_repertoire() - old_cjk) | preserved_han_codepoints | BOX_DRAWING
+    )
     if len(preserved_repertoire) != 4_972:
         raise SystemExit(
             "the preserved legacy composite repertoire changed: "
             f"expected 4972 glyphs, found {len(preserved_repertoire)}"
         )
     current_profile = notification_profile()
-    if len(current_profile) != 4_365:
+    if len(current_profile) != 7_365:
         raise SystemExit(
             "the pinned notification profile changed: "
-            f"expected 4365 codepoints, found {len(current_profile)}"
+            f"expected 7365 codepoints, found {len(current_profile)}"
         )
     assignments = status_text_source_assignments()
     additions = validate_source_assignment_partition(
         current_profile, preserved_repertoire, assignments
     )
     expected_repertoire = preserved_repertoire | current_profile
-    if len(expected_repertoire) != 5_327:
+    previous_profile = current_profile - tgh_2013_level_2()
+    previous_expected_repertoire = preserved_repertoire | previous_profile
+    if len(expected_repertoire) != 8_327:
         raise SystemExit(
             "the combined notification repertoire changed: "
-            f"expected 5327 glyphs, found {len(expected_repertoire)}"
+            f"expected 8327 glyphs, found {len(expected_repertoire)}"
         )
     for size, expected_metrics in TEXT_METRICS.items():
         path = PROJECT / f"main/fonts/status_text_{size}.c"
         current_glyphs = glyphs(path)
-        if current_glyphs not in (preserved_repertoire, expected_repertoire):
+        if current_glyphs not in (
+            preserved_repertoire,
+            previous_expected_repertoire,
+            expected_repertoire,
+        ):
             raise SystemExit(
-                f"{path.name} is neither the original 4972-glyph font nor the "
-                f"expected {len(expected_repertoire)}-glyph profile"
+                f"{path.name} is neither the preserved 4972-glyph font, the previous "
+                f"{len(previous_expected_repertoire)}-glyph profile, nor the expected "
+                f"{len(expected_repertoire)}-glyph profile"
             )
         actual_metrics = font_dimensions(path.read_text())
         if actual_metrics != expected_metrics:
@@ -450,7 +486,8 @@ def main() -> int:
             )
 
     print(
-        f"Source selection: {len(chinese)} TGH characters, "
+        f"Source selection: {len(chinese_level_1)} TGH level-1 + "
+        f"{len(chinese) - len(chinese_level_1)} level-2 characters, "
         f"{len(current_profile)} pinned profile codepoints, "
         f"{len(additions)} additions, {len(preserved_repertoire)} preserved legacy glyphs; "
         f"composite repertoire {len(expected_repertoire)} glyphs"
@@ -461,10 +498,15 @@ def main() -> int:
         name = f"status_text_{size}"
         output = PROJECT / f"main/fonts/{name}.c"
         current_glyphs = glyphs(output)
-        if current_glyphs not in (preserved_repertoire, expected_repertoire):
+        if current_glyphs not in (
+            preserved_repertoire,
+            previous_expected_repertoire,
+            expected_repertoire,
+        ):
             raise SystemExit(
-                f"{name} is neither the original 4972-glyph font nor the "
-                f"expected {len(expected_repertoire)}-glyph profile"
+                f"{name} is neither the preserved 4972-glyph font, the previous "
+                f"{len(previous_expected_repertoire)}-glyph profile, nor the expected "
+                f"{len(expected_repertoire)}-glyph profile"
             )
         source_ranges = [
             (

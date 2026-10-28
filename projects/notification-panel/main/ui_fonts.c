@@ -1,5 +1,9 @@
 #include "ui_fonts.h"
 
+_Static_assert(LV_FONT_FMT_TXT_LARGE == 1,
+               "notification fonts require CONFIG_LV_FONT_FMT_TXT_LARGE=y; "
+               "update the cached sdkconfig or build from sdkconfig.defaults");
+
 #if !LV_FONT_SOURCE_HAN_SANS_SC_14_CJK || !LV_FONT_SOURCE_HAN_SANS_SC_16_CJK
 #error "349-status requires the Source Han 14/16 CJK fallback fonts"
 #endif

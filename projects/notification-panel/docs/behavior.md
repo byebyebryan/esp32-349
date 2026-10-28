@@ -51,8 +51,8 @@ V1 uses Montserrat with a bundled Source Han Sans CJK fallback and a generated
 punctuation/symbol subset for bar text. Small app-name/age labels and rail
 metadata retain the legacy font. The generated notification title/body fonts cover
 the encoded Google Fonts Latin Core/Plus lists, English/Simplified Chinese
-locale punctuation and numbers, and the 3,500 common Simplified Chinese
-characters in the first level of the 2013 通用规范汉字表. Existing Latin and
+locale punctuation and numbers, and the 6,500 common Simplified Chinese
+characters in levels 1 and 2 of the 2013 通用规范汉字表. Existing Latin and
 symbol coverage includes typographic quotes (including `’`), arrows, math
 signs, shapes, and dingbats;
 see [font sources and licenses](../main/fonts/README.md). Latin accents become
@@ -62,7 +62,7 @@ Elements (U+2580–U+259F) and Braille Patterns (U+2800–U+28FF), so `──`, 
 block bars and Braille spinner frames have real glyphs. Glyphs outside the font set
 show a visible placeholder. The
 [font coverage audit](../tools/check_font_coverage.py) checks the selected repertoire.
-Kana, additional Han characters (including `帧` and `阈`), Nerd Font Private
+Kana, Han characters outside the pinned TGH and locale sets, Nerd Font Private
 Use icons and emoji sequences are outside the declared coverage. This is a
 character-coverage profile, not full Google Fonts/OpenType shaping conformance.
 

@@ -116,3 +116,41 @@ Native rendering was inspected, but no board was flashed and no live host
 service changed for this candidate. The
 [physical text checklist](docs/testing.md#notification-text-profile-acceptance)
 remains a deployment acceptance gate.
+
+## 2026-10-27 expanded Chinese text profile candidate
+
+Local source qualification based on `a3a9127` expands Chinese coverage to the
+first two levels of the 2013 通用规范汉字表: 6,500 characters, including `嗯`,
+`帧` and `阈`. The independently pinned profile requires 7,365 codepoints;
+each regular notification title/body font contains 8,327 glyphs with legacy
+extras. Pixel sizes and line metrics remain unchanged. Small app-name/age
+labels and rail metadata retain their legacy fonts.
+
+Qualification passed:
+
+- 474 host/tooling tests on each of Python 3.11 and 3.14 from a source copy
+  without managed SDK assets; three live-desktop tests skipped in each run,
+  with private-broker regressions required.
+- 19/19 native CTests in both Debug and Release, including all required
+  characters through six real font faces. The native Chinese specimen covers
+  `嗯嗯`, `帧率`, `阈值` and supplementary character `𠳐`.
+- All 5,327 preceding glyph records in each regular font preserve bitmap
+  bytes, advances and bounds; all 373 records in each body style are unchanged.
+- Pinned Unihan extraction, byte-identical offline font regeneration,
+  font/source/profile and ink-bounds audits,
+  firmware/native large-format alignment, shared framebuffer and desktop
+  provider checks. Compact font configuration fails compilation explicitly.
+- Gallery regeneration matches Debug/Release bytes; the Chinese image and
+  animation now show level-2 characters. Other gallery images remain identical.
+- A fresh-default ESP-IDF 5.5.3 build with `LV_FONT_FMT_TXT_LARGE=1` produces
+  5,888,784 B, leaving 2,499,824 B in the 8 MiB app partition. Linked font
+  const data occupy 5,168,864 B; legacy initialized font descriptors remain
+  48 B. The app grows by 1,938,880 B from the preceding text-profile build.
+
+The local candidate application SHA-256 is
+`28666268f16181a1ac7ca88b7f8778f55fb26b9eba74c031435660b49e519f2c`;
+the matching ELF SHA-256 is
+`351acff3c0018219a009929895a598a4f4f4ce1767407bce7ea9db2aa235d93b`.
+Native rendering was inspected. No board was flashed and no live host service
+changed for this candidate; physical text/touch acceptance remains pending
+after an authorized deployment.

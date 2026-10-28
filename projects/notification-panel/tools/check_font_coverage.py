@@ -9,7 +9,11 @@ import unicodedata
 from pathlib import Path
 
 from generate_text_presentation import OUTPUT as TEXT_PRESENTATION_OUTPUT, generated_source
-from generate_status_fonts import TEXT_METRICS as GENERATED_TEXT_METRICS, verify_sources
+from generate_status_fonts import (
+    MAX_LARGE_BITMAP_OFFSET,
+    TEXT_METRICS as GENERATED_TEXT_METRICS,
+    verify_sources,
+)
 from status_font_repertoire import (
     BLOCK_ELEMENTS,
     BOX_DRAWING,
@@ -18,7 +22,9 @@ from status_font_repertoire import (
     notification_profile,
     profile_groups,
     simplified_chinese,
+    simplified_chinese_level_1_2,
     status_text_source_assignments,
+    tgh_2013_level_2,
 )
 
 
@@ -123,13 +129,12 @@ NOTIFICATION_SAMPLES = {
     },
     "Simplified Chinese notification": {
         ord(char)
-        for char in "测试完成，代码已修改。编译错误已修复！任务通知：等待确认，连接网络失败。"
+        for char in "测试完成，代码已修改。编译错误已修复！任务通知：等待确认，连接网络失败。嗯嗯，帧率阈值已检查。"
     },
     "box-drawing notification": {ord(char) for char in "── │ ┌─┬─┐ └─┴─┘ ══ ╭─╮"},
 }
 CLOCK_GLYPHS = {ord(char) for char in "0123456789:-"}
 TEXT_METRICS = GENERATED_TEXT_METRICS
-MAX_SMALL_BITMAP_OFFSET = (1 << 20) - 1
 # Styles retain U+2144 as a legacy extra; regular notification fonts lack it.
 STYLED_LEGACY_EXTRAS = {0x2144}
 NEW_GLYPH_Y_BOUNDS = {
@@ -181,9 +186,10 @@ def main() -> int:
     old_union = legacy[14] | legacy[16]
     cjk_reference = glyphs(LVGL_FONTS / "lv_font_source_han_sans_sc_16_cjk.c")
     old_cjk = cjk_reference - set(range(0x20, 0x80)) - set(range(0xE000, 0xF900))
-    chinese = simplified_chinese()
+    chinese_level_1 = simplified_chinese()
+    chinese = simplified_chinese_level_1_2()
     preserved_legacy = (
-        (old_union - old_cjk) | chinese | CHINESE_PUNCTUATION | BOX_DRAWING
+        (old_union - old_cjk) | chinese_level_1 | CHINESE_PUNCTUATION | BOX_DRAWING
     )
     required_profile = notification_profile()
     expected = preserved_legacy | required_profile
@@ -193,32 +199,37 @@ def main() -> int:
         for codepoint in source_codepoints
     ]
     exact_assignments = set(assigned_codepoints) == required_profile - preserved_legacy
-    if len(assigned_codepoints) != 355 or len(set(assigned_codepoints)) != 355 or not exact_assignments:
+    if len(assigned_codepoints) != 3355 or len(set(assigned_codepoints)) != 3355 or not exact_assignments:
         failed = True
-        print("Font source assignments must partition exactly the 355 new profile codepoints")
-    if len(preserved_legacy) != 4972 or len(required_profile) != 4365 or len(expected) != 5327:
+        print("Font source assignments must partition exactly the 3,355 new profile codepoints")
+    if len(preserved_legacy) != 4972 or len(required_profile) != 7365 or len(expected) != 8327:
         failed = True
         print(
-            "Profile cardinalities changed: expected 4972 preserved, 4365 required, "
-            f"and 5327 combined; found {len(preserved_legacy)}, {len(required_profile)}, "
+            "Profile cardinalities changed: expected 4972 preserved, 7365 required, "
+            f"and 8327 combined; found {len(preserved_legacy)}, {len(required_profile)}, "
             f"and {len(expected)}"
         )
     notification_required = {
         **REQUIRED,
         **NOTIFICATION_SAMPLES,
-        "Simplified Chinese level 1": chinese,
+        "Simplified Chinese level 1": chinese_level_1,
+        "Simplified Chinese level 2": tgh_2013_level_2(),
         "Chinese punctuation": CHINESE_PUNCTUATION,
         "box drawing": BOX_DRAWING,
         "block elements": BLOCK_ELEMENTS,
         "braille patterns": BRAILLE_PATTERNS,
     }
     notification_required.update(profile_groups())
+    print(
+        "Notification font format: LV_FONT_FMT_TXT_LARGE=1, "
+        f"32-bit bitmap offsets through {MAX_LARGE_BITMAP_OFFSET:,}"
+    )
 
     for size in (14, 16):
         print(f"{size} px legacy font chain: {len(legacy[size])} distinct glyphs")
         failed |= report_required(f"{size} px", legacy[size])
     print(
-        f"Notification selection: {len(chinese)} TGH Han characters, "
+        f"Notification selection: {len(chinese)} TGH level-1+2 characters, "
         f"{len(required_profile)} independent profile codepoints, "
         f"{len(expected)} combined with {len(preserved_legacy)} preserved legacy glyphs"
     )
@@ -258,15 +269,15 @@ def main() -> int:
                 f"{TEXT_METRICS[size][0]}/{TEXT_METRICS[size][1]}"
             )
         bitmap_offset = maximum_bitmap_offset(path)
-        if bitmap_offset > MAX_SMALL_BITMAP_OFFSET:
+        if bitmap_offset > MAX_LARGE_BITMAP_OFFSET:
             failed = True
             print(
-                f"  bitmap offset {bitmap_offset:,} exceeds the LV_FONT_FMT_TXT_LARGE=0 "
-                f"limit {MAX_SMALL_BITMAP_OFFSET:,}"
+                f"  bitmap offset {bitmap_offset:,} exceeds the LV_FONT_FMT_TXT_LARGE=1 "
+                f"limit {MAX_LARGE_BITMAP_OFFSET:,}"
             )
         print(
             f"  metrics={metrics[0]}/{metrics[1]}, "
-            f"maximum bitmap offset={bitmap_offset:,}/{MAX_SMALL_BITMAP_OFFSET:,}"
+            f"maximum bitmap offset={bitmap_offset:,}/{MAX_LARGE_BITMAP_OFFSET:,}"
         )
 
         _, _, glyph_metrics = style_font_metrics(path)
